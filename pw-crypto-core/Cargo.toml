@@ -1,0 +1,40 @@
+[package]
+name = "pw-crypto-core"
+version = "0.1.0"
+edition = "2024"
+description = "Zero-knowledge crypto core for Vaultiq: key hierarchy and per-item AEAD."
+publish = false
+
+# Versions are pinned exactly (`=`) on purpose: this is a security product, so a
+# dependency change must be a deliberate, reviewable commit rather than a silent
+# resolution. Cargo.lock is committed alongside. See CLAUDE.md §5.
+[dependencies]
+# KDF: master password -> master key. Argon2id, memory-hard.
+argon2 = "=0.5.3"
+# AEAD: XChaCha20-Poly1305, 24-byte nonce so random nonces don't collide.
+chacha20poly1305 = "=0.11.0"
+# HKDF + SHA-256: domain-separated derivation of auth / stretched keys.
+hkdf = "=0.13.0"
+sha2 = "=0.11.0"
+# CSPRNG: OsRng only, for salts, nonces and the vault key.
+rand = "=0.10.2"
+# Scrubs key material from memory on drop.
+zeroize = { version = "=1.9.0", features = ["derive"] }
+# Constant-time comparison of secret-derived values.
+subtle = "=2.6.1"
+# Serialization of encrypted records (never of secret key types).
+serde = { version = "=1.0.229", features = ["derive"] }
+# Transport encoding for ciphertext/nonce across the WASM and FFI boundaries.
+base64 = "=0.23.1"
+# Error enum derivation.
+thiserror = "=2.0.20"
+# Feature-gated: thin JS bindings for the browser extension (phase 2).
+wasm-bindgen = { version = "=0.2.127", optional = true }
+
+[dev-dependencies]
+proptest = "=1.11.0"
+serde_json = "=1.0.151"
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen"]

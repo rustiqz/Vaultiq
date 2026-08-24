@@ -13,10 +13,13 @@ fast and clever, every time.
 ## 0. Current state (keep this section accurate)
 
 - **Phase: 1 — Rust crypto core.**
-- PROJECT.md says `pw-crypto-core/` is already scaffolded with a written
-  `Cargo.toml`. **It is not present in this directory.** The crate must be
-  created from scratch; dependency versions must be looked up fresh against
-  crates.io rather than assumed.
+- PROJECT.md says `pw-crypto-core/` was already scaffolded. It was not — the
+  crate was created from scratch, with dependency versions looked up fresh
+  against crates.io rather than taken from the doc.
+- `pw-crypto-core/` scaffolded: error type, Argon2 parameters, salt, secret
+  key types and vault key generation are implemented. Key derivation, vault
+  key wrapping and item encryption are marked `TODO(phase1)` in their
+  modules and are the next work.
 - Git repository initialized; `main` is the trunk.
 - Toolchain present: cargo/rustc 1.97.1, git 2.55.0.
 
