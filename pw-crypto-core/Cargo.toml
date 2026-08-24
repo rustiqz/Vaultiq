@@ -38,9 +38,3 @@ serde_json = "=1.0.151"
 [features]
 default = []
 wasm = ["dep:wasm-bindgen"]
-
-# Argon2 is deliberately expensive; at opt-level 0 the test suite spends
-# minutes in the KDF. Optimize dependencies while leaving this crate
-# unoptimized and debuggable.
-[profile.dev.package."*"]
-opt-level = 3
