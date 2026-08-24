@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    # The verification gate from CLAUDE.md §6, enforced rather than trusted.
+    name: fmt · clippy · test · wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --all-features
+
+      - name: WASM feature compiles
+        run: cargo build --workspace --features wasm
+
+  commit-messages:
+    # Version bumps and the changelog are derived from commit subjects, so a
+    # malformed subject is not a style problem — it silently produces the
+    # wrong release. Checked here rather than by a third-party action: this is
+    # a security project, and a regex is cheaper to audit than a dependency.
+    name: conventional commits
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate subjects
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+$'
+          failed=0
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            sha="${line%% *}"
+            subject="${line#* }"
+            if ! printf '%s' "$subject" | grep -Eq "$pattern"; then
+              echo "::error::${sha:0:8} subject is not a conventional commit: $subject"
+              failed=1
+            elif [ "${#subject}" -gt 72 ]; then
+              echo "::error::${sha:0:8} subject is ${#subject} chars, limit is 72: $subject"
+              failed=1
+            fi
+          done < <(git log --no-merges --format='%H %s' "$BASE..$HEAD")
+
+          if [ "$failed" -ne 0 ]; then
+            echo ""
+            echo "Expected: <type>(<optional scope>): <subject>"
+            echo "Types:    feat fix docs style refactor perf test build ci chore revert"
+            echo "Breaking: append ! after the type, or add a BREAKING CHANGE footer"
+            exit 1
+          fi
+          echo "All commit subjects are well formed."
