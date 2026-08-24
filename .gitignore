@@ -1,10 +1,10 @@
 # Rust
-/target/
+target/
 **/*.rs.bk
 *.pdb
 
 # WASM build output
-/pkg/
+pkg/
 *.wasm
 
 # Node / browser extension (phase 2)
