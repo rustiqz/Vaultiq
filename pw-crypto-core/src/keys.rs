@@ -8,12 +8,14 @@
 //!                                             VaultKey ──▶ items
 //! ```
 //!
-//! Status: derivation is implemented. Wrapping is not yet — see the TODO at
-//! the bottom of this module.
+//! Rotating the master password re-wraps the vault key under a new stretched
+//! key; the vault key itself never changes, so not one item is re-encrypted.
 
 use crate::error::{CryptoError, Result};
 use crate::kdf::MasterKey;
 use crate::secret::define_secret_key;
+use chacha20poly1305::aead::{Aead, Payload};
+use chacha20poly1305::{KeyInit as _, XChaCha20Poly1305, XNonce};
 use hkdf::Hkdf;
 use rand::TryRng as _;
 use rand::rngs::SysRng;
@@ -143,11 +145,118 @@ pub fn derive_stretched_encryption_key(master_key: &MasterKey) -> Result<Stretch
     Ok(key)
 }
 
-// TODO(phase1): `wrap_vault_key` / `unwrap_vault_key` using
-// XChaCha20-Poly1305 under the stretched key, fresh CSPRNG nonce generated
-// internally, `version` bound in as associated data. Unwrap maps every
-// failure to `DecryptionFailed`. Tests: round trip, wrong stretched key
-// fails, flipped ciphertext byte fails, flipped nonce byte fails.
+/// Domain string bound into every wrapped vault key as associated data.
+const WRAP_AAD_DOMAIN: &[u8] = b"vaultiq:wrapped-vault-key";
+
+/// Builds the associated data for a wrap at `version`.
+///
+/// Binding the domain and the version means a ciphertext cannot be lifted
+/// into a different context, and a downgrade of the version field fails
+/// authentication rather than being quietly honoured.
+fn wrap_aad(version: u8) -> Vec<u8> {
+    // Built by extend/push rather than a sized allocation: the crate denies
+    // bare arithmetic in library code, and a capacity hint for 26 bytes is
+    // not worth an exception.
+    let mut aad = Vec::new();
+    aad.extend_from_slice(WRAP_AAD_DOMAIN);
+    aad.push(version);
+    aad
+}
+
+/// Encrypts a [`VaultKey`] under a [`StretchedEncryptionKey`].
+///
+/// The nonce is drawn from the OS CSPRNG inside this function. There is no
+/// parameter for it, deliberately: a caller who could supply a nonce could
+/// reuse one, and nonce reuse under a single XChaCha20 key is catastrophic
+/// (CLAUDE.md §4.5).
+///
+/// # Errors
+///
+/// [`CryptoError::KeyDerivationFailed`] if the OS CSPRNG is unavailable,
+/// [`CryptoError::InvalidInput`] if the AEAD cannot encrypt.
+pub fn wrap_vault_key(
+    vault_key: &VaultKey,
+    stretched_key: &StretchedEncryptionKey,
+) -> Result<WrappedVaultKey> {
+    let cipher = XChaCha20Poly1305::new_from_slice(stretched_key.as_bytes()).map_err(|_| {
+        CryptoError::KeyDerivationFailed("stretched encryption key has the wrong length".to_owned())
+    })?;
+
+    let mut nonce_bytes = [0u8; NONCE_LEN];
+    SysRng.try_fill_bytes(&mut nonce_bytes).map_err(|_| {
+        CryptoError::KeyDerivationFailed("OS random number generator unavailable".to_owned())
+    })?;
+
+    let aad = wrap_aad(WRAPPED_VAULT_KEY_VERSION);
+    let ciphertext = cipher
+        .encrypt(
+            &XNonce::from(nonce_bytes),
+            Payload {
+                msg: vault_key.as_bytes(),
+                aad: &aad,
+            },
+        )
+        .map_err(|_| CryptoError::InvalidInput("vault key could not be encrypted".to_owned()))?;
+
+    Ok(WrappedVaultKey {
+        version: WRAPPED_VAULT_KEY_VERSION,
+        ciphertext,
+        nonce: nonce_bytes,
+    })
+}
+
+/// Decrypts a [`WrappedVaultKey`] back into a usable [`VaultKey`].
+///
+/// # Errors
+///
+/// [`CryptoError::InvalidInput`] if the record carries a version this build
+/// does not know how to read — a forward-compatibility case, not a failed
+/// decryption, and it reveals only the plaintext version field the caller
+/// already holds.
+///
+/// [`CryptoError::DecryptionFailed`] for everything else: wrong stretched
+/// key, tampered ciphertext, tampered nonce, altered associated data,
+/// truncated input. These are one indistinguishable outcome on purpose —
+/// telling them apart is what a decryption oracle is built from
+/// (CLAUDE.md §2.4).
+pub fn unwrap_vault_key(
+    wrapped: &WrappedVaultKey,
+    stretched_key: &StretchedEncryptionKey,
+) -> Result<VaultKey> {
+    if wrapped.version != WRAPPED_VAULT_KEY_VERSION {
+        return Err(CryptoError::InvalidInput(format!(
+            "unsupported wrapped vault key version {}",
+            wrapped.version
+        )));
+    }
+
+    let cipher = XChaCha20Poly1305::new_from_slice(stretched_key.as_bytes())
+        .map_err(|_| CryptoError::DecryptionFailed)?;
+
+    let aad = wrap_aad(wrapped.version);
+    let mut plaintext = cipher
+        .decrypt(
+            &XNonce::from(wrapped.nonce),
+            Payload {
+                msg: &wrapped.ciphertext,
+                aad: &aad,
+            },
+        )
+        .map_err(|_| CryptoError::DecryptionFailed)?;
+
+    // Unreachable in practice — the AEAD already authenticated the length —
+    // but it must not be an unchecked conversion, and it must not report a
+    // different error if it ever fires.
+    let mut bytes: [u8; KEY_LEN] = plaintext
+        .as_slice()
+        .try_into()
+        .map_err(|_| CryptoError::DecryptionFailed)?;
+    plaintext.zeroize();
+
+    let key = VaultKey::from_bytes(bytes);
+    bytes.zeroize();
+    Ok(key)
+}
 
 #[cfg(test)]
 mod tests {
@@ -294,5 +403,224 @@ mod tests {
         let a = expand(&prk, b"vaultiq:v1:auth-key").unwrap();
         let b = expand(&prk, b"vaultiq:v1:auth-keY").unwrap();
         assert_ne!(a, b);
+    }
+
+    // --- Wrapping ---
+
+    fn test_stretched_key() -> StretchedEncryptionKey {
+        derive_stretched_encryption_key(&test_master_key()).unwrap()
+    }
+
+    /// A wrapped vault key produced by libsodium, not by this crate.
+    ///
+    /// OpenSSL has no XChaCha20-Poly1305, so libsodium's
+    /// `crypto_aead_xchacha20poly1305_ietf_encrypt` is the independent
+    /// implementation here — same IETF construction, different codebase.
+    /// The stretched key is the vector pinned above; the plaintext is
+    /// 0x40..0x5f; the associated data is `wrap_aad(1)`.
+    ///
+    /// This runs through `unwrap_vault_key`, so it checks our decrypt path
+    /// against a ciphertext we did not produce.
+    fn libsodium_wrapped_vault_key() -> WrappedVaultKey {
+        WrappedVaultKey {
+            version: WRAPPED_VAULT_KEY_VERSION,
+            ciphertext: hex::<48>(
+                "ae68d6789299ef2f2dd97a828c988687859ef3353af688a21304813dd37c4026\
+                 3128338ce5e6f936d509fe8a1712fbc6",
+            )
+            .to_vec(),
+            nonce: hex::<NONCE_LEN>("000102030405060708090a0b0c0d0e0f1011121314151617"),
+        }
+    }
+
+    #[test]
+    fn unwrap_matches_libsodium_known_answer_vector() {
+        let expected: [u8; KEY_LEN] = core::array::from_fn(|i| 0x40 + i as u8);
+        let vault_key = unwrap_vault_key(&libsodium_wrapped_vault_key(), &test_stretched_key())
+            .expect("libsodium ciphertext must unwrap");
+        assert_eq!(vault_key.as_bytes(), &expected);
+    }
+
+    #[test]
+    fn wrap_unwrap_round_trips() {
+        let stretched = test_stretched_key();
+        let vault_key = VaultKey::generate().unwrap();
+        let wrapped = wrap_vault_key(&vault_key, &stretched).unwrap();
+        let unwrapped = unwrap_vault_key(&wrapped, &stretched).unwrap();
+        assert!(vault_key.ct_eq(&unwrapped));
+    }
+
+    #[test]
+    fn wrapping_never_reuses_a_nonce() {
+        let stretched = test_stretched_key();
+        let vault_key = VaultKey::generate().unwrap();
+        let first = wrap_vault_key(&vault_key, &stretched).unwrap();
+        let second = wrap_vault_key(&vault_key, &stretched).unwrap();
+        assert_ne!(first.nonce, second.nonce, "each wrap needs a fresh nonce");
+        assert_ne!(
+            first.ciphertext, second.ciphertext,
+            "a fresh nonce must change the ciphertext"
+        );
+    }
+
+    #[test]
+    fn wrapped_key_does_not_contain_the_plaintext_key() {
+        let stretched = test_stretched_key();
+        let vault_key = VaultKey::generate().unwrap();
+        let wrapped = wrap_vault_key(&vault_key, &stretched).unwrap();
+        assert!(
+            !wrapped
+                .ciphertext
+                .windows(KEY_LEN)
+                .any(|w| w == vault_key.as_bytes()),
+            "the vault key must not appear verbatim in its own ciphertext"
+        );
+    }
+
+    #[test]
+    fn wrapped_key_round_trips_through_json() {
+        let wrapped = libsodium_wrapped_vault_key();
+        let json = serde_json::to_string(&wrapped).unwrap();
+        assert_eq!(
+            serde_json::from_str::<WrappedVaultKey>(&json).unwrap(),
+            wrapped
+        );
+    }
+
+    // --- Tamper resistance ---
+    //
+    // Every case below must fail, and must fail *identically*. Anything that
+    // distinguishes them hands an attacker a decryption oracle.
+
+    fn assert_unwrap_fails(wrapped: &WrappedVaultKey, stretched: &StretchedEncryptionKey) {
+        match unwrap_vault_key(wrapped, stretched) {
+            Err(CryptoError::DecryptionFailed) => {}
+            Err(other) => panic!("expected DecryptionFailed, got {other:?}"),
+            Ok(_) => panic!("expected decryption to fail"),
+        }
+    }
+
+    #[test]
+    fn unwrap_fails_with_the_wrong_stretched_key() {
+        let wrapped =
+            wrap_vault_key(&VaultKey::generate().unwrap(), &test_stretched_key()).unwrap();
+        let wrong = StretchedEncryptionKey::from_bytes([0x99; KEY_LEN]);
+        assert_unwrap_fails(&wrapped, &wrong);
+    }
+
+    #[test]
+    fn unwrap_fails_on_tampered_ciphertext() {
+        let stretched = test_stretched_key();
+        let mut wrapped = wrap_vault_key(&VaultKey::generate().unwrap(), &stretched).unwrap();
+        wrapped.ciphertext[0] ^= 0x01;
+        assert_unwrap_fails(&wrapped, &stretched);
+    }
+
+    #[test]
+    fn unwrap_fails_on_tampered_tag() {
+        let stretched = test_stretched_key();
+        let mut wrapped = wrap_vault_key(&VaultKey::generate().unwrap(), &stretched).unwrap();
+        let last = wrapped.ciphertext.len() - 1;
+        wrapped.ciphertext[last] ^= 0x01;
+        assert_unwrap_fails(&wrapped, &stretched);
+    }
+
+    #[test]
+    fn unwrap_fails_on_tampered_nonce() {
+        let stretched = test_stretched_key();
+        let mut wrapped = wrap_vault_key(&VaultKey::generate().unwrap(), &stretched).unwrap();
+        wrapped.nonce[0] ^= 0x01;
+        assert_unwrap_fails(&wrapped, &stretched);
+    }
+
+    #[test]
+    fn unwrap_fails_on_truncated_ciphertext() {
+        let stretched = test_stretched_key();
+        let mut wrapped = wrap_vault_key(&VaultKey::generate().unwrap(), &stretched).unwrap();
+        wrapped.ciphertext.truncate(wrapped.ciphertext.len() - 1);
+        assert_unwrap_fails(&wrapped, &stretched);
+    }
+
+    #[test]
+    fn unwrap_fails_on_empty_ciphertext() {
+        let stretched = test_stretched_key();
+        let mut wrapped = wrap_vault_key(&VaultKey::generate().unwrap(), &stretched).unwrap();
+        wrapped.ciphertext.clear();
+        assert_unwrap_fails(&wrapped, &stretched);
+    }
+
+    #[test]
+    fn every_tampering_returns_the_same_error() {
+        // The security property stated in `CryptoError::DecryptionFailed`,
+        // asserted rather than assumed: all four failures are one outcome,
+        // down to the rendered message.
+        let stretched = test_stretched_key();
+        let good = wrap_vault_key(&VaultKey::generate().unwrap(), &stretched).unwrap();
+
+        let mut bad_ciphertext = good.clone();
+        bad_ciphertext.ciphertext[0] ^= 0x01;
+        let mut bad_nonce = good.clone();
+        bad_nonce.nonce[0] ^= 0x01;
+        let mut truncated = good.clone();
+        truncated.ciphertext.truncate(1);
+
+        let messages: Vec<String> = [
+            unwrap_vault_key(&bad_ciphertext, &stretched),
+            unwrap_vault_key(&bad_nonce, &stretched),
+            unwrap_vault_key(&truncated, &stretched),
+            unwrap_vault_key(&good, &StretchedEncryptionKey::from_bytes([0x99; KEY_LEN])),
+        ]
+        .into_iter()
+        .map(|result| result.unwrap_err().to_string())
+        .collect();
+
+        assert!(
+            messages.windows(2).all(|w| w[0] == w[1]),
+            "failure modes must be indistinguishable, got {messages:?}"
+        );
+        assert_eq!(messages[0], "decryption failed");
+    }
+
+    #[test]
+    fn associated_data_is_bound_into_the_wrap() {
+        // Re-encrypting the same key and nonce with empty AAD must produce a
+        // blob our unwrap rejects — proof the AAD is really in the tag and
+        // not merely computed and discarded.
+        let stretched = test_stretched_key();
+        let vault_key = VaultKey::generate().unwrap();
+        let wrapped = wrap_vault_key(&vault_key, &stretched).unwrap();
+
+        let cipher = XChaCha20Poly1305::new_from_slice(stretched.as_bytes()).unwrap();
+        let without_aad = cipher
+            .encrypt(
+                &XNonce::from(wrapped.nonce),
+                Payload {
+                    msg: vault_key.as_bytes(),
+                    aad: b"",
+                },
+            )
+            .unwrap();
+        assert_ne!(without_aad, wrapped.ciphertext);
+
+        assert_unwrap_fails(
+            &WrappedVaultKey {
+                ciphertext: without_aad,
+                ..wrapped
+            },
+            &stretched,
+        );
+    }
+
+    #[test]
+    fn unknown_version_is_reported_as_unsupported() {
+        // A forward-compatibility case, not a tampering case: the version is
+        // public plaintext, so saying so reveals nothing the caller lacks.
+        let stretched = test_stretched_key();
+        let mut wrapped = wrap_vault_key(&VaultKey::generate().unwrap(), &stretched).unwrap();
+        wrapped.version = 2;
+        assert!(matches!(
+            unwrap_vault_key(&wrapped, &stretched),
+            Err(CryptoError::InvalidInput(_))
+        ));
     }
 }
