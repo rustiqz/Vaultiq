@@ -21,9 +21,9 @@
 //!
 //! # Status
 //!
-//! Key derivation and vault key wrapping are implemented and pinned by
-//! known-answer vectors. Item encryption is still marked `TODO(phase1)` in
-//! `vault_item`.
+//! Phase 1 is complete: derivation, vault key wrapping and item encryption
+//! are implemented and pinned by known-answer vectors computed with OpenSSL
+//! and libsodium. The WASM bindings in `wasm` are phase 2.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -60,4 +60,4 @@ pub use keys::{
     AuthKey, StretchedEncryptionKey, VaultKey, WrappedVaultKey, derive_auth_key,
     derive_stretched_encryption_key, unwrap_vault_key, wrap_vault_key,
 };
-pub use vault_item::EncryptedItem;
+pub use vault_item::{EncryptedItem, ItemHeader, decrypt_item, encrypt_item};
