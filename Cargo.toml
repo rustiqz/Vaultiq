@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = ["pw-crypto-core"]
+
+[workspace.package]
+edition = "2024"
+repository = "https://github.com/rustiqz/Vaultiq"
+publish = false
+
+# Profiles only take effect at the workspace root; keeping this here rather
+# than in the member crate is what makes it apply at all. Argon2 is
+# deliberately expensive, and at opt-level 0 the test suite spends minutes in
+# the KDF — so optimize dependencies while leaving our own crates debuggable.
+[profile.dev.package."*"]
+opt-level = 3
