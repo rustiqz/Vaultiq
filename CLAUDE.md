@@ -16,11 +16,14 @@ fast and clever, every time.
 - PROJECT.md says `pw-crypto-core/` was already scaffolded. It was not — the
   crate was created from scratch, with dependency versions looked up fresh
   against crates.io rather than taken from the doc.
-- `pw-crypto-core/` scaffolded: error type, Argon2 parameters, salt, secret
-  key types and vault key generation are implemented. Key derivation, vault
-  key wrapping and item encryption are marked `TODO(phase1)` in their
-  modules and are the next work.
-- Git repository initialized; `main` is the trunk.
+- **Phase 1 is complete.** `pw-crypto-core/` implements key derivation,
+  vault key wrapping and item encryption, pinned by known-answer vectors
+  cross-computed with OpenSSL and libsodium. `src/wasm.rs` is empty and
+  belongs to phase 2.
+- Cargo workspace at the repo root; one `Cargo.lock` for every crate.
+- Git repository initialized; `main` is the trunk; `origin` is
+  `git@github.com:rustiqz/Vaultiq.git`. CI and release automation live in
+  `.github/workflows/` — see §8.
 - Toolchain present: cargo/rustc 1.97.1, git 2.55.0.
 
 Update this section when it stops being true.
@@ -118,8 +121,8 @@ real password as a test vector, even once, even locally.
    dependency resolution is part of the threat model.
 9. **Never commit build output** — `target/`, `pkg/`, `node_modules/`,
    `dist/`, `*.wasm`. See `.gitignore`.
-10. **Tag phase completions** (`v0.1.0-crypto-core`) so each phase has a
-    known-good point to return to.
+10. **Never tag by hand.** Tags and releases are produced by release-plz
+    from the changelog. See §8.
 11. Dependency bumps are their own commits, never bundled into feature work.
 
 ---
@@ -229,3 +232,70 @@ fails, say so and show the output.
    design defends against (compromised server, stolen ciphertext, tampered
    blobs) and what it does not (compromised client, keylogger, weak master
    password).
+
+---
+
+## 8. CI and releases
+
+### 8.1 What runs, and when
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ci.yml` | every PR, push to `main` | fmt, clippy `-D warnings`, tests, WASM feature build, commit-subject lint |
+| `audit.yml` | dependency changes, weekly cron, manual | `cargo audit` against the RustSec advisory database |
+| `release.yml` | push to `main` | opens/updates a release PR; on merge, tags and cuts the GitHub release |
+
+The weekly cron on `audit.yml` is the point of it: an advisory can land
+against a dependency nobody touched.
+
+### 8.2 Commit subjects decide the version
+
+Version numbers are not edited by hand. release-plz reads the
+conventional-commit subjects since the last tag and derives the bump. A
+malformed subject is therefore not a style problem — it silently produces the
+wrong release, which is why `ci.yml` rejects one.
+
+| Subject | Changelog section | Bump while `0.x` | Bump at `1.0`+ |
+|---|---|---|---|
+| `feat:` | Added | minor | minor |
+| `fix:` | Fixed | patch | patch |
+| `perf:` | Performance | patch | patch |
+| `refactor:` | Changed | patch | patch |
+| `revert:` | Reverted | patch | patch |
+| `docs:` `test:` `build:` `ci:` | own sections | patch | patch |
+| `chore(deps):` | Dependencies | patch | patch |
+| `feat!:` or `BREAKING CHANGE:` footer | Breaking | **minor** | **major** |
+| `chore:` `style:` | hidden | none | none |
+
+Note the `0.x` column: while the version is below `1.0`, a breaking change
+bumps the *minor*, per SemVer. That changes the day `1.0.0` ships.
+
+**Breaking, here, means data.** A change to an HKDF `info` string, a KDF
+parameter default, an AAD layout or a serialized format makes existing vaults
+undecryptable. That is a breaking change even when the Rust API is untouched,
+and it must carry `!` or a `BREAKING CHANGE:` footer.
+
+### 8.3 Release flow
+
+1. Merge work into `main`.
+2. `release.yml` opens or updates a single release PR: version bump plus a
+   `CHANGELOG.md` entry.
+3. Review it. The changelog is the last chance to notice that a commit was
+   typed as `fix` when it changed a key derivation.
+4. Merge the release PR. The tag (`vX.Y.Z`) and GitHub release follow.
+
+Never edit `CHANGELOG.md` directly, and never bump a version in `Cargo.toml`
+by hand — the next release PR will overwrite both. Fix the commit message
+instead.
+
+### 8.4 Repository settings that are not in this repo
+
+These live in GitHub settings and cannot be committed:
+
+- **Settings → Actions → General → "Allow GitHub Actions to create and
+  approve pull requests"** must be on, or release-plz cannot open its PR.
+- **Branch protection on `main`**: require the `gate` and
+  `conventional commits` checks, require a PR, disallow force-push.
+- The default `GITHUB_TOKEN` does not trigger workflows on PRs it creates, so
+  `ci.yml` will not run on the release PR. If that gate matters, swap in a
+  GitHub App token or a PAT.
