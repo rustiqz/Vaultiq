@@ -1,0 +1,40 @@
+# How a version number gets decided.
+#
+# release-plz reads the conventional-commit subjects added since the last tag,
+# maps them to a semver bump, rewrites CHANGELOG.md, and opens a PR with those
+# changes. Nothing ships until a human merges that PR.
+
+[workspace]
+# Vaultiq is a private application, not a crate anyone installs from
+# crates.io. Tag it and cut a GitHub release; publish nothing.
+publish = false
+git_tag_enable = true
+git_tag_name = "v{{ version }}"
+git_release_enable = true
+changelog_update = true
+
+# Both need a crates.io baseline to compare against, which an unpublished
+# crate does not have.
+semver_check = false
+dependencies_update = false
+
+[changelog]
+protect_breaking_commits = true
+
+# Left of the arrow is the commit subject; right is where it lands in the
+# changelog. A type with `skip = true` never appears and never triggers a
+# release on its own.
+commit_parsers = [
+  { message = "^feat",         group = "Added" },
+  { message = "^fix",          group = "Fixed" },
+  { message = "^perf",         group = "Performance" },
+  { message = "^refactor",     group = "Changed" },
+  { message = "^revert",       group = "Reverted" },
+  { message = "^docs",         group = "Documentation" },
+  { message = "^test",         group = "Testing" },
+  { message = "^build",        group = "Build" },
+  { message = "^ci",           group = "CI" },
+  { message = "^chore\\(deps", group = "Dependencies" },
+  { message = "^chore",        skip = true },
+  { message = "^style",        skip = true },
+]
