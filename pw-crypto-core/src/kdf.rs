@@ -1,13 +1,15 @@
 //! Master password → master key (Argon2id).
 //!
-//! Status: parameters and salt handling are implemented. `MasterKey::derive`
-//! is not yet — see the TODO at the bottom of this module.
+//! The master key is the root of the hierarchy: it never leaves the device
+//! and is never transmitted. Everything else is derived from it.
 
 use crate::error::{CryptoError, Result};
 use crate::secret::define_secret_key;
+use argon2::{Algorithm, Argon2, Version};
 use rand::TryRng as _;
 use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize as _;
 
 /// Length of a KDF salt, in bytes.
 pub const SALT_LEN: usize = 16;
@@ -131,15 +133,63 @@ define_secret_key! {
     MasterKey, MASTER_KEY_LEN
 }
 
-// TODO(phase1): `MasterKey::derive(password: &str, salt: &Salt, params: &Argon2Params)`
-// via `argon2::Argon2::hash_password_into`, validating params first and
-// mapping every argon2 error to `KeyDerivationFailed` without echoing the
-// password. Tests: same salt → same key, different salt → different key,
-// known-answer vector, params below the floor rejected.
+impl MasterKey {
+    /// Derives the master key from the master password with Argon2id.
+    ///
+    /// Deterministic: the same password, salt and parameters always yield the
+    /// same key, which is what lets a vault be unlocked on any device without
+    /// the key ever being stored or sent anywhere.
+    ///
+    /// The caller owns the password buffer and is responsible for scrubbing
+    /// it; this function scrubs everything it derives itself.
+    ///
+    /// # Errors
+    ///
+    /// [`CryptoError::InvalidInput`] if `params` fall below the OWASP floor,
+    /// [`CryptoError::KeyDerivationFailed`] if Argon2 rejects the parameters
+    /// or cannot allocate its memory block. Neither message contains the
+    /// password or the derived key.
+    pub fn derive(password: &str, salt: &Salt, params: &Argon2Params) -> Result<Self> {
+        params.validate()?;
+
+        let argon2_params = argon2::Params::new(
+            params.memory_kib,
+            params.iterations,
+            params.parallelism,
+            Some(MASTER_KEY_LEN),
+        )
+        .map_err(|e| {
+            CryptoError::KeyDerivationFailed(format!("Argon2 rejected the parameters: {e}"))
+        })?;
+
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon2_params);
+
+        let mut output = [0u8; MASTER_KEY_LEN];
+        // The error is swallowed deliberately: argon2's failure modes here are
+        // memory allocation and parameter shape, and neither is worth risking
+        // a message that quotes caller-supplied bytes.
+        argon2
+            .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut output)
+            .map_err(|_| CryptoError::KeyDerivationFailed("Argon2id hashing failed".to_owned()))?;
+
+        let key = Self::from_bytes(output);
+        output.zeroize();
+        Ok(key)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::hex;
+
+    /// Test-only password. Never use a real one, even locally (CLAUDE.md §2.6).
+    const TEST_PASSWORD: &str = "correct horse battery staple";
+    const TEST_SALT_HEX: &str = "000102030405060708090a0b0c0d0e0f";
+
+    fn test_salt() -> Salt {
+        Salt::from_bytes(&hex::<SALT_LEN>(TEST_SALT_HEX)).unwrap()
+    }
 
     #[test]
     fn default_params_clear_the_owasp_floor() {
@@ -185,5 +235,130 @@ mod tests {
         let rendered = format!("{key:?}");
         assert_eq!(rendered, "MasterKey([REDACTED])");
         assert!(!rendered.contains('7'));
+    }
+
+    // --- Known-answer vectors ---
+    //
+    // The expected value below was computed by OpenSSL 3.6.3's ARGON2ID KDF,
+    // not by this crate, so the test compares us against an independent
+    // implementation rather than against our own output. That same OpenSSL
+    // build reproduces the RFC 9106 Argon2id test vector exactly, which is
+    // what earns it the role of reference here:
+    //
+    //   openssl kdf -keylen 32 -binary ARGON2ID \
+    //     -kdfopt pass:'correct horse battery staple' \
+    //     -kdfopt hexsalt:000102030405060708090a0b0c0d0e0f \
+    //     -kdfopt iter:3 -kdfopt memcost:65536 -kdfopt lanes:4 -kdfopt threads:1
+    //
+    // If this test fails, the master key derivation changed. Every existing
+    // vault is then undecryptable — treat it as a migration, never as a test
+    // to update.
+
+    #[test]
+    fn master_key_matches_known_answer_vector() {
+        let expected = hex::<MASTER_KEY_LEN>(
+            "853b272a44db1421c02962669a55eb0994f3cab385ed1c4c79253eee19bab49e",
+        );
+        let key = MasterKey::derive(TEST_PASSWORD, &test_salt(), &Argon2Params::default()).unwrap();
+        assert_eq!(key.as_bytes(), &expected);
+    }
+
+    #[test]
+    fn argon2_crate_matches_independent_implementation() {
+        // Pins the dependency itself, at cheap parameters so it runs fast.
+        // RFC 9106's published vector cannot be used directly: it mixes in a
+        // secret and associated data, and argon2 0.5.3 exposes no way to pass
+        // associated data. This vector is OpenSSL's output at the RFC's cost
+        // parameters with those two inputs omitted:
+        //
+        //   openssl kdf -keylen 32 -binary ARGON2ID \
+        //     -kdfopt hexpass:0101..01 -kdfopt hexsalt:0202..02 \
+        //     -kdfopt iter:3 -kdfopt memcost:32 -kdfopt lanes:4 -kdfopt threads:1
+        //
+        // A bump to the argon2 crate that changes behaviour fails here, with
+        // an unambiguous cause and without dragging the vault vector with it.
+        let params = argon2::Params::new(32, 3, 4, Some(32)).unwrap();
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+        let mut out = [0u8; 32];
+        argon2
+            .hash_password_into(&[0x01; 32], &[0x02; 16], &mut out)
+            .unwrap();
+        assert_eq!(
+            out,
+            hex::<32>("03aab965c12001c9d7d0d2de33192c0494b684bb148196d73c1df1acaf6d0c2e")
+        );
+    }
+
+    // --- Derivation behaviour ---
+
+    #[test]
+    fn derivation_is_deterministic() {
+        let params = Argon2Params::default();
+        let a = MasterKey::derive(TEST_PASSWORD, &test_salt(), &params).unwrap();
+        let b = MasterKey::derive(TEST_PASSWORD, &test_salt(), &params).unwrap();
+        assert!(a.ct_eq(&b), "same password and salt must give the same key");
+    }
+
+    #[test]
+    fn different_salt_gives_different_key() {
+        let params = Argon2Params::default();
+        let other = Salt::from_bytes(&[0xFF; SALT_LEN]).unwrap();
+        let a = MasterKey::derive(TEST_PASSWORD, &test_salt(), &params).unwrap();
+        let b = MasterKey::derive(TEST_PASSWORD, &other, &params).unwrap();
+        assert!(!a.ct_eq(&b));
+    }
+
+    #[test]
+    fn different_password_gives_different_key() {
+        let params = Argon2Params::default();
+        let a = MasterKey::derive(TEST_PASSWORD, &test_salt(), &params).unwrap();
+        let b = MasterKey::derive("correct horse battery stapl", &test_salt(), &params).unwrap();
+        assert!(!a.ct_eq(&b));
+    }
+
+    #[test]
+    fn different_params_give_different_key() {
+        let a = MasterKey::derive(TEST_PASSWORD, &test_salt(), &Argon2Params::default()).unwrap();
+        let stronger = Argon2Params {
+            iterations: 4,
+            ..Argon2Params::default()
+        };
+        let b = MasterKey::derive(TEST_PASSWORD, &test_salt(), &stronger).unwrap();
+        assert!(
+            !a.ct_eq(&b),
+            "cost parameters must feed into the derivation"
+        );
+    }
+
+    #[test]
+    fn empty_password_still_derives() {
+        // Enforcing password strength is the client's job, not the KDF's;
+        // this must not panic.
+        MasterKey::derive("", &test_salt(), &Argon2Params::default()).unwrap();
+    }
+
+    #[test]
+    fn derivation_rejects_params_below_the_floor() {
+        let weak = Argon2Params {
+            memory_kib: 1024,
+            iterations: 1,
+            parallelism: 1,
+        };
+        let err = MasterKey::derive(TEST_PASSWORD, &test_salt(), &weak).unwrap_err();
+        assert!(matches!(err, CryptoError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn derivation_errors_never_echo_the_password() {
+        let weak = Argon2Params {
+            memory_kib: 1,
+            iterations: 1,
+            parallelism: 1,
+        };
+        let message = MasterKey::derive(TEST_PASSWORD, &test_salt(), &weak)
+            .unwrap_err()
+            .to_string();
+        assert!(!message.contains("correct horse"));
+        assert!(!message.contains(TEST_SALT_HEX));
     }
 }

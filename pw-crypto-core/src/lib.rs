@@ -21,9 +21,9 @@
 //!
 //! # Status
 //!
-//! Scaffold. Types, parameters, salts and vault key generation are
-//! implemented; derivation, wrapping and item encryption are marked with
-//! `TODO(phase1)` in their modules.
+//! Key derivation is implemented and pinned by known-answer vectors. Vault
+//! key wrapping and item encryption are still marked `TODO(phase1)` in their
+//! modules.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -48,10 +48,16 @@ pub mod keys;
 mod secret;
 pub mod vault_item;
 
+#[cfg(test)]
+mod test_util;
+
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
 pub use error::{CryptoError, Result};
 pub use kdf::{Argon2Params, MasterKey, Salt};
-pub use keys::{AuthKey, StretchedEncryptionKey, VaultKey, WrappedVaultKey};
+pub use keys::{
+    AuthKey, StretchedEncryptionKey, VaultKey, WrappedVaultKey, derive_auth_key,
+    derive_stretched_encryption_key,
+};
 pub use vault_item::EncryptedItem;
