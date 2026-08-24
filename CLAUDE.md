@@ -1,0 +1,228 @@
+# Vaultiq — Working Rules
+
+Rules for implementing the design in [PROJECT.md](PROJECT.md). PROJECT.md is
+*what* we build; this file is *how*. Where they conflict, PROJECT.md wins on
+design, this file wins on process.
+
+This is a zero-knowledge password manager. The cost of a mistake here is not
+a bug report — it is someone's entire credential set. Slow and correct beats
+fast and clever, every time.
+
+---
+
+## 0. Current state (keep this section accurate)
+
+- **Phase: 1 — Rust crypto core.**
+- PROJECT.md says `pw-crypto-core/` is already scaffolded with a written
+  `Cargo.toml`. **It is not present in this directory.** The crate must be
+  created from scratch; dependency versions must be looked up fresh against
+  crates.io rather than assumed.
+- Git repository initialized; `main` is the trunk.
+- Toolchain present: cargo/rustc 1.97.1, git 2.55.0.
+
+Update this section when it stops being true.
+
+---
+
+## 1. Scope discipline
+
+1. **Build phases in order.** Phase 1 (crypto core) must build, test, and
+   lint clean before any extension, server, or mobile code exists. No
+   "while I'm here" scaffolding of later phases.
+2. **The design is settled.** Do not re-litigate Argon2id, XChaCha20-Poly1305,
+   the vault-key indirection, or the data model. If something is genuinely
+   unworkable, stop and explain why *before* deviating — never silently
+   substitute an approach.
+3. **Deferred means deferred.** Sharing, recovery flows, passkeys, TOTP,
+   non-login item types, import, breach checking — not now, not partially,
+   not "just the types for later".
+4. **No shortcuts justified by "it's only me".** Single-user today does not
+   license plaintext metadata, skipped auth separation, or hardcoded paths.
+
+---
+
+## 2. Secrets: never leak, never commit, never log
+
+This is the section that matters most.
+
+### 2.1 Never commit
+- No real passwords, master passwords, vault exports, or `.env` files.
+- No private keys, certificates, API tokens, or server credentials.
+- No database dumps, sync payloads, or captured HTTP bodies.
+- No personal vault data of any kind, encrypted or not.
+
+Every commit gets `git diff --staged` reviewed before it happens. Never
+`git add -A` / `git add .` without reading what it staged.
+
+### 2.2 If a secret does get committed
+Treat it as **compromised, permanently**. Rotate the secret first, then clean
+history. Amending the commit is not a fix — assume it was already read.
+
+### 2.3 Never log
+- No key material — master key, vault key, auth key, stretched key, wrapped
+  key bytes.
+- No plaintext item content, no master password, no password-derived value.
+- No "just the first 8 bytes" of anything secret. Prefixes are secrets.
+
+Secret types must have a **hand-written `Debug`** that prints a redacted
+placeholder (e.g. `MasterKey([REDACTED])`). Never `#[derive(Debug)]` on a
+type holding key material. Never `#[derive(Serialize)]` on one either —
+serializing a key is a bug, and the compiler should be the one to catch it.
+
+### 2.4 Never reveal through errors
+Per PROJECT.md: wrong password, tampered ciphertext, wrong key, and truncated
+input all return the **same** `DecryptionFailed`. No context, no source error
+chained in, no distinct message. This holds especially at trust boundaries —
+WASM return values, FFI, and (later) API responses.
+
+Detailed diagnostics may exist behind a debug-only, client-side-only path.
+They must never be reachable from the WASM/FFI surface.
+
+### 2.5 Never send outward
+- The crypto core makes **zero network calls**. Ever. No telemetry, no
+  crash reporting, no update checks.
+- Don't paste project files, vault data, or real passwords into external
+  services, pastebins, or issue trackers.
+- Ask before pushing anything to a remote, publishing a crate, or uploading
+  build artifacts.
+
+### 2.6 Test data is fake and obviously so
+Fixtures use values like `"correct horse battery staple"` and all-zero or
+counting byte arrays, with a comment marking them test-only. Never use a
+real password as a test vector, even once, even locally.
+
+---
+
+## 3. Git rules
+
+1. **Commit only when asked.** Don't auto-commit after edits.
+2. **Never commit directly to `main`.** Branch as
+   `phase1/kdf`, `phase1/keys`, `fix/nonce-reuse`, `chore/deps`.
+3. **Atomic commits.** One logical change. A commit that touches `kdf.rs`
+   and adds a README section is two commits.
+4. **Conventional commit subjects**, imperative, ≤72 chars:
+   `feat(kdf): derive MasterKey via Argon2id`,
+   `fix(vault_item): reject reused nonce`,
+   `test(keys): add wrap/unwrap round-trip`,
+   `chore(deps): pin chacha20poly1305 0.10`.
+   Body explains *why*, not what the diff already shows. Security-relevant
+   commits state the threat they address.
+5. **Never force-push a shared branch.** Never rewrite pushed history.
+6. **Never `--no-verify`.** If a hook fails, fix the cause.
+7. **Green before commit.** `fmt`, `clippy -D warnings`, and `test` all pass
+   (see §6). A commit that doesn't build is not a commit.
+8. **Commit `Cargo.lock`.** This is a security product; reproducible
+   dependency resolution is part of the threat model.
+9. **Never commit build output** — `target/`, `pkg/`, `node_modules/`,
+   `dist/`, `*.wasm`. See `.gitignore`.
+10. **Tag phase completions** (`v0.1.0-crypto-core`) so each phase has a
+    known-good point to return to.
+11. Dependency bumps are their own commits, never bundled into feature work.
+
+---
+
+## 4. Crypto implementation rules
+
+1. **Never write a primitive.** No hand-rolled KDF, cipher, MAC, or padding.
+   Vetted crates only, used through their documented high-level API.
+2. **`#![forbid(unsafe_code)]`** in the core crate. When FFI later requires
+   `unsafe`, it lives in a separate, minimal, documented module — never in
+   `kdf`/`keys`/`vault_item`.
+3. **No panics in library code.** No `unwrap`, `expect`, `panic!`, `todo!`,
+   slice indexing, or integer-overflow-prone arithmetic outside `#[cfg(test)]`.
+   Every failure is a `CryptoError`. A panic in a crypto path is a side
+   channel and a DoS.
+4. **Randomness only from `OsRng`.** Never `thread_rng` for key material,
+   never a seeded RNG outside tests, never a counter or timestamp as a nonce.
+5. **Fresh random nonce per encryption**, generated internally. Callers must
+   not be able to supply a nonce for encryption. Nonce reuse under a single
+   key is catastrophic for XChaCha20-Poly1305 — the API shape should make it
+   impossible, not merely discouraged.
+6. **Constant-time comparison** (`subtle`) for anything derived from a
+   secret. Never `==` on key bytes, tags, or auth values.
+7. **Zeroize everything secret.** `MasterKey`, `VaultKey`, `AuthKey`,
+   `StretchedEncryptionKey`, decrypted plaintext buffers, and any
+   intermediate derivation output implement `ZeroizeOnDrop`. Avoid `Clone`
+   on secrets; each clone is another copy to scrub.
+8. **Domain separation is explicit.** Auth key and stretched encryption key
+   come from HKDF with distinct, versioned `info` strings — never from
+   splitting or truncating one output. Keep those constants in one place
+   (`keys.rs`) so drift is visible in a diff.
+9. **Version every persisted format.** Wrapped vault keys, encrypted items,
+   and KDF parameter records carry an explicit version/format field from the
+   first commit. Retrofitting a version byte later means a migration on
+   real user data.
+10. **Store KDF parameters alongside the vault**, don't hardcode them at the
+    read path. Argon2 costs must be raisable later without breaking existing
+    vaults.
+11. **Bind context into AEAD associated data** where it prevents blob
+    swapping (e.g. item `id` and `version` as AAD on `encrypt_item`), so a
+    substituted ciphertext fails authentication rather than decrypting.
+12. **Validate all input lengths** before use — salts, nonces, keys, base64
+    decode results. Return `InvalidInput`, never index blindly.
+13. **The WASM layer is a marshalling layer only.** No crypto decisions, no
+    branching on error kind, no extra error detail crossing into JS.
+
+Changing any algorithm, key-derivation input, `info` string, or serialized
+format after data exists is a **breaking, data-affecting change** — raise it
+before implementing.
+
+---
+
+## 5. Dependency rules
+
+1. Minimal surface. Every new dependency needs a stated reason.
+2. Pin exact versions; no wildcards, no `*`, no loose `>=`.
+3. Prefer RustCrypto / well-audited crates for anything security-relevant.
+4. Run `cargo audit` (and `cargo deny` if configured) before adding or
+   bumping, and read the changelog on bump — never bump blind.
+5. `default-features = false` where practical; pull in only what's used.
+6. No dependency that performs I/O, networking, or process spawning in the
+   crypto core.
+
+---
+
+## 6. Verification — required before every commit
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo build --features wasm          # WASM feature must compile
+cargo audit                          # when available
+```
+
+Testing requirements (from PROJECT.md, plus):
+- Round trips: encrypt→decrypt, wrap→unwrap.
+- Same salt + same password → same key; different salt → different key.
+- Tampering with any ciphertext byte, nonce byte, or tag byte → failure.
+- Wrong `VaultKey` → failure.
+- All failure modes above return the *same* error variant (assert this
+  explicitly — it's a security property, so it gets a test).
+- Property tests (`proptest`) over arbitrary plaintext, including empty
+  input and large input.
+- **Known-answer tests**: pin fixed (password, salt, params) → expected key
+  bytes, and fixed key + nonce + plaintext → expected ciphertext. These are
+  what catch a refactor silently changing derivation.
+- Tests must not print secret material on failure.
+
+**Never report a test as passing without having run it.** If something
+fails, say so and show the output.
+
+---
+
+## 7. Working process
+
+1. Read the relevant PROJECT.md section before writing the module.
+2. One module at a time, with its tests, building green before moving on.
+3. Ask before: changing crypto choices, changing the key hierarchy, changing
+   a serialized format, adding a dependency, initializing/pushing to a
+   remote, or expanding beyond the current phase.
+4. Don't narrow scope silently. If part of a task is blocked, finish the
+   rest and say exactly what was left out and why.
+5. Security-relevant reasoning goes in the code as a comment where a future
+   reader would otherwise be tempted to "simplify" it away.
+6. Keep a `SECURITY.md` with the threat model once the core lands — what the
+   design defends against (compromised server, stolen ciphertext, tampered
+   blobs) and what it does not (compromised client, keylogger, weak master
+   password).
