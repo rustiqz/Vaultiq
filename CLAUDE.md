@@ -121,8 +121,8 @@ real password as a test vector, even once, even locally.
    dependency resolution is part of the threat model.
 9. **Never commit build output** — `target/`, `pkg/`, `node_modules/`,
    `dist/`, `*.wasm`. See `.gitignore`.
-10. **Never tag by hand.** Tags and releases are produced by release-plz
-    from the changelog. See §8.
+10. **Never tag by hand.** Tags and releases are produced by git-cliff from
+    the commit subjects. See §8.
 11. Dependency bumps are their own commits, never bundled into feature work.
 
 ---
@@ -241,19 +241,27 @@ fails, say so and show the output.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci.yml` | every PR, push to `main` | fmt, clippy `-D warnings`, tests, WASM feature build, commit-subject lint |
+| `ci.yml` → `gate` | every PR, push to `main` | fmt, clippy `-D warnings`, tests, WASM feature build |
+| `ci.yml` → `commit-messages` | PRs only | rejects malformed commit subjects |
+| `ci.yml` → `release` | push to `main`, **after `gate` passes** | tags and cuts the GitHub release |
 | `audit.yml` | dependency changes, weekly cron, manual | `cargo audit` against the RustSec advisory database |
-| `release.yml` | push to `main` | opens/updates a release PR; on merge, tags and cuts the GitHub release |
+
+Release is a job inside `ci.yml`, not its own workflow, so `needs: gate` can
+guarantee ordering. As a separate workflow it would run *in parallel* with the
+checks, and a broken build could be tagged.
 
 The weekly cron on `audit.yml` is the point of it: an advisory can land
 against a dependency nobody touched.
 
 ### 8.2 Commit subjects decide the version
 
-Version numbers are not edited by hand. release-plz reads the
+Version numbers are not edited by hand. git-cliff reads the
 conventional-commit subjects since the last tag and derives the bump. A
 malformed subject is therefore not a style problem — it silently produces the
 wrong release, which is why `ci.yml` rejects one.
+
+The mapping lives in `cliff.toml`: `commit_parsers` decides the changelog
+section, `[bump]` decides the version.
 
 | Subject | Changelog section | Bump while `0.x` | Bump at `1.0`+ |
 |---|---|---|---|
@@ -277,25 +285,81 @@ and it must carry `!` or a `BREAKING CHANGE:` footer.
 
 ### 8.3 Release flow
 
-1. Merge work into `main`.
-2. `release.yml` opens or updates a single release PR: version bump plus a
-   `CHANGELOG.md` entry.
-3. Review it. The changelog is the last chance to notice that a commit was
-   typed as `fix` when it changed a key derivation.
-4. Merge the release PR. The tag (`vX.Y.Z`) and GitHub release follow.
+1. Open a PR. `gate` and `commit-messages` run on it.
+2. Merge into `main`. `gate` runs again on the merge commit.
+3. Only if it passes, `release` computes the next version with
+   `git cliff --bumped-version`.
+4. If nothing since the last tag is releasable — only `chore:` and `style:` —
+   the job exits quietly. Otherwise it tags `vX.Y.Z`, pushes the tag, and cuts
+   a GitHub release with notes generated from the commit subjects.
 
-Never edit `CHANGELOG.md` directly, and never bump a version in `Cargo.toml`
-by hand — the next release PR will overwrite both. Fix the commit message
-instead.
+Because the release is cut straight from `main`, **the commit message is the
+last chance to catch a mistyped change** — there is no release PR to review
+before the tag lands. A key-derivation change typed as `fix:` releases as a
+patch. Get the subject right in the PR.
 
-### 8.4 Repository settings that are not in this repo
+There is deliberately **no `CHANGELOG.md`** in the repo: the GitHub Releases
+page is authoritative, and a committed copy would either go stale or force CI
+to push commits back to `main`. Regenerate one whenever it is useful:
 
-These live in GitHub settings and cannot be committed:
+```bash
+git cliff -o CHANGELOG.md     # full history
+git cliff --unreleased        # what the next release would contain
+```
+
+The version lives only in git tags. Nothing bumps `Cargo.toml`.
+
+### 8.4 Branch protection
+
+`main` is **not** protected server-side. GitHub gates both classic branch
+protection and rulesets behind a paid plan for private repositories, and this
+repo is private on a free account — both API endpoints return
+`403 Upgrade to GitHub Pro or make this repository public`.
+
+Standing in for it: `.githooks/pre-push`, which refuses direct pushes to
+`main`, refuses force-pushes, and lets branches and tags through so CI can
+still push release tags. It is a guard rail on one machine, not a control —
+`--no-verify` walks past it, which §3.6 forbids. Enable it after cloning:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+**When the repo goes public** (or gets a Pro plan), replace it with the real
+thing. The check names below are exact — a typo means the check never matches
+and every PR blocks forever:
+
+```bash
+gh api -X PUT repos/rustiqz/Vaultiq/branches/main/protection \
+  --input - <<'JSON'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["fmt · clippy · test · wasm", "conventional commits"]
+  },
+  "required_pull_request_reviews": { "required_approving_review_count": 0 },
+  "enforce_admins": false,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+JSON
+```
+
+Two traps in that payload:
+
+- **`required_approving_review_count` must be 0** while this is a solo
+  project. GitHub forbids approving your own PR, so any higher number locks
+  you out of your own repository.
+- **Never require `Tag and release`.** It only runs on push to `main`, never
+  on a PR, so requiring it leaves every PR waiting on a check that cannot
+  arrive.
+
+### 8.5 Other settings that are not in this repo
 
 - **Settings → Actions → General → "Allow GitHub Actions to create and
-  approve pull requests"** must be on, or release-plz cannot open its PR.
-- **Branch protection on `main`**: require the `gate` and
-  `conventional commits` checks, require a PR, disallow force-push.
-- The default `GITHUB_TOKEN` does not trigger workflows on PRs it creates, so
-  `ci.yml` will not run on the release PR. If that gate matters, swap in a
-  GitHub App token or a PAT.
+  approve pull requests"** is enabled. Releases no longer need it, but leave
+  it on.
+- The default `GITHUB_TOKEN` does not trigger workflows on PRs it creates. Not
+  currently relevant — releases are cut directly rather than via a PR — but it
+  matters if that ever changes.
