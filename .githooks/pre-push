@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+#
+# Refuses direct pushes to main.
+#
+# This stands in for server-side branch protection, which GitHub gates behind
+# a paid plan for private repositories. It is a guard rail, not a control: it
+# runs on this machine only and `--no-verify` walks straight past it, which
+# CLAUDE.md §3.6 forbids. Replace it with real protection when the repo goes
+# public — the command is in CLAUDE.md §8.4.
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+
+set -euo pipefail
+
+readonly PROTECTED="main"
+readonly ZERO="0000000000000000000000000000000000000000"
+
+while read -r _local_ref local_sha remote_ref remote_sha; do
+  # Tags and anything that is not a branch are none of this hook's business —
+  # CI pushes release tags, and that must keep working.
+  case "$remote_ref" in
+    refs/heads/*) ;;
+    *) continue ;;
+  esac
+
+  [ "${remote_ref#refs/heads/}" = "$PROTECTED" ] || continue
+
+  if [ "$local_sha" = "$ZERO" ]; then
+    echo "pre-push: refusing to delete $PROTECTED." >&2
+    exit 1
+  fi
+
+  if [ "$remote_sha" != "$ZERO" ] &&
+     ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+    echo "pre-push: refusing to force-push $PROTECTED." >&2
+    echo "          This rewrites published history (CLAUDE.md §3.6)." >&2
+    exit 1
+  fi
+
+  echo "pre-push: refusing to push directly to $PROTECTED." >&2
+  echo "          Open a PR — CI gates the merge, and the release is cut from it." >&2
+  echo "          (CLAUDE.md §3.2)" >&2
+  exit 1
+done
+
+exit 0
