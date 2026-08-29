@@ -1,0 +1,70 @@
+# Changelog and version generation.
+#
+# git-cliff reads conventional-commit subjects since the last tag, groups them
+# into changelog sections, and computes the next semver version. It versions
+# the *repository*, not a crate — which is what Vaultiq needs, since phases
+# 2-5 add a WebExtension, a NestJS server and Kotlin/Swift apps that have no
+# Cargo manifest.
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are documented here. Entries are generated
+from conventional-commit subjects — edit commit messages, not this file.
+"""
+
+body = """
+{% if version -%}
+## {{ version | trim_start_matches(pat="v") }} — {{ timestamp | date(format="%Y-%m-%d") }}
+{%- else -%}
+## Unreleased
+{%- endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits -%}
+- {{ commit.message | upper_first }}{% if commit.breaking %} **(breaking)**{% endif %}
+{% endfor %}
+{%- endfor %}
+"""
+
+trim = true
+
+[git]
+conventional_commits = true
+# A commit that isn't a conventional commit is dropped rather than silently
+# grouped as "other" — CI rejects those on PRs anyway.
+filter_unconventional = true
+protect_breaking_commits = true
+split_commits = false
+filter_commits = false
+tag_pattern = "v[0-9]*"
+topo_order = false
+sort_commits = "oldest"
+
+# Left of the arrow is the commit subject; right is the changelog section.
+# `skip = true` means the commit never appears and never triggers a release.
+commit_parsers = [
+  { message = "^feat",         group = "<!-- 0 -->Added" },
+  { message = "^fix",          group = "<!-- 1 -->Fixed" },
+  { message = "^perf",         group = "<!-- 2 -->Performance" },
+  { message = "^refactor",     group = "<!-- 3 -->Changed" },
+  { message = "^revert",       group = "<!-- 4 -->Reverted" },
+  { message = "^chore\\(deps", group = "<!-- 5 -->Dependencies" },
+  { message = "^build",        group = "<!-- 6 -->Build" },
+  { message = "^ci",           group = "<!-- 7 -->CI" },
+  { message = "^test",         group = "<!-- 8 -->Testing" },
+  { message = "^docs",         group = "<!-- 9 -->Documentation" },
+  { message = "^chore",        skip = true },
+  { message = "^style",        skip = true },
+]
+
+[bump]
+# With no prior tag, git-cliff would emit a bare "0.1.0" and then reject it
+# against `tag_pattern` above. Naming the first tag explicitly avoids that.
+initial_tag = "v0.1.0"
+
+# While the version is below 1.0, a breaking change bumps the *minor*, per
+# SemVer. Flip this to true the day 1.0.0 ships.
+breaking_always_bump_major = false
+features_always_bump_minor = true
