@@ -44,7 +44,9 @@ pub enum CryptoError {
 /// Convenience alias for results from this crate.
 pub type Result<T> = core::result::Result<T, CryptoError>;
 
-#[cfg(test)]
+// Host-only: these exercise the algorithms, which are target-independent.
+// The browser-side surface is covered by tests/wasm.rs.
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use std::error::Error as _;

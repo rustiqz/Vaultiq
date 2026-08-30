@@ -35,10 +35,22 @@ wasm-bindgen = { version = "=0.2.127", optional = true }
 # `wasm_js` points it at Crypto.getRandomValues. Without this the crate builds
 # for the browser and then fails at runtime the first time it needs a nonce.
 getrandom = { version = "=0.4.3", optional = true }
+# Feature-gated: moves the already-Serialize records across the JS boundary.
+# The alternative is hand-marshalling every field, which is more code and more
+# places to get an AAD-bound field wrong.
+serde-wasm-bindgen = { version = "=0.6.5", optional = true }
 
-[dev-dependencies]
+# Host-only. proptest pulls rand 0.9 and with it a second, older getrandom
+# that needs a RUSTFLAGS cfg on wasm32 — and these tests do not belong in a
+# browser anyway: the known-answer vectors are target-independent. Only the
+# JS-boundary test in tests/wasm.rs runs in a browser.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 proptest = "=1.11.0"
 serde_json = "=1.0.151"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.77"
+js-sys = "=0.3.104"
 
 [features]
 default = []
@@ -46,4 +58,9 @@ default = []
 # explicit exception for crates that already depend on wasm-bindgen on wasm
 # targets. That is exactly this feature, so we are inside the exception rather
 # than working around the advice.
-wasm = ["dep:wasm-bindgen", "dep:getrandom", "getrandom/wasm_js"]
+wasm = [
+  "dep:wasm-bindgen",
+  "dep:serde-wasm-bindgen",
+  "dep:getrandom",
+  "getrandom/wasm_js",
+]

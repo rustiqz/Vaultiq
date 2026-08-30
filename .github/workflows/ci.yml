@@ -49,6 +49,21 @@ jobs:
       - name: WASM target builds
         run: cargo build --workspace --target wasm32-unknown-unknown --features wasm
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      # Run in a real browser, not on the host. The whole reason this layer
+      # exists is the browser, and SysRng resolves to a different backend
+      # there — a host test cannot tell whether Crypto.getRandomValues is
+      # actually reachable.
+      # Run from inside the crate rather than passing its path: given a path
+      # argument, wasm-pack silently drops the trailing cargo args, and the
+      # build then fails for want of the `wasm` feature.
+      - name: WASM bindings pass in a browser
+        working-directory: pw-crypto-core
+        run: wasm-pack test --headless --firefox -- --features wasm
+
   commit-messages:
     # Version bumps and release notes are derived from commit subjects, so a
     # malformed subject is not a style problem — it silently produces the
