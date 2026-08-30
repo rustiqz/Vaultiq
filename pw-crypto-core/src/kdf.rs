@@ -178,7 +178,9 @@ impl MasterKey {
     }
 }
 
-#[cfg(test)]
+// Host-only: these exercise the algorithms, which are target-independent.
+// The browser-side surface is covered by tests/wasm.rs.
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::test_util::hex;

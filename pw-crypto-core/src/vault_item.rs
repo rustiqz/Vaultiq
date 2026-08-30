@@ -204,7 +204,9 @@ pub fn decrypt_item(item: &EncryptedItem, vault_key: &VaultKey) -> Result<String
     String::from_utf8(plaintext).map_err(|_| CryptoError::DecryptionFailed)
 }
 
-#[cfg(test)]
+// Host-only: these exercise the algorithms, which are target-independent.
+// The browser-side surface is covered by tests/wasm.rs.
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::test_util::hex;
