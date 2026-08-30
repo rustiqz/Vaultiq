@@ -1,0 +1,94 @@
+// IndexedDB: the vault at rest.
+//
+// Everything here is ciphertext plus the metadata needed to address it. The
+// KDF parameters and salt are stored beside the vault rather than hardcoded,
+// so Argon2 costs can be raised later without making existing vaults
+// unreadable (CLAUDE.md §4.10).
+
+const DB_NAME = "vaultiq";
+const DB_VERSION = 1;
+const STORE_VAULT = "vault";
+const STORE_ITEMS = "items";
+
+/** The single record describing this vault. Contains no key material. */
+export interface VaultRecord {
+  id: "vault";
+  /** Format version, so this record can be migrated later (§4.9). */
+  format: number;
+  saltB64: string;
+  memoryKib: number;
+  iterations: number;
+  parallelism: number;
+  /** The vault key, encrypted under the key derived from the password. */
+  wrappedVaultKey: unknown;
+}
+
+/** An encrypted item, exactly as `pw-crypto-core` produced it. */
+export interface StoredItem {
+  id: string;
+  item_type: string;
+  format: number;
+  ciphertext: number[];
+  nonce: number[];
+  version: number;
+  updated_at: number;
+  deleted: boolean;
+}
+
+function open(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_VAULT)) {
+        db.createObjectStore(STORE_VAULT, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STORE_ITEMS)) {
+        db.createObjectStore(STORE_ITEMS, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("indexeddb open failed"));
+  });
+}
+
+function run<T>(store: string, mode: IDBTransactionMode, work: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return open().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        const tx = db.transaction(store, mode);
+        const request = work(tx.objectStore(store));
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error("indexeddb request failed"));
+        tx.oncomplete = () => db.close();
+      }),
+  );
+}
+
+export async function getVault(): Promise<VaultRecord | undefined> {
+  return await run<VaultRecord | undefined>(
+    STORE_VAULT,
+    "readonly",
+    // IndexedDB is untyped at the API level; this is the one place the shape
+    // is asserted, so a change to VaultRecord surfaces here.
+    (s) => s.get("vault") as IDBRequest<VaultRecord | undefined>,
+  );
+}
+
+export async function putVault(record: VaultRecord): Promise<void> {
+  await run(STORE_VAULT, "readwrite", (s) => s.put(record));
+}
+
+export async function putItem(item: StoredItem): Promise<void> {
+  await run(STORE_ITEMS, "readwrite", (s) => s.put(item));
+}
+
+export async function allItems(): Promise<StoredItem[]> {
+  const items = await run<StoredItem[]>(
+    STORE_ITEMS,
+    "readonly",
+    (s) => s.getAll() as IDBRequest<StoredItem[]>,
+  );
+  // Tombstones are never hard-deleted, so they have to be filtered on read.
+  return items.filter((item) => !item.deleted);
+}
