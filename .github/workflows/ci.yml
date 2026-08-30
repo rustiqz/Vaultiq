@@ -64,6 +64,63 @@ jobs:
         working-directory: pw-crypto-core
         run: wasm-pack test --headless --firefox -- --features wasm
 
+  extension:
+    # The browser extension. Runs in parallel with the Rust gate; the wasm
+    # package it imports is built from the crate in this same job, so a change
+    # to the crypto core that breaks the bindings fails here too.
+    name: typecheck · lint · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # scripts/manifest.ts reads the version from git tags
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # The action looks for package.json at the repo root by default,
+          # and in this layout the only one lives under extension/.
+          package_json_file: extension/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: extension/pnpm-lock.yaml
+
+      - name: Install
+        working-directory: extension
+        run: pnpm install --frozen-lockfile
+
+      # Must precede typecheck: the wasm package is a source of types, and
+      # without it tsc cannot resolve the crypto core at all.
+      - name: Build the wasm package
+        working-directory: extension
+        run: pnpm run wasm
+
+      - name: Typecheck
+        working-directory: extension
+        run: pnpm run typecheck
+
+      - name: Lint
+        working-directory: extension
+        run: pnpm run lint
+
+      # `bundle` rather than `build`, which would rebuild the wasm package a
+      # second time for no gain.
+      - name: Bundle
+        working-directory: extension
+        run: pnpm run bundle
+
   commit-messages:
     # Version bumps and release notes are derived from commit subjects, so a
     # malformed subject is not a style problem — it silently produces the
@@ -111,7 +168,7 @@ jobs:
     # Only after `gate` is green, and only for a merge landing on main.
     # `needs` is what guarantees a broken build can never be tagged.
     name: Tag and release
-    needs: gate
+    needs: [gate, extension]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
