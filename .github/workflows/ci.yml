@@ -121,6 +121,61 @@ jobs:
         working-directory: extension
         run: pnpm run bundle
 
+  audit:
+    # Gates the release, so this job must always run: a *skipped* job in
+    # `needs` skips its dependents too, which would silently stop releases
+    # altogether. It therefore runs every time and short-circuits inside.
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Did any dependency change?
+        id: deps
+        env:
+          BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # No usable base — a new branch, or a force push. We cannot prove
+          # nothing changed, so audit rather than assume.
+          if [ -z "${BEFORE:-}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "No comparable base; auditing."
+            exit 0
+          fi
+
+          if git diff --name-only "$BEFORE" "$AFTER" | grep -qE '(^|/)Cargo\.(toml|lock)$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Dependencies changed; auditing."
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No dependency changes. The weekly sweep in audit.yml covers"
+            echo "advisories filed against dependencies nobody touched."
+          fi
+
+      # Keyed on the run id so every run saves a fresh copy, with a prefix
+      # restore so the previous one is always available. cargo-audit updates
+      # the database in place, so a warm cache makes that incremental instead
+      # of a full clone — which was almost all of the six minutes this took.
+      - uses: actions/cache@v4
+        if: steps.deps.outputs.changed == 'true'
+        with:
+          path: ~/.cargo/advisory-db
+          key: advisory-db-${{ github.run_id }}
+          restore-keys: advisory-db-
+
+      - uses: taiki-e/install-action@v2
+        if: steps.deps.outputs.changed == 'true'
+        with:
+          tool: cargo-audit
+
+      - name: Audit
+        if: steps.deps.outputs.changed == 'true'
+        run: cargo audit
+
   commit-messages:
     # Version bumps and release notes are derived from commit subjects, so a
     # malformed subject is not a style problem — it silently produces the
@@ -168,7 +223,7 @@ jobs:
     # Only after `gate` is green, and only for a merge landing on main.
     # `needs` is what guarantees a broken build can never be tagged.
     name: Tag and release
-    needs: [gate, extension]
+    needs: [gate, extension, audit]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
