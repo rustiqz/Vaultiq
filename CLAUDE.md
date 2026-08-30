@@ -24,7 +24,8 @@ fast and clever, every time.
 - Git repository initialized; `main` is the trunk; `origin` is
   `git@github.com:rustiqz/Vaultiq.git`. CI and release automation live in
   `.github/workflows/` — see §8.
-- Toolchain present: cargo/rustc 1.97.1, git 2.55.0.
+- Toolchain present: cargo/rustc 1.98.0, git 2.55.0. The `wasm32-unknown-unknown`
+  target is required for the `wasm` feature (Arch: `rust-wasm`).
 
 Update this section when it stops being true.
 
