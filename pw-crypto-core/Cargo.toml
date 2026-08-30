@@ -30,6 +30,11 @@ base64 = "=0.23.1"
 thiserror = "=2.0.20"
 # Feature-gated: thin JS bindings for the browser extension (phase 2).
 wasm-bindgen = { version = "=0.2.127", optional = true }
+# Feature-gated: on wasm32-unknown-unknown, getrandom cannot tell from the
+# target alone whether JavaScript exists, so `SysRng` has no backend until
+# `wasm_js` points it at Crypto.getRandomValues. Without this the crate builds
+# for the browser and then fails at runtime the first time it needs a nonce.
+getrandom = { version = "=0.4.3", optional = true }
 
 [dev-dependencies]
 proptest = "=1.11.0"
@@ -37,4 +42,8 @@ serde_json = "=1.0.151"
 
 [features]
 default = []
-wasm = ["dep:wasm-bindgen"]
+# getrandom's own docs advise against enabling `wasm_js` in a library, with an
+# explicit exception for crates that already depend on wasm-bindgen on wasm
+# targets. That is exactly this feature, so we are inside the exception rather
+# than working around the advice.
+wasm = ["dep:wasm-bindgen", "dep:getrandom", "getrandom/wasm_js"]
