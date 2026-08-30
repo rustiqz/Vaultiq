@@ -1,0 +1,9 @@
+# Vite needs esbuild's platform binary, which arrives via its install script.
+# pnpm blocks dependency install scripts by default; naming esbuild here keeps
+# the approval in version control rather than in a developer's local pnpm
+# state, so CI resolves identically.
+#
+# pnpm 11 moved this setting out of package.json — the `pnpm` field there is
+# no longer read at all.
+allowBuilds:
+  esbuild: true
