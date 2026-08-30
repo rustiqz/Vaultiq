@@ -1,27 +1,16 @@
 name: Security audit
 
+# The scheduled sweep only. Auditing a *change* is a release gate and lives in
+# ci.yml, where `needs` can order it ahead of the tag; this workflow exists
+# for the case that gate cannot see — an advisory filed against a dependency
+# nobody touched, which no diff will ever flag.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - ".github/workflows/audit.yml"
-  pull_request:
-    paths:
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - ".github/workflows/audit.yml"
-  # A new advisory can land against a dependency nobody touched, so this runs
-  # on a schedule as well as on dependency changes.
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: write
-  checks: write
 
 jobs:
   audit:
@@ -29,6 +18,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: rustsec/audit-check@v2
+
+      - uses: actions/cache@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          path: ~/.cargo/advisory-db
+          key: advisory-db-${{ github.run_id }}
+          restore-keys: advisory-db-
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - run: cargo audit
