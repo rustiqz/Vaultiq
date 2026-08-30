@@ -37,6 +37,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use serde::Deserialize;
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
+use zeroize::Zeroize as _;
 
 /// Collapses every `CryptoError` into one opaque JavaScript error.
 ///
@@ -108,6 +109,51 @@ impl VaultKeyHandle {
     /// Scrubs the key and releases the handle.
     pub fn lock(self) {
         drop(self);
+    }
+
+    /// Exports the vault key so it can survive the extension's background
+    /// context being suspended.
+    ///
+    /// # This is the one sanctioned way key material leaves wasm
+    ///
+    /// Everything else in this module exists to keep keys inside linear
+    /// memory. This function deliberately breaks that, for one reason: both
+    /// Manifest V3 background contexts — Chrome's service worker and
+    /// Firefox's event page — are suspended when idle, and everything in
+    /// their memory dies with them. Without this, unlocking would have to
+    /// happen again, at full Argon2 cost, every time the browser reclaimed
+    /// the background page.
+    ///
+    /// **The result may only be written to `storage.session`**, which is held
+    /// in memory and never persisted to disk. Writing it to
+    /// `storage.local`, IndexedDB, a cookie, or anywhere else on disk turns a
+    /// memory-lifetime secret into a permanent one, and is a vault
+    /// compromise. Nothing here can enforce that — it is a review rule.
+    ///
+    /// Pair with [`restore_from_session_storage`](Self::restore_from_session_storage).
+    #[wasm_bindgen(js_name = exportForSessionStorage)]
+    pub fn export_for_session_storage(&self) -> String {
+        B64.encode(self.0.as_bytes())
+    }
+
+    /// Rebuilds a handle from [`export_for_session_storage`](Self::export_for_session_storage).
+    ///
+    /// Returns an argument error for anything that is not exactly a base64
+    /// encoded key of the right length. That check is about the shape of a
+    /// value the caller just supplied, so it reveals nothing.
+    #[wasm_bindgen(js_name = restoreFromSessionStorage)]
+    pub fn restore_from_session_storage(encoded: &str) -> Result<VaultKeyHandle, JsError> {
+        let mut decoded = decode_b64(encoded, "session key")?;
+
+        let mut bytes: [u8; KEY_LEN] = decoded
+            .as_slice()
+            .try_into()
+            .map_err(|_| bad_argument("session key"))?;
+        decoded.zeroize();
+
+        let handle = VaultKeyHandle(VaultKey::from_bytes(bytes));
+        bytes.zeroize();
+        Ok(handle)
     }
 }
 
