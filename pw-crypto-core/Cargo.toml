@@ -5,6 +5,12 @@ edition = "2024"
 description = "Zero-knowledge crypto core for Vaultiq: key hierarchy and per-item AEAD."
 publish = false
 
+# `cdylib` is what wasm-pack needs to emit a .wasm module; `rlib` is kept so
+# the crate stays usable as a normal Rust dependency for the Tauri and FFI
+# targets in later phases.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 # Versions are pinned exactly (`=`) on purpose: this is a security product, so a
 # dependency change must be a deliberate, reviewable commit rather than a silent
 # resolution. Cargo.lock is committed alongside. See CLAUDE.md §5.
