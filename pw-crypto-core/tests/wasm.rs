@@ -171,6 +171,30 @@ fn wrong_master_key_cannot_unwrap() {
     assert_eq!(error_message(err), "decryption failed");
 }
 
+// --- Surviving a suspended background context ---
+
+#[wasm_bindgen_test]
+fn vault_key_survives_a_session_storage_round_trip() {
+    // Stands in for the background page being suspended and woken: export,
+    // everything in memory goes away, restore, keep working.
+    let vault_key = generate_vault_key().unwrap();
+    let item = encrypt_item_js(TEST_JSON, header("a"), &vault_key).unwrap();
+
+    let exported = vault_key.export_for_session_storage();
+    vault_key.lock();
+
+    let restored = VaultKeyHandle::restore_from_session_storage(&exported).unwrap();
+    assert_eq!(decrypt_item_js(item, &restored).unwrap(), TEST_JSON);
+}
+
+#[wasm_bindgen_test]
+fn a_malformed_session_key_is_rejected() {
+    for bad in ["", "not base64!!", "c2hvcnQ="] {
+        let err = VaultKeyHandle::restore_from_session_storage(bad).unwrap_err();
+        assert_eq!(error_message(err), "invalid argument: session key");
+    }
+}
+
 // --- Argument validation is separate from crypto failure ---
 
 #[wasm_bindgen_test]
