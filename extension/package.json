@@ -3,12 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.3.0",
   "scripts": {
     "wasm": "wasm-pack build ../pw-crypto-core --target web --out-dir ../extension/vendor/pw-crypto-core --features wasm",
-    "build": "pnpm run wasm && tsx scripts/manifest.ts && vite build",
+    "build": "pnpm run wasm && pnpm run bundle",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src scripts",
-    "dev": "pnpm run build && concurrently \"vite build --watch\" \"web-ext run --source-dir dist\""
+    "dev": "pnpm run build && concurrently \"vite build --watch\" \"web-ext run --source-dir dist\"",
+    "bundle": "tsx scripts/manifest.ts && vite build"
   },
   "devDependencies": {
     "@eslint/js": "9.39.0",
