@@ -48,7 +48,7 @@ pub mod keys;
 mod secret;
 pub mod vault_item;
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test_util;
 
 #[cfg(feature = "wasm")]
