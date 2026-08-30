@@ -29,6 +29,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
 
@@ -41,8 +42,12 @@ jobs:
       - name: Tests
         run: cargo test --workspace --all-features
 
-      - name: WASM feature compiles
-        run: cargo build --workspace --features wasm
+      # Built for the browser target, not the host. A host build with the
+      # `wasm` feature says nothing about whether this works in a browser —
+      # getrandom picks a different backend there, and picking the wrong one
+      # fails at runtime rather than at compile time.
+      - name: WASM target builds
+        run: cargo build --workspace --target wasm32-unknown-unknown --features wasm
 
   commit-messages:
     # Version bumps and release notes are derived from commit subjects, so a
