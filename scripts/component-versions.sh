@@ -24,15 +24,36 @@ write=false
 # merely its own directory. The extension bundles the crypto core as wasm, so
 # a core-only change alters the shipped extension and must move its version —
 # otherwise two different builds would claim to be the same version.
-core_version=$(git cliff --bumped-version \
-  --include-path 'pw-crypto-core/**' 2>/dev/null || true)
-extension_version=$(git cliff --bumped-version \
-  --include-path 'extension/**' \
-  --include-path 'pw-crypto-core/**' 2>/dev/null || true)
+if ! git cliff --version >/dev/null 2>&1; then
+  echo "component-versions: git-cliff is not installed or not on PATH." >&2
+  exit 1
+fi
 
-# A repo with no tags yet, or a shallow clone.
-core_version=${core_version:-v0.0.0}
-extension_version=${extension_version:-v0.0.0}
+has_tags=$(git tag --list | head -n1)
+
+# Resolves one component's version, or fails.
+#
+# An empty result is only legitimate in a repo with no tags at all. Anywhere
+# else it means git-cliff failed, and quietly substituting 0.0.0 would stamp
+# that into a release — so this refuses instead.
+resolve() {
+  local version
+  version=$(git cliff --bumped-version "$@" 2>/dev/null || true)
+
+  if [ -n "$version" ]; then
+    printf '%s' "$version"
+  elif [ -z "$has_tags" ]; then
+    printf 'v0.0.0'
+  else
+    echo "component-versions: no version resolved for $*" >&2
+    return 1
+  fi
+}
+
+core_version=$(resolve --include-path 'pw-crypto-core/**')
+extension_version=$(resolve \
+  --include-path 'extension/**' \
+  --include-path 'pw-crypto-core/**')
 
 # Manifest versions are plain dotted numbers; the tag stream carries a v.
 core_plain=${core_version#v}
@@ -52,8 +73,13 @@ package = re.search(r"(?ms)^\[package\].*?(?=^\[)", text)
 if package is None:
     raise SystemExit(f"no [package] section in {path}")
 block = package.group(0)
-updated = re.sub(r'(?m)^version = ".*"$', f'version = "{core}"', block, count=1)
-if block == updated:
+# subn, not comparing text: a component whose version has not moved rewrites
+# the same value, and treating that no-op as "key missing" would fail every
+# release that leaves this component untouched — which is most of them.
+updated, replaced = re.subn(
+    r'(?m)^version = ".*"$', f'version = "{core}"', block, count=1
+)
+if replaced == 0:
     raise SystemExit(f"no version key in the [package] section of {path}")
 open(path, "w").write(text.replace(block, updated, 1))
 
