@@ -6,7 +6,7 @@
 # a paid plan for private repositories. It is a guard rail, not a control: it
 # runs on this machine only and `--no-verify` walks straight past it, which
 # CLAUDE.md §3.6 forbids. Replace it with real protection when the repo goes
-# public — the command is in CLAUDE.md §8.4.
+# public — the command is in CLAUDE.md §8.5.
 #
 # Enable once per clone:
 #   git config core.hooksPath .githooks

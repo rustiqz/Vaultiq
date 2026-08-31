@@ -73,7 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0 # scripts/manifest.ts reads the version from git tags
+          fetch-depth: 0 # the audit step diffs against the base commit
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -233,6 +233,8 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: dtolnay/rust-toolchain@stable
+
       - uses: taiki-e/install-action@v2
         with:
           tool: git-cliff
@@ -258,11 +260,47 @@ jobs:
             echo "version=$next" >> "$GITHUB_OUTPUT"
           fi
 
+      # Before the tag, deliberately: the tagged tree has to state the truth
+      # about what it contains. Tagging first and bumping after would leave
+      # every tag pointing at stale component versions.
+      - name: Set component versions
+        if: steps.check.outputs.release == 'true'
+        run: |
+          set -euo pipefail
+          scripts/component-versions.sh --write
+
+          # Refreshes only the workspace members' own entries; external pins
+          # are untouched.
+          cargo update --workspace
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pw-crypto-core/Cargo.toml Cargo.lock extension/package.json
+
+          if git diff --staged --quiet; then
+            echo "Component versions already current."
+          else
+            # `chore:` is a type cliff.toml skips, so this commit cannot
+            # trigger a release of its own; [skip ci] stops it burning a run.
+            git commit -m "chore(release): set component versions [skip ci]"
+          fi
+
       - name: Build release notes
         if: steps.check.outputs.release == 'true'
         env:
           VERSION: ${{ steps.check.outputs.version }}
-        run: git cliff --unreleased --tag "$VERSION" --strip header --output RELEASE_NOTES.md
+        run: |
+          set -euo pipefail
+          git cliff --unreleased --tag "$VERSION" --strip header --output RELEASE_NOTES.md
+          {
+            echo ""
+            echo "### Components"
+            echo ""
+            echo "The product version moves on any change; a component's moves"
+            echo "only when its own shipped artifact does."
+            echo ""
+            scripts/component-versions.sh
+          } >> RELEASE_NOTES.md
 
       - name: Tag and publish
         if: steps.check.outputs.release == 'true'
@@ -271,6 +309,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Push the version commit first, then tag it, so the tag and main
+          # agree about what this release contains.
+          git push origin HEAD:main
           git tag "$VERSION"
           git push origin "$VERSION"
           gh release create "$VERSION" \
