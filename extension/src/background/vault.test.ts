@@ -176,6 +176,58 @@ describe("locking", () => {
   });
 });
 
+describe("names", () => {
+  it("round-trips a name", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "Work email" });
+
+    const items = await vault.listItems();
+    expect(items[0]?.name).toBe("Work email");
+  });
+
+  it("lists an item saved before the field existed", async () => {
+    // The field lives inside the encrypted content, so older records simply
+    // lack it. Nothing is migrated, and nothing may break on their absence.
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+
+    const items = await vault.listItems();
+    expect(items).toHaveLength(1);
+    expect(items[0]?.id).toBe(id);
+    expect(items[0]?.name).toBeUndefined();
+    expect(items[0]?.username).toBe(CONTENT.username);
+  });
+
+  it("keeps several logins for one site apart", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "Personal", username: "me@example.test" });
+    await vault.addItem({ ...CONTENT, name: "Work", username: "me@work.test" });
+
+    const items = await vault.listItems();
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.name)).toEqual(["Personal", "Work"]);
+    expect(new Set(items.map((item) => item.id)).size).toBe(2);
+  });
+
+  it("orders by what the list actually shows", async () => {
+    // Storage order is by random UUID, so without sorting the list would
+    // reshuffle itself between openings.
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "zeta" });
+    await vault.addItem({ ...CONTENT, name: "Alpha" });
+    // Omitted, not set to undefined: with exactOptionalPropertyTypes those
+    // are different types, and "absent" is what an older record looks like.
+    await vault.addItem({ ...CONTENT, username: "mid@example.test" });
+
+    const items = await vault.listItems();
+    expect(items.map((item) => item.name ?? item.username)).toEqual([
+      "Alpha",
+      "mid@example.test",
+      "zeta",
+    ]);
+  });
+});
+
 describe("strength", () => {
   it("rides along on every listed item", async () => {
     await withOneItem();
