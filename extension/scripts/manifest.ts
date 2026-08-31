@@ -1,36 +1,33 @@
 // Emits dist/manifest.json.
 //
-// The version is read from the git tag rather than kept in a file, so the
-// repo tag stays the single source of truth (CLAUDE.md §8.2) and a manifest
-// version cannot silently drift from the release it shipped in.
+// The version comes from package.json, which the release job sets to this
+// component's own version — one that moves only when the shipped extension
+// actually changes, and not when some unrelated part of the repo does. See
+// scripts/component-versions.sh at the repo root.
+//
+// Between releases this reports the last released version, which is the
+// honest answer for a development build.
 
-import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(here, "../dist/manifest.json");
 
-/** `v1.2.3` -> `1.2.3`. Manifest versions must be plain dotted numbers. */
-function versionFromGit(): string {
-  try {
-    const tag = execSync("git describe --tags --abbrev=0", {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    const cleaned = tag.replace(/^v/, "");
-    return /^\d+(\.\d+){0,3}$/.test(cleaned) ? cleaned : "0.0.0";
-  } catch {
-    // A shallow clone or a fresh repo with no tags yet.
-    return "0.0.0";
-  }
+function version(): string {
+  const pkg = JSON.parse(
+    readFileSync(resolve(here, "../package.json"), "utf8"),
+  ) as { version?: string };
+  const value = pkg.version ?? "0.0.0";
+  // Manifest versions must be plain dotted numbers, at most four parts.
+  return /^\d+(\.\d+){0,3}$/.test(value) ? value : "0.0.0";
 }
 
 const manifest = {
   manifest_version: 3,
   name: "Vaultiq",
-  version: versionFromGit(),
+  version: version(),
   description: "Zero-knowledge password manager.",
 
   // Chrome reads `service_worker`; Firefox reads `scripts` and ignores the
