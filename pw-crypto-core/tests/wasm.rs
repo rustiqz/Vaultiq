@@ -243,6 +243,25 @@ fn unsatisfiable_options_say_why() {
 }
 
 #[wasm_bindgen_test]
+fn scores_a_generated_password_at_the_top_band() {
+    let password = generate_password_js(default_password_options().unwrap()).unwrap();
+    let strength = estimate_strength_js(&password).unwrap();
+
+    let level = js_sys::Reflect::get(&strength, &JsValue::from_str("level"))
+        .unwrap()
+        .as_string()
+        .unwrap();
+    assert_eq!(level, "excellent", "generated {password} scored {level}");
+
+    let weak = estimate_strength_js("hunter2").unwrap();
+    let weak_level = js_sys::Reflect::get(&weak, &JsValue::from_str("level"))
+        .unwrap()
+        .as_string()
+        .unwrap();
+    assert_eq!(weak_level, "very-weak");
+}
+
+#[wasm_bindgen_test]
 fn default_params_are_exported() {
     let params = default_argon2_params().unwrap();
     let memory = js_sys::Reflect::get(&params, &JsValue::from_str("memory_kib"))
