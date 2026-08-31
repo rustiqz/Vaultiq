@@ -56,7 +56,10 @@ const manifest = {
   // permissions, no tabs, no scripting — autofill is a later phase, and
   // asking for nothing until then keeps the blast radius of a compromised
   // extension page as small as it can be.
-  permissions: ["storage", "alarms"],
+  // `activeTab` lets the background read the URL of the tab you are looking
+  // at when you open the popup — granted by that click, and by nothing else.
+  // No blanket host access yet; that arrives with autofill.
+  permissions: ["storage", "alarms", "activeTab"],
 
   browser_specific_settings: {
     gecko: {

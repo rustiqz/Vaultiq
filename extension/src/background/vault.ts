@@ -28,6 +28,7 @@ import {
 } from "../lib/crypto.js";
 
 export { assertSessionStorage, loadCrypto };
+import { matchesSite, siteScope } from "../lib/site.js";
 import type {
   DecryptedItem,
   LoginContent,
@@ -288,6 +289,33 @@ export async function listItems(): Promise<DecryptedItem[]> {
   return decrypted.sort((a, b) =>
     displayName(a).localeCompare(displayName(b), undefined, { sensitivity: "base" }),
   );
+}
+
+/**
+ * The logins that belong to a given page.
+ *
+ * The URL is supplied by the *caller inside the extension* — the background
+ * reads it from the active tab or from a message sender, never from anything
+ * a web page could influence. A page that could name its own site could ask
+ * for any credential in the vault.
+ */
+export async function itemsForUrl(
+  url: string | undefined,
+): Promise<{ site: string | null; items: DecryptedItem[] }> {
+  if (!url) return { site: null, items: [] };
+
+  const all = await listItems();
+  return {
+    site: siteScope(url),
+    // Trashed items are not offered: deleting one should stop it turning up.
+    items: all.filter((item) => !item.deleted && matchesSite(item.url, url)),
+  };
+}
+
+/** The page the user is looking at, as the browser reports it. */
+export async function activeTabUrl(): Promise<string | undefined> {
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  return tab?.url;
 }
 
 /** What the list shows for an item, and therefore what it sorts on. */

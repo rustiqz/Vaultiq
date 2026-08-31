@@ -6,6 +6,7 @@
 // rollback protection that the AAD binding exists to provide is quietly gone.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { activeTab } from "../test/setup.js";
 import {
   cryptoFake,
   db,
@@ -225,6 +226,61 @@ describe("names", () => {
       "mid@example.test",
       "zeta",
     ]);
+  });
+});
+
+describe("items for the current site", () => {
+  async function withSites(): Promise<void> {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "Example", url: "https://www.example.com/login" });
+    await vault.addItem({ ...CONTENT, name: "Other", url: "https://other.test" });
+    await vault.addItem({ ...CONTENT, name: "No site", url: "" });
+  }
+
+  it("offers logins from the same registrable domain", async () => {
+    await withSites();
+    activeTab.url = "https://account.example.com/settings";
+
+    const { site, items } = await vault.itemsForUrl(await vault.activeTabUrl());
+    expect(site).toBe("example.com");
+    expect(items.map((item) => item.name)).toEqual(["Example"]);
+  });
+
+  it("offers nothing on an unrelated site", async () => {
+    await withSites();
+    activeTab.url = "https://unrelated.test";
+    expect((await vault.itemsForUrl(await vault.activeTabUrl())).items).toHaveLength(0);
+  });
+
+  it("refuses a lookalike domain", async () => {
+    await withSites();
+    // The failure this whole module exists to prevent.
+    const { items } = await vault.itemsForUrl("https://example.com.attacker.test/login");
+    expect(items).toHaveLength(0);
+  });
+
+  it("offers nothing when there is no tab to read", async () => {
+    await withSites();
+    activeTab.url = undefined;
+
+    const { site, items } = await vault.itemsForUrl(await vault.activeTabUrl());
+    expect(site).toBeNull();
+    expect(items).toHaveLength(0);
+  });
+
+  it("does not offer a trashed login", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({ ...CONTENT, url: "https://example.com" });
+    await vault.trashItem(id);
+
+    // Deleting a login should stop it turning up on the site it was for.
+    expect((await vault.itemsForUrl("https://example.com")).items).toHaveLength(0);
+  });
+
+  it("refuses while locked, like every other item operation", async () => {
+    await withSites();
+    await vault.lock();
+    await expect(vault.itemsForUrl("https://example.com")).rejects.toThrow(/locked/i);
   });
 });
 
