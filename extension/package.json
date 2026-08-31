@@ -9,6 +9,7 @@
     "build": "pnpm run wasm && pnpm run bundle",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src scripts",
+    "test": "vitest run",
     "dev": "pnpm run build && concurrently \"vite build --watch\" \"web-ext run --source-dir dist\"",
     "bundle": "tsx scripts/manifest.ts && vite build"
   },
@@ -21,6 +22,7 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.46.1",
     "vite": "7.1.12",
+    "vitest": "4.1.11",
     "web-ext": "8.10.0"
   }
 }
