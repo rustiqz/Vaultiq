@@ -115,6 +115,10 @@ jobs:
         working-directory: extension
         run: pnpm run lint
 
+      - name: Test
+        working-directory: extension
+        run: pnpm run test
+
       # `bundle` rather than `build`, which would rebuild the wasm package a
       # second time for no gain.
       - name: Bundle
