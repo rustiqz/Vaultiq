@@ -352,10 +352,18 @@ protection and rulesets behind a paid plan for private repositories, and this
 repo is private on a free account — both API endpoints return
 `403 Upgrade to GitHub Pro or make this repository public`.
 
-Standing in for it: `.githooks/pre-push`, which refuses direct pushes to
-`main`, refuses force-pushes, and lets branches and tags through so CI can
-still push release tags. It is a guard rail on one machine, not a control —
-`--no-verify` walks past it, which §3.6 forbids. Enable it after cloning:
+Standing in for it, two hooks in `.githooks/`:
+
+- **`pre-commit`** refuses to commit while `main` is checked out, catching the
+  mistake at the moment it happens rather than at push time.
+- **`pre-push`** refuses direct pushes and force-pushes to `main`, letting
+  branches and tags through so CI can still push release tags.
+
+Both are guard rails on one machine, not controls — `--no-verify` walks past
+either, which §3.7 forbids. Neither runs in CI, because hooks only fire when
+`core.hooksPath` is set and a fresh checkout never sets it; that is what
+leaves the release job free to make its own `chore(release):` commit on
+`main`. Enable them after cloning:
 
 ```bash
 git config core.hooksPath .githooks
