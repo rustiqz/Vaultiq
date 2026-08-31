@@ -113,6 +113,31 @@ function itemForm(
     url.value = initial.url;
   }
 
+  // Generation happens in the background; the popup never loads the crypto
+  // module. Revealing the field on generate is deliberate — a password you
+  // cannot see is one you cannot check against the site's own rules.
+  const generate = el("button", {
+    type: "button",
+    className: "inline",
+    textContent: "Generate",
+  });
+  generate.addEventListener("click", () => {
+    generate.disabled = true;
+    void send({ kind: "generatePassword" })
+      .then(unwrap)
+      .then((response) => {
+        if (response.kind !== "generatePassword") throw new Error("unexpected reply");
+        password.value = response.password;
+        password.type = "text";
+      })
+      .catch((error: unknown) => {
+        showError(error instanceof Error ? error.message : "Failed.");
+      })
+      .finally(() => {
+        generate.disabled = false;
+      });
+  });
+
   const save = el("button", { className: "primary", type: "submit", textContent: submitLabel });
   const actions = el("div", { className: "row" }, [save]);
 
@@ -124,7 +149,7 @@ function itemForm(
 
   const form = el("form", {}, [
     el("label", {}, ["Username", username]),
-    el("label", {}, ["Password", password]),
+    el("label", {}, ["Password", el("div", { className: "field" }, [password, generate])]),
     el("label", {}, ["Site", url]),
     actions,
   ]);

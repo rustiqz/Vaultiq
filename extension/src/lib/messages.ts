@@ -7,6 +7,14 @@
 
 export type VaultStatus = "empty" | "locked" | "unlocked";
 
+export interface PasswordOptions {
+  length: number;
+  lowercase: boolean;
+  uppercase: boolean;
+  digits: boolean;
+  symbols: boolean;
+}
+
 export interface LoginContent {
   username: string;
   password: string;
@@ -35,7 +43,10 @@ export type Request =
   // Erases the content for good. The record itself stays, because a deletion
   // has to be able to propagate to other devices later.
   | { kind: "purgeItem"; id: string }
-  | { kind: "listItems" };
+  | { kind: "listItems" }
+  // Generation happens in the background like everything else, so the popup
+  // never loads the crypto module itself.
+  | { kind: "generatePassword"; options?: PasswordOptions };
 
 export type Response =
   | { ok: true; kind: "status"; status: VaultStatus }
@@ -48,6 +59,8 @@ export type Response =
   | { ok: true; kind: "restoreItem" }
   | { ok: true; kind: "purgeItem" }
   | { ok: true; kind: "listItems"; items: DecryptedItem[] }
+  | { ok: true; kind: "generatePassword"; password: string }
+  | { ok: true; kind: "passwordOptions"; options: PasswordOptions }
   | { ok: false; error: string };
 
 export async function send(request: Request): Promise<Response> {
