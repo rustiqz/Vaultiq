@@ -209,6 +209,39 @@ fn malformed_arguments_are_reported_as_such() {
     assert_eq!(error_message(err), "invalid argument: salt");
 }
 
+// --- Password generation ---
+
+#[wasm_bindgen_test]
+fn generates_a_password_of_the_requested_shape() {
+    let options = default_password_options().unwrap();
+    let password = generate_password_js(options.clone()).unwrap();
+
+    assert_eq!(password.chars().count(), 20);
+    assert!(password.chars().any(|c| c.is_ascii_lowercase()));
+    assert!(password.chars().any(|c| c.is_ascii_uppercase()));
+    assert!(password.chars().any(|c| c.is_ascii_digit()));
+    assert!(password.chars().any(|c| c.is_ascii_punctuation()));
+
+    // The browser CSPRNG is what backs this, so two draws must differ.
+    assert_ne!(password, generate_password_js(options).unwrap());
+}
+
+#[wasm_bindgen_test]
+fn unsatisfiable_options_say_why() {
+    let options = js_sys::Object::new();
+    let set = |k: &str, v: JsValue| {
+        js_sys::Reflect::set(&options, &JsValue::from_str(k), &v).unwrap();
+    };
+    set("length", JsValue::from_f64(4.0));
+    set("lowercase", JsValue::from_bool(true));
+    set("uppercase", JsValue::from_bool(false));
+    set("digits", JsValue::from_bool(false));
+    set("symbols", JsValue::from_bool(false));
+
+    let message = error_message(generate_password_js(options.into()).unwrap_err());
+    assert!(message.starts_with("invalid options:"), "got {message}");
+}
+
 #[wasm_bindgen_test]
 fn default_params_are_exported() {
     let params = default_argon2_params().unwrap();
