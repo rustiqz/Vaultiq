@@ -284,6 +284,75 @@ describe("items for the current site", () => {
   });
 });
 
+describe("handing a password to a page", () => {
+  async function vaultWithTwoSites(): Promise<{ example: string; other: string }> {
+    await vault.create("correct horse battery staple");
+    const example = await vault.addItem({
+      ...CONTENT,
+      name: "Example",
+      url: "https://example.com",
+    });
+    const other = await vault.addItem({
+      ...CONTENT,
+      name: "Other",
+      username: "other@other.test",
+      password: "other-secret",
+      url: "https://other.test",
+    });
+    return { example, other };
+  }
+
+  it("hands over the credential for an item on this site", async () => {
+    const { example } = await vaultWithTwoSites();
+    const credential = await vault.credentialForFill(example, "https://login.example.com");
+    expect(credential.username).toBe(CONTENT.username);
+    expect(credential.password).toBe(CONTENT.password);
+  });
+
+  // The control this whole path turns on.
+  it("refuses an item belonging to another site", async () => {
+    const { other } = await vaultWithTwoSites();
+    await expect(
+      vault.credentialForFill(other, "https://example.com"),
+    ).rejects.toThrow(/no such item/i);
+  });
+
+  it("refuses on a lookalike domain", async () => {
+    const { example } = await vaultWithTwoSites();
+    await expect(
+      vault.credentialForFill(example, "https://example.com.attacker.test"),
+    ).rejects.toThrow(/no such item/i);
+  });
+
+  it("refuses when there is no site at all", async () => {
+    const { example } = await vaultWithTwoSites();
+    await expect(vault.credentialForFill(example, undefined)).rejects.toThrow(/no such item/i);
+  });
+
+  it("refuses an item that has been trashed", async () => {
+    const { example } = await vaultWithTwoSites();
+    await vault.trashItem(example);
+    await expect(
+      vault.credentialForFill(example, "https://example.com"),
+    ).rejects.toThrow(/no such item/i);
+  });
+
+  it("refuses while locked", async () => {
+    const { example } = await vaultWithTwoSites();
+    await vault.lock();
+    await expect(
+      vault.credentialForFill(example, "https://example.com"),
+    ).rejects.toThrow(/locked/i);
+  });
+
+  it("refuses an id that does not exist", async () => {
+    await vaultWithTwoSites();
+    await expect(
+      vault.credentialForFill("made-up", "https://example.com"),
+    ).rejects.toThrow(/no such item/i);
+  });
+});
+
 describe("strength", () => {
   it("rides along on every listed item", async () => {
     await withOneItem();

@@ -2,8 +2,8 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    // Node, not jsdom: what is under test is the background context's
-    // behaviour, which touches no DOM. The popup is not covered here.
+    // Node by default — the background touches no DOM. The content script
+    // does, so those files opt into jsdom individually with a docblock.
     environment: "node",
     include: ["src/**/*.test.ts"],
     setupFiles: ["src/test/setup.ts"],
