@@ -45,6 +45,7 @@
 pub mod error;
 pub mod kdf;
 pub mod keys;
+pub mod password;
 mod secret;
 pub mod vault_item;
 
@@ -60,4 +61,5 @@ pub use keys::{
     AuthKey, StretchedEncryptionKey, VaultKey, WrappedVaultKey, derive_auth_key,
     derive_stretched_encryption_key, unwrap_vault_key, wrap_vault_key,
 };
+pub use password::{PasswordOptions, generate_password};
 pub use vault_item::{EncryptedItem, ItemHeader, decrypt_item, encrypt_item};
