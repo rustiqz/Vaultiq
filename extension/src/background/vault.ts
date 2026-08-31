@@ -15,7 +15,9 @@ import {
   generateSalt,
   generateVaultKey,
   loadCrypto,
+  generatePassword,
   recommendedParams,
+  recommendedPasswordOptions,
   stashVaultKey,
   takeStashedVaultKey,
   unwrapVaultKey,
@@ -25,7 +27,12 @@ import {
 } from "../lib/crypto.js";
 
 export { assertSessionStorage, loadCrypto };
-import type { DecryptedItem, LoginContent, VaultStatus } from "../lib/messages.js";
+import type {
+  DecryptedItem,
+  LoginContent,
+  PasswordOptions,
+  VaultStatus,
+} from "../lib/messages.js";
 import {
   allItems,
   getItem,
@@ -228,6 +235,16 @@ export async function purgeItem(id: string): Promise<void> {
     content: JSON.stringify({ purged: true }),
     deleted: true,
   }));
+}
+
+/**
+ * Generates a password.
+ *
+ * Needs no vault key and works while locked: a user filling a signup form has
+ * no reason to unlock first.
+ */
+export function newPassword(options?: PasswordOptions): string {
+  return generatePassword(options ?? recommendedPasswordOptions());
 }
 
 export async function listItems(): Promise<DecryptedItem[]> {
