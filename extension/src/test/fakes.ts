@@ -45,6 +45,12 @@ export const cryptoFake = {
     symbols: true,
   })),
   generatePassword: vi.fn(() => "Generated-Password-1!"),
+  // Scores by length alone, which is enough to tell the vault's plumbing
+  // apart from the real estimator. The estimator itself is tested in Rust.
+  scorePassword: vi.fn((password: string) => ({
+    bits: password.length * 6,
+    level: password.length >= 16 ? "excellent" : "weak",
+  })),
   generateSalt: vi.fn(() => "salt-b64"),
   generateVaultKey: vi.fn(() => handle("vault")),
   deriveMasterKey: vi.fn(() => handle("master")),
