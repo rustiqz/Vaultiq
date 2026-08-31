@@ -83,12 +83,25 @@ export async function putItem(item: StoredItem): Promise<void> {
   await run(STORE_ITEMS, "readwrite", (s) => s.put(item));
 }
 
+export async function getItem(id: string): Promise<StoredItem | undefined> {
+  return await run<StoredItem | undefined>(
+    STORE_ITEMS,
+    "readonly",
+    (s) => s.get(id) as IDBRequest<StoredItem | undefined>,
+  );
+}
+
+/**
+ * Every record, tombstones included.
+ *
+ * Nothing is filtered here: a tombstone is a real record that has to survive
+ * so a deletion can propagate to other devices, and the caller decides what
+ * to show. Records are never removed from this store.
+ */
 export async function allItems(): Promise<StoredItem[]> {
-  const items = await run<StoredItem[]>(
+  return await run<StoredItem[]>(
     STORE_ITEMS,
     "readonly",
     (s) => s.getAll() as IDBRequest<StoredItem[]>,
   );
-  // Tombstones are never hard-deleted, so they have to be filtered on read.
-  return items.filter((item) => !item.deleted);
 }
