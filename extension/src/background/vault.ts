@@ -258,7 +258,7 @@ export async function listItems(): Promise<DecryptedItem[]> {
   const vaultKey = await requireUnlocked();
   const stored = await allItems();
 
-  return stored.flatMap((item) => {
+  const decrypted = stored.flatMap((item) => {
     const content = JSON.parse(decryptItem(item, vaultKey)) as Partial<LoginContent> & {
       purged?: boolean;
     };
@@ -268,6 +268,8 @@ export async function listItems(): Promise<DecryptedItem[]> {
 
     return [
       {
+        // `name` is absent on anything saved before the field existed.
+        ...(content.name === undefined ? {} : { name: content.name }),
         username: content.username ?? "",
         password: content.password ?? "",
         url: content.url ?? "",
@@ -279,4 +281,16 @@ export async function listItems(): Promise<DecryptedItem[]> {
       },
     ];
   });
+
+  // Storage order is by id, which is a random UUID — effectively shuffled.
+  // Sort by what the user actually reads, so a list of several logins for one
+  // site stays put between openings.
+  return decrypted.sort((a, b) =>
+    displayName(a).localeCompare(displayName(b), undefined, { sensitivity: "base" }),
+  );
+}
+
+/** What the list shows for an item, and therefore what it sorts on. */
+function displayName(item: DecryptedItem): string {
+  return item.name?.trim() || item.username;
 }

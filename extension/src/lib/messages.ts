@@ -24,6 +24,16 @@ export interface PasswordOptions {
 }
 
 export interface LoginContent {
+  /**
+   * What to call this login.
+   *
+   * Optional, and it lives inside the encrypted content rather than beside
+   * it — a server that could read "Work email" would learn a great deal
+   * without decrypting anything. Items saved before this field existed simply
+   * have none, and fall back to the username; nothing needs migrating,
+   * because the AEAD layout and the associated data are unchanged.
+   */
+  name?: string;
   username: string;
   password: string;
   url: string;
