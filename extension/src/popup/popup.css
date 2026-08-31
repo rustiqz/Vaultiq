@@ -95,3 +95,8 @@ li .row button { padding: 4px 8px; font-size: 12px; font-weight: 500; }
 /* Trashed items are still readable, but visibly not part of the vault. */
 li.trashed { opacity: 0.72; border-style: dashed; }
 li.trashed .name { text-decoration: line-through; }
+
+/* A field with an action sitting alongside it. */
+.field { display: flex; gap: 6px; }
+.field input { flex: 1; min-width: 0; }
+button.inline { padding: 6px 9px; font-size: 12px; white-space: nowrap; }

@@ -31,6 +31,7 @@ use crate::keys::{
     KEY_LEN, VaultKey, WrappedVaultKey, derive_auth_key as derive_auth,
     derive_stretched_encryption_key, unwrap_vault_key as unwrap_key, wrap_vault_key as wrap_key,
 };
+use crate::password::{PasswordOptions, generate_password as generate};
 use crate::vault_item::{EncryptedItem, ItemHeader, decrypt_item as decrypt, encrypt_item};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -307,6 +308,32 @@ pub fn decrypt_item_js(
     let item: EncryptedItem =
         serde_wasm_bindgen::from_value(item).map_err(|_| bad_argument("encrypted item"))?;
     decrypt(&item, &vault_key.0).map_err(opaque)
+}
+
+/// The generator settings this build recommends.
+#[wasm_bindgen(js_name = defaultPasswordOptions)]
+pub fn default_password_options() -> Result<wasm_bindgen::JsValue, JsError> {
+    serde_wasm_bindgen::to_value(&PasswordOptions::default())
+        .map_err(|_| JsError::new("could not serialize options"))
+}
+
+/// Generates a password.
+///
+/// Returned as a plain string because it is going into a form field. Unlike a
+/// key, it is meant to be read — but it is still a secret, and JavaScript
+/// strings cannot be scrubbed, so the caller should not hold it longer than
+/// the user needs it on screen.
+#[wasm_bindgen(js_name = generatePassword)]
+pub fn generate_password_js(options: wasm_bindgen::JsValue) -> Result<String, JsError> {
+    let options: PasswordOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|_| bad_argument("password options"))?;
+
+    // Unsatisfiable settings are a caller bug and say nothing secret, so the
+    // reason is reported rather than collapsed.
+    generate(&options).map_err(|error| match error {
+        CryptoError::InvalidInput(reason) => JsError::new(&format!("invalid options: {reason}")),
+        other => opaque(other),
+    })
 }
 
 /// Length of a key in bytes, exported so JS can validate without hard-coding.

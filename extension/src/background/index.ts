@@ -13,6 +13,7 @@ import {
   extendAutoLock,
   listItems,
   loadCrypto,
+  newPassword,
   lock,
   purgeItem,
   restoreItem,
@@ -65,6 +66,8 @@ async function handle(request: Request): Promise<Response> {
       await purgeItem(request.id);
       await extendAutoLock();
       return { ok: true, kind: "purgeItem" };
+    case "generatePassword":
+      return { ok: true, kind: "generatePassword", password: newPassword(request.options) };
     case "listItems": {
       const items = await listItems();
       await extendAutoLock();

@@ -176,6 +176,33 @@ describe("locking", () => {
   });
 });
 
+describe("password generation", () => {
+  it("works while locked", async () => {
+    // Filling a signup form is a reason to want a password and no reason to
+    // have unlocked the vault first.
+    expect(await vault.status()).toBe("empty");
+    expect(vault.newPassword()).toBe("Generated-Password-1!");
+  });
+
+  it("falls back to the recommended options when none are given", () => {
+    vault.newPassword();
+    expect(cryptoFake.recommendedPasswordOptions).toHaveBeenCalled();
+  });
+
+  it("passes explicit options straight through", () => {
+    const options = {
+      length: 32,
+      lowercase: true,
+      uppercase: false,
+      digits: true,
+      symbols: false,
+    };
+    vault.newPassword(options);
+    expect(cryptoFake.generatePassword).toHaveBeenLastCalledWith(options);
+    expect(cryptoFake.recommendedPasswordOptions).not.toHaveBeenCalled();
+  });
+});
+
 describe("mutating an item that does not exist", () => {
   it("is refused rather than silently creating one", async () => {
     await vault.create("correct horse battery staple");
