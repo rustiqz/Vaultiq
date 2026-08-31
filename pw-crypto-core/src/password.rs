@@ -202,6 +202,163 @@ pub fn generate_password(options: &PasswordOptions) -> Result<String> {
     ))
 }
 
+// --- Strength ---
+
+/// How strong a password looks.
+///
+/// Bands are anchored to what this crate's own generator produces: its
+/// 20-character default lands around 131 bits, so [`Excellent`] is reachable
+/// essentially only by generating one — which is the advice worth giving.
+///
+/// [`Excellent`]: StrengthLevel::Excellent
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StrengthLevel {
+    /// Around eight random characters or fewer. Replace it now.
+    VeryWeak,
+    /// Nine to eleven random characters. Days against a fast hash.
+    Weak,
+    /// Around twelve random characters.
+    Fair,
+    /// Around sixteen random characters.
+    Strong,
+    /// What the generator produces by default.
+    Excellent,
+}
+
+/// An estimate of a password's strength.
+///
+/// # What this does not do
+///
+/// It scores *shape*, not predictability. There is no dictionary here, so
+/// something like `MyCatWhiskers!77x` — seventeen characters across all four
+/// classes, no repeated or consecutive run — reads as strong despite being
+/// the kind of thing a rule-based wordlist attack is built for. Catching that
+/// needs either a dictionary (which costs sixteen times this crate's entire
+/// wasm bundle, measured) or a breach-corpus lookup, which would mean a
+/// network call this crate must never make (CLAUDE.md §2.5).
+///
+/// The run penalty does catch the most obvious cases — `Password123456789!`
+/// scores as weak, because the nine-digit sequence is charged for.
+///
+/// For a vault of generated passwords that boundary is unimportant. For old
+/// human-chosen ones, treat a good score as "not obviously bad" rather than
+/// "safe".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasswordStrength {
+    /// Estimated bits of entropy, assuming the password was chosen at random
+    /// from the character classes it happens to use.
+    pub bits: u32,
+    /// The band `bits` falls in.
+    pub level: StrengthLevel,
+}
+
+/// Shortest run that can count as a pattern at all.
+///
+/// Three is too low: in twenty characters drawn at random from this crate's
+/// own alphabet, an accidental `abc` or `77` turns up about two times in a
+/// hundred. Charging for that would penalise passwords for being random.
+const MIN_RUN: usize = 4;
+
+/// Counts the distinct character classes a password draws on, as a charset
+/// size an attacker would have to search.
+fn charset_size(password: &str) -> u32 {
+    let mut size = 0u32;
+    if password.bytes().any(|b| LOWERCASE.contains(&b)) {
+        size = size.saturating_add(26);
+    }
+    if password.bytes().any(|b| UPPERCASE.contains(&b)) {
+        size = size.saturating_add(26);
+    }
+    if password.bytes().any(|b| DIGITS.contains(&b)) {
+        size = size.saturating_add(10);
+    }
+    if password.bytes().any(|b| SYMBOLS.contains(&b)) {
+        size = size.saturating_add(u32::try_from(SYMBOLS.len()).unwrap_or(0));
+    }
+    // Anything outside the classes above still widens the search space, but
+    // conservatively: count it as one extra character rather than guessing.
+    if password.bytes().any(|b| {
+        ![LOWERCASE, UPPERCASE, DIGITS, SYMBOLS]
+            .iter()
+            .any(|c| c.contains(&b))
+    }) {
+        size = size.saturating_add(1);
+    }
+    size
+}
+
+/// The length of the longest run of identical or consecutive bytes.
+fn longest_run(password: &str) -> usize {
+    let bytes = password.as_bytes();
+    let mut longest = 1usize;
+    let mut current = 1usize;
+
+    for pair in bytes.windows(2) {
+        let (Some(previous), Some(next)) = (pair.first(), pair.get(1)) else {
+            continue;
+        };
+        let step = i16::from(*next).saturating_sub(i16::from(*previous));
+        if step == 0 || step == 1 || step == -1 {
+            current = current.saturating_add(1);
+            longest = longest.max(current);
+        } else {
+            current = 1;
+        }
+    }
+
+    if bytes.is_empty() { 0 } else { longest }
+}
+
+/// Estimates how strong a password is.
+///
+/// Never fails and never panics: an empty password scores zero.
+#[must_use]
+pub fn estimate_strength(password: &str) -> PasswordStrength {
+    let length = password.chars().count();
+    let charset = charset_size(password);
+
+    // bits = length * log2(charset). Done in floating point and clamped,
+    // because the result is an estimate shown to a person, not a value
+    // anything depends on.
+    let bits = if length == 0 || charset == 0 {
+        0.0
+    } else {
+        let per_character = f64::from(charset).log2();
+        per_character * (length as f64)
+    };
+
+    // A run of identical or consecutive characters is typed rather than
+    // chosen — but only once it is long enough to be the password rather than
+    // a coincidence inside it. Requiring the run to cover at least a third
+    // means `aaaaaaaa` is charged for and a random string that happens to
+    // contain `stu` is not. A nudge, not a model.
+    let run = longest_run(password);
+    let dominates = run.saturating_mul(3) >= length;
+    let bits = if run >= MIN_RUN && dominates && length > 0 {
+        let patterned = (run as f64) / (length as f64);
+        bits * (1.0 - patterned.min(0.9))
+    } else {
+        bits
+    };
+
+    let bits = if bits.is_finite() && bits > 0.0 {
+        bits.min(f64::from(u32::MAX)) as u32
+    } else {
+        0
+    };
+
+    let level = match bits {
+        0..=49 => StrengthLevel::VeryWeak,
+        50..=74 => StrengthLevel::Weak,
+        75..=99 => StrengthLevel::Fair,
+        100..=119 => StrengthLevel::Strong,
+        _ => StrengthLevel::Excellent,
+    };
+
+    PasswordStrength { bits, level }
+}
+
 // Host-only: these exercise the algorithm, which is target-independent.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
@@ -346,5 +503,124 @@ mod tests {
         let options = PasswordOptions::default();
         assert!(options.validate().is_ok());
         assert_eq!(options.classes().len(), 4);
+    }
+
+    // --- Strength ---
+
+    fn level(password: &str) -> StrengthLevel {
+        estimate_strength(password).level
+    }
+
+    #[test]
+    fn a_chance_run_does_not_penalise_a_random_password() {
+        // The reason MIN_RUN is not three. Both of these are otherwise strong
+        // and contain a short accidental run.
+        assert_eq!(level("xQ7!abcMz2#pLw9$Kd"), StrengthLevel::Strong);
+        assert_eq!(level("xQ7!zz2Mz2#pLw9$Kd"), StrengthLevel::Strong);
+    }
+
+    #[test]
+    fn what_the_generator_produces_is_excellent() {
+        // The bands exist to make this true: the advice worth giving is
+        // "let it generate one", so only that should reach the top band.
+        // Enough iterations that a rare accidental run would surface: the
+        // earlier three-character threshold failed roughly one run in three.
+        let options = PasswordOptions::default();
+        for _ in 0..500 {
+            let password = generate_password(&options).unwrap();
+            assert_eq!(
+                level(&password),
+                StrengthLevel::Excellent,
+                "generated {password} did not reach the top band"
+            );
+        }
+    }
+
+    #[test]
+    fn nine_random_characters_are_weak() {
+        // ~59 bits. Days against a fast unsalted hash on real hardware, which
+        // is what has to be assumed for a password held by someone else.
+        assert_eq!(level("aB3!xQ7z."), StrengthLevel::Weak);
+    }
+
+    #[test]
+    fn length_bands_line_up_with_the_generator() {
+        let options = |length| PasswordOptions {
+            length,
+            ..PasswordOptions::default()
+        };
+        assert_eq!(
+            level(&generate_password(&options(8)).unwrap()),
+            StrengthLevel::Weak
+        );
+        assert_eq!(
+            level(&generate_password(&options(12)).unwrap()),
+            StrengthLevel::Fair
+        );
+        assert_eq!(
+            level(&generate_password(&options(16)).unwrap()),
+            StrengthLevel::Strong
+        );
+        assert_eq!(
+            level(&generate_password(&options(20)).unwrap()),
+            StrengthLevel::Excellent
+        );
+    }
+
+    #[test]
+    fn a_narrow_charset_needs_far_more_length() {
+        // 26 characters per position instead of 87: eleven lowercase letters
+        // is worth about as much as six from the full set.
+        assert_eq!(level("abcdefghijk"), StrengthLevel::VeryWeak);
+        // No run long enough to charge for, so this is scored purely on its
+        // narrow alphabet: eleven lowercase letters is about 51 bits.
+        assert_eq!(level("qwrtypsdfgh"), StrengthLevel::Weak);
+    }
+
+    #[test]
+    fn runs_and_repeats_are_penalised() {
+        // Composition alone would rate these on length and class alone.
+        assert_eq!(level("aaaaaaaaaaaaaaaa"), StrengthLevel::VeryWeak);
+        assert_eq!(level("1234567890123456"), StrengthLevel::VeryWeak);
+        assert_eq!(level("abcdefghijklmnop"), StrengthLevel::VeryWeak);
+    }
+
+    #[test]
+    fn an_empty_password_scores_nothing() {
+        let strength = estimate_strength("");
+        assert_eq!(strength.bits, 0);
+        assert_eq!(strength.level, StrengthLevel::VeryWeak);
+    }
+
+    #[test]
+    fn scoring_never_panics_on_odd_input() {
+        for password in ["\u{0}", "🔐🔐🔐🔐", "  ", "\n\t", &"x".repeat(10_000)] {
+            let _ = estimate_strength(password);
+        }
+    }
+
+    #[test]
+    fn a_wider_charset_scores_higher_at_equal_length() {
+        let narrow = estimate_strength("abcdlkjhgfds").bits;
+        let wide = estimate_strength("aB3!lkjHgf&s").bits;
+        assert!(wide > narrow, "{wide} should beat {narrow}");
+    }
+
+    // --- The documented limitation, asserted so it stays deliberate ---
+
+    #[test]
+    fn an_obvious_sequence_is_still_caught() {
+        // Composition alone would rate this at 116 bits on length and class.
+        // The run penalty charges for the nine-digit sequence instead.
+        assert_eq!(level("Password123456789!"), StrengthLevel::Weak);
+    }
+
+    #[test]
+    fn a_predictable_password_without_runs_is_not_caught() {
+        // The boundary of composition scoring, recorded here so it stays a
+        // known trade rather than a surprise. Seventeen characters, all four
+        // classes, no run to charge for — and exactly what a rule-based
+        // wordlist attack is built for.
+        assert_eq!(level("MyCatWhiskers!77x"), StrengthLevel::Strong);
     }
 }
