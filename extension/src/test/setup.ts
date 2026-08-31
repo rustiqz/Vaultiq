@@ -8,6 +8,9 @@ import { beforeEach, vi } from "vitest";
 
 const session = new Map<string, unknown>();
 
+/** The page a test pretends the user is looking at. */
+export const activeTab: { url: string | undefined } = { url: undefined };
+
 const browserStub = {
   storage: {
     session: {
@@ -29,6 +32,9 @@ const browserStub = {
     clear: vi.fn(() => Promise.resolve(true)),
     onAlarm: { addListener: vi.fn() },
   },
+  tabs: {
+    query: vi.fn(() => Promise.resolve([{ url: activeTab.url }])),
+  },
   runtime: {
     getURL: vi.fn((path: string) => `moz-extension://test/${path}`),
     onMessage: { addListener: vi.fn() },
@@ -42,5 +48,6 @@ export const sessionStore = session;
 
 beforeEach(() => {
   session.clear();
+  activeTab.url = undefined;
   vi.clearAllMocks();
 });

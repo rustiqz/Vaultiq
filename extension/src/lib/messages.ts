@@ -70,7 +70,10 @@ export type Request =
   // Generation happens in the background like everything else, so the popup
   // never loads the crypto module itself.
   | { kind: "generatePassword"; options?: PasswordOptions }
-  | { kind: "checkStrength"; password: string };
+  | { kind: "checkStrength"; password: string }
+  // Deliberately takes no URL. The background reads the active tab itself —
+  // a caller that could name its own site could enumerate the vault.
+  | { kind: "itemsForSite" };
 
 export type Response =
   | { ok: true; kind: "status"; status: VaultStatus }
@@ -85,6 +88,7 @@ export type Response =
   | { ok: true; kind: "listItems"; items: DecryptedItem[] }
   | { ok: true; kind: "generatePassword"; password: string }
   | { ok: true; kind: "checkStrength"; strength: PasswordStrength }
+  | { ok: true; kind: "itemsForSite"; site: string | null; items: DecryptedItem[] }
   | { ok: true; kind: "passwordOptions"; options: PasswordOptions }
   | { ok: false; error: string };
 
