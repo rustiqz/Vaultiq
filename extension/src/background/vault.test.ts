@@ -353,6 +353,108 @@ describe("handing a password to a page", () => {
   });
 });
 
+describe("offering to save a submitted login", () => {
+  const SUBMITTED = { username: "ada@example.test", password: "typed-password" };
+  const SITE = "https://example.com/login";
+
+  async function unlockedVault(): Promise<void> {
+    await vault.create("correct horse battery staple");
+  }
+
+  it("offers when the login is new", async () => {
+    await unlockedVault();
+    const decision = await vault.shouldOfferToSave(SUBMITTED, SITE);
+    expect(decision).toEqual({ offer: true, site: "example.com", existingId: null });
+  });
+
+  it("stays quiet when the identical login is already stored", async () => {
+    await unlockedVault();
+    await vault.addItem({ ...SUBMITTED, url: SITE, notes: "" });
+
+    // Signing in every day must not ask every day.
+    expect(await vault.shouldOfferToSave(SUBMITTED, SITE)).toEqual({ offer: false });
+  });
+
+  it("offers to update when the password changed", async () => {
+    await unlockedVault();
+    const id = await vault.addItem({ ...SUBMITTED, password: "old", url: SITE, notes: "" });
+
+    const decision = await vault.shouldOfferToSave(SUBMITTED, SITE);
+    expect(decision).toEqual({ offer: true, site: "example.com", existingId: id });
+  });
+
+  it("treats a different username on the same site as a new login", async () => {
+    await unlockedVault();
+    await vault.addItem({ ...SUBMITTED, username: "other@example.test", url: SITE, notes: "" });
+
+    const decision = await vault.shouldOfferToSave(SUBMITTED, SITE);
+    expect(decision).toMatchObject({ offer: true, existingId: null });
+  });
+
+  it("stays quiet while locked", async () => {
+    await unlockedVault();
+    await vault.lock();
+
+    // A banner the user cannot act on is worse than none, and the page did
+    // nothing wrong — so this declines rather than throwing.
+    expect(await vault.shouldOfferToSave(SUBMITTED, SITE)).toEqual({ offer: false });
+  });
+
+  it("stays quiet where there is no site", async () => {
+    await unlockedVault();
+    expect(await vault.shouldOfferToSave(SUBMITTED, undefined)).toEqual({ offer: false });
+    expect(await vault.shouldOfferToSave(SUBMITTED, "about:blank")).toEqual({ offer: false });
+  });
+
+  it("stays quiet when no password was typed", async () => {
+    await unlockedVault();
+    expect(await vault.shouldOfferToSave({ ...SUBMITTED, password: "" }, SITE)).toEqual({
+      offer: false,
+    });
+  });
+});
+
+describe("saving a submitted login", () => {
+  const SUBMITTED = { username: "ada@example.test", password: "typed-password" };
+  const SITE = "https://example.com/login";
+
+  it("stores it against the site from the tab, not the page", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.saveSubmitted(SUBMITTED, SITE);
+
+    const items = await vault.listItems();
+    expect(items).toHaveLength(1);
+    expect(items[0]?.username).toBe(SUBMITTED.username);
+    expect(items[0]?.url).toBe(SITE);
+  });
+
+  it("updates the existing login rather than adding a duplicate", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({ ...SUBMITTED, password: "old", url: SITE, notes: "" });
+
+    await vault.saveSubmitted(SUBMITTED, SITE);
+
+    const items = await vault.listItems();
+    expect(items).toHaveLength(1);
+    expect(items[0]?.id).toBe(id);
+    expect(items[0]?.password).toBe(SUBMITTED.password);
+  });
+
+  it("refuses when there is nothing worth saving", async () => {
+    await vault.create("correct horse battery staple");
+    await expect(vault.saveSubmitted(SUBMITTED, undefined)).rejects.toThrow(/nothing to save/i);
+    await expect(
+      vault.saveSubmitted({ ...SUBMITTED, password: "" }, SITE),
+    ).rejects.toThrow(/nothing to save/i);
+  });
+
+  it("refuses while locked", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.lock();
+    await expect(vault.saveSubmitted(SUBMITTED, SITE)).rejects.toThrow(/nothing to save/i);
+  });
+});
+
 describe("strength", () => {
   it("rides along on every listed item", async () => {
     await withOneItem();

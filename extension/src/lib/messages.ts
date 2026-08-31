@@ -77,7 +77,12 @@ export type Request =
   // The only request that returns a password. Answered only for an item that
   // belongs to the sender's own site, so a compromised page cannot read
   // credentials for anywhere else.
-  | { kind: "credentialForFill"; id: string };
+  | { kind: "credentialForFill"; id: string }
+  // Asks whether a just-submitted login is worth offering to save. Carries no
+  // URL: the background uses the sender tab, as everywhere else.
+  | { kind: "shouldOfferToSave"; username: string; password: string }
+  // Saves it. Only reached after the user says yes in the page banner.
+  | { kind: "saveSubmitted"; username: string; password: string; name?: string };
 
 export type Response =
   | { ok: true; kind: "status"; status: VaultStatus }
@@ -94,6 +99,9 @@ export type Response =
   | { ok: true; kind: "checkStrength"; strength: PasswordStrength }
   | { ok: true; kind: "itemsForSite"; site: string | null; items: DecryptedItem[] }
   | { ok: true; kind: "credentialForFill"; username: string; password: string }
+  | { ok: true; kind: "shouldOfferToSave"; offer: false }
+  | { ok: true; kind: "shouldOfferToSave"; offer: true; site: string; existingId: string | null }
+  | { ok: true; kind: "saveSubmitted" }
   | { ok: true; kind: "passwordOptions"; options: PasswordOptions }
   | { ok: false; error: string };
 
