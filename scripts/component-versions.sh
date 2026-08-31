@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+#
+# Component versions.
+#
+# The product version — the git tag — moves on any releasable change anywhere
+# in the repo. Each component carries its own version, which moves only when
+# that component's shipped artifact changes. Both come from the same commit
+# history and the same tags; a component's version is that history filtered by
+# path.
+#
+#   scripts/component-versions.sh            print a markdown table
+#   scripts/component-versions.sh --write    also write the versions into files
+#
+# Run by the release job before it tags, so the tagged tree states the truth.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+write=false
+[ "${1:-}" = "--write" ] && write=true
+
+# A component's paths must cover everything that ends up in its artifact, not
+# merely its own directory. The extension bundles the crypto core as wasm, so
+# a core-only change alters the shipped extension and must move its version —
+# otherwise two different builds would claim to be the same version.
+core_version=$(git cliff --bumped-version \
+  --include-path 'pw-crypto-core/**' 2>/dev/null || true)
+extension_version=$(git cliff --bumped-version \
+  --include-path 'extension/**' \
+  --include-path 'pw-crypto-core/**' 2>/dev/null || true)
+
+# A repo with no tags yet, or a shallow clone.
+core_version=${core_version:-v0.0.0}
+extension_version=${extension_version:-v0.0.0}
+
+# Manifest versions are plain dotted numbers; the tag stream carries a v.
+core_plain=${core_version#v}
+extension_plain=${extension_version#v}
+
+if $write; then
+  python3 - "$core_plain" "$extension_plain" <<'PY'
+import json, re, sys
+
+core, extension = sys.argv[1], sys.argv[2]
+
+# Only the version inside [package] — a blind substitution would rewrite every
+# pinned dependency in the file.
+path = "pw-crypto-core/Cargo.toml"
+text = open(path).read()
+package = re.search(r"(?ms)^\[package\].*?(?=^\[)", text)
+if package is None:
+    raise SystemExit(f"no [package] section in {path}")
+block = package.group(0)
+updated = re.sub(r'(?m)^version = ".*"$', f'version = "{core}"', block, count=1)
+if block == updated:
+    raise SystemExit(f"no version key in the [package] section of {path}")
+open(path, "w").write(text.replace(block, updated, 1))
+
+path = "extension/package.json"
+manifest = json.load(open(path))
+manifest["version"] = extension
+open(path, "w").write(json.dumps(manifest, indent=2) + "\n")
+PY
+  echo "wrote pw-crypto-core=$core_plain extension=$extension_plain" >&2
+fi
+
+cat <<TABLE
+| Component | Version |
+| --- | --- |
+| \`pw-crypto-core\` | $core_version |
+| \`extension\` | $extension_version |
+TABLE
