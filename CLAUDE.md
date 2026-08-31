@@ -284,15 +284,48 @@ parameter default, an AAD layout or a serialized format makes existing vaults
 undecryptable. That is a breaking change even when the Rust API is untouched,
 and it must carry `!` or a `BREAKING CHANGE:` footer.
 
-### 8.3 Release flow
+### 8.3 Two levels of version
+
+The **product version** is the git tag. It moves on any releasable change
+anywhere in the repo, and it is what a GitHub release is named after.
+
+Each **component** carries its own version, which moves only when that
+component's shipped artifact changes:
+
+| Component | Version lives in |
+|---|---|
+| `pw-crypto-core` | `pw-crypto-core/Cargo.toml` |
+| `extension` | `extension/package.json`, copied into `manifest.json` at build |
+
+Both come from the same commits and the same tags — a component's version is
+that history filtered by path, computed by `scripts/component-versions.sh`.
+The release job writes them **before** it tags, so a tagged tree states the
+truth about what it contains.
+
+A component's paths cover everything that lands in its artifact, not just its
+own directory. The extension bundles the crypto core as wasm, so a core-only
+change moves the extension's version too — otherwise two different builds
+would claim to be the same version.
+
+One consequence: component numbers share the product's tag stream, so
+`extension 0.3.1` can ship inside product `v0.3.2`. The versions stored in the
+tree are the answer to "what is in this release"; the release notes carry the
+same table. Give components their own tags (`extension-v0.3.1`) when one needs
+a release cadence of its own.
+
+Never edit either version by hand — the next release overwrites both.
+
+### 8.4 Release flow
 
 1. Open a PR. `gate` and `commit-messages` run on it.
 2. Merge into `main`. `gate` runs again on the merge commit.
 3. Only if it passes, `release` computes the next version with
    `git cliff --bumped-version`.
 4. If nothing since the last tag is releasable — only `chore:` and `style:` —
-   the job exits quietly. Otherwise it tags `vX.Y.Z`, pushes the tag, and cuts
-   a GitHub release with notes generated from the commit subjects.
+   the job exits quietly. Otherwise it writes the component versions (§8.3),
+   commits them as `chore(release): ... [skip ci]`, tags `vX.Y.Z` on that
+   commit, pushes both, and cuts a GitHub release with notes generated from
+   the commit subjects.
 
 Because the release is cut straight from `main`, **the commit message is the
 last chance to catch a mistyped change** — there is no release PR to review
@@ -308,9 +341,11 @@ git cliff -o CHANGELOG.md     # full history
 git cliff --unreleased        # what the next release would contain
 ```
 
-The version lives only in git tags. Nothing bumps `Cargo.toml`.
+The product version lives only in git tags. Component versions *are* written
+into `Cargo.toml` and `package.json` by the release job — see §8.3 — and must
+not be edited by hand.
 
-### 8.4 Branch protection
+### 8.5 Branch protection
 
 `main` is **not** protected server-side. GitHub gates both classic branch
 protection and rulesets behind a paid plan for private repositories, and this
@@ -356,7 +391,7 @@ Two traps in that payload:
   on a PR, so requiring it leaves every PR waiting on a check that cannot
   arrive.
 
-### 8.5 Other settings that are not in this repo
+### 8.6 Other settings that are not in this repo
 
 - **Settings → Actions → General → "Allow GitHub Actions to create and
   approve pull requests"** is enabled. Releases no longer need it, but leave
