@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+#
+# Refuses commits on main.
+#
+# The companion pre-push hook blocks *pushing* to main, which leaves a gap:
+# nothing stops the commit itself, so work can land on main and only be
+# noticed later — when a push is rejected, or when a pull request turns out to
+# have no commits in it. This closes that gap at the moment it happens, while
+# the fix is still a one-line branch.
+#
+# Like pre-push, this is a guard rail on one machine, not a control:
+# `--no-verify` walks straight past it, which CLAUDE.md §3.7 forbids.
+#
+# It has no effect in CI. Hooks only run when core.hooksPath is configured,
+# which a fresh checkout never does — so the release job's own
+# `chore(release):` commit on main is unaffected. Do not "fix" that.
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+
+set -euo pipefail
+
+readonly PROTECTED="main"
+
+# Detached HEAD — a rebase, a bisect, a CI checkout. Not on a branch by name,
+# so there is nothing to protect here.
+branch=$(git symbolic-ref --quiet --short HEAD) || exit 0
+
+[ "$branch" = "$PROTECTED" ] || exit 0
+
+echo "pre-commit: refusing to commit on $PROTECTED." >&2
+echo >&2
+echo "  Your staged changes are untouched. Move them to a branch:" >&2
+echo >&2
+echo "      git switch -c <type>/<subject>" >&2
+echo >&2
+echo "  then commit there and open a pull request (CLAUDE.md §3.2)." >&2
+exit 1
