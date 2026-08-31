@@ -61,6 +61,24 @@ const manifest = {
   // No blanket host access yet; that arrives with autofill.
   permissions: ["storage", "alarms", "activeTab"],
 
+  // Autofill has to work on whatever login page you land on, so the content
+  // script runs everywhere. This is the largest grant in the extension: it
+  // means Vaultiq can read and modify every page you visit. What limits the
+  // damage is what the content script is *allowed to ask for* — a list of
+  // names for its own site, and one password after a real click.
+  host_permissions: ["<all_urls>"],
+
+  content_scripts: [
+    {
+      matches: ["<all_urls>"],
+      js: ["content.js"],
+      // The picker anchors to a focused field, so it needs the document to
+      // exist but not its subresources.
+      run_at: "document_idle",
+      all_frames: true,
+    },
+  ],
+
   browser_specific_settings: {
     gecko: {
       id: "vaultiq@rustiqz.github.io",
