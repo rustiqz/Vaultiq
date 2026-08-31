@@ -176,6 +176,28 @@ describe("locking", () => {
   });
 });
 
+describe("strength", () => {
+  it("rides along on every listed item", async () => {
+    await withOneItem();
+    const items = await vault.listItems();
+    expect(items[0]?.strength.level).toBe("weak");
+    expect(items[0]?.strength.bits).toBe(CONTENT.password.length * 6);
+  });
+
+  it("is scored from the item's own password, not something else", async () => {
+    const id = await withOneItem();
+    await vault.updateItem(id, { ...CONTENT, password: "a-much-longer-password" });
+
+    const items = await vault.listItems();
+    expect(items[0]?.strength.level).toBe("excellent");
+  });
+
+  it("works while locked", () => {
+    // A signup form is a reason to want a score and no reason to unlock.
+    expect(vault.checkStrength("short").level).toBe("weak");
+  });
+});
+
 describe("password generation", () => {
   it("works while locked", async () => {
     // Filling a signup form is a reason to want a password and no reason to

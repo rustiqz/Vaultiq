@@ -9,6 +9,7 @@ import init, {
   VaultKeyHandle,
   defaultArgon2Params,
   defaultPasswordOptions,
+  estimateStrength,
   generatePassword,
   deriveMasterKey,
   encryptItem,
@@ -45,6 +46,13 @@ export interface PasswordOptions {
   symbols: boolean;
 }
 
+export type StrengthLevel = "very-weak" | "weak" | "fair" | "strong" | "excellent";
+
+export interface PasswordStrength {
+  bits: number;
+  level: StrengthLevel;
+}
+
 let ready: Promise<unknown> | undefined;
 
 /**
@@ -67,6 +75,16 @@ export function recommendedParams(): Argon2Params {
 
 export function recommendedPasswordOptions(): PasswordOptions {
   return defaultPasswordOptions() as PasswordOptions;
+}
+
+/**
+ * Scores a password.
+ *
+ * Wrapped rather than re-exported: the binding hands back a JsValue, which is
+ * `any` to TypeScript, and this is the one place that shape is asserted.
+ */
+export function scorePassword(password: string): PasswordStrength {
+  return estimateStrength(password) as PasswordStrength;
 }
 
 /**
