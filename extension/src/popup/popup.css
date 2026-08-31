@@ -80,3 +80,18 @@ li .meta { color: var(--muted); font-size: 12px; }
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 hr { border: none; border-top: 1px solid var(--line); margin: 2px 0; }
+
+h2 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+li .row { margin-top: 7px; }
+li .row button { padding: 4px 8px; font-size: 12px; font-weight: 500; }
+
+/* Trashed items are still readable, but visibly not part of the vault. */
+li.trashed { opacity: 0.72; border-style: dashed; }
+li.trashed .name { text-decoration: line-through; }
