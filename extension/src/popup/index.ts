@@ -117,11 +117,17 @@ function itemForm(
   submit: (content: LoginContent) => Promise<void>,
   cancel?: () => void,
 ): HTMLFormElement {
+  const name = el("input", {
+    type: "text",
+    autocomplete: "off",
+    placeholder: "Optional, e.g. Work",
+  });
   const username = el("input", { type: "text", required: true, autocomplete: "off" });
   const password = el("input", { type: "password", required: true, autocomplete: "off" });
   const url = el("input", { type: "text", autocomplete: "off", placeholder: "https://" });
 
   if (initial) {
+    name.value = initial.name ?? "";
     username.value = initial.username;
     password.value = initial.password;
     url.value = initial.url;
@@ -184,6 +190,7 @@ function itemForm(
   }
 
   const form = el("form", {}, [
+    el("label", {}, ["Name", name]),
     el("label", {}, ["Username", username]),
     el("label", {}, ["Password", el("div", { className: "field" }, [password, generate]), meter]),
     el("label", {}, ["Site", url]),
@@ -193,7 +200,11 @@ function itemForm(
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     save.disabled = true;
+    const trimmed = name.value.trim();
     void submit({
+      // Omit rather than store an empty string, so an unnamed item looks the
+      // same as one saved before this field existed.
+      ...(trimmed ? { name: trimmed } : {}),
       username: username.value,
       password: password.value,
       url: url.value,
@@ -228,7 +239,8 @@ function action(label: string, request: Request, confirmWith?: string): HTMLButt
 function liveRow(item: DecryptedItem): HTMLLIElement {
   const edit = el("button", { type: "button", textContent: "Edit" });
 
-  const heading = el("div", { className: "name" }, [item.username || "(no username)"]);
+  const label = item.name?.trim();
+  const heading = el("div", { className: "name" }, [label || item.username || "(untitled)"]);
   if (isWeak(item.strength.level)) {
     // Surfaced rather than hidden behind a health screen: the whole point is
     // noticing without going looking.
@@ -241,9 +253,13 @@ function liveRow(item: DecryptedItem): HTMLLIElement {
     );
   }
 
+  // With several logins for one site, the username is what tells them apart
+  // once a name is showing.
+  const detail = [label ? item.username : "", item.url].filter(Boolean).join(" · ");
+
   const row = el("li", {}, [
     heading,
-    el("div", { className: "meta", textContent: item.url || "(no site)" }),
+    el("div", { className: "meta", textContent: detail || "(no site)" }),
     el("div", { className: "row" }, [edit, action("Delete", { kind: "trashItem", id: item.id })]),
   ]);
 
@@ -264,9 +280,13 @@ function liveRow(item: DecryptedItem): HTMLLIElement {
 }
 
 function trashedRow(item: DecryptedItem): HTMLLIElement {
+  const label = item.name?.trim();
   return el("li", { className: "trashed" }, [
-    el("div", { className: "name", textContent: item.username || "(no username)" }),
-    el("div", { className: "meta", textContent: item.url || "(no site)" }),
+    el("div", { className: "name", textContent: label || item.username || "(untitled)" }),
+    el("div", {
+      className: "meta",
+      textContent: [label ? item.username : "", item.url].filter(Boolean).join(" · ") || "(no site)",
+    }),
     el("div", { className: "row" }, [
       action("Restore", { kind: "restoreItem", id: item.id }),
       action(
