@@ -18,6 +18,8 @@ export interface LoginContent {
 export interface DecryptedItem extends LoginContent {
   id: string;
   updatedAt: number;
+  /** In the trash. The content is still here and can be restored. */
+  deleted: boolean;
 }
 
 export type Request =
@@ -26,6 +28,13 @@ export type Request =
   | { kind: "unlock"; masterPassword: string }
   | { kind: "lock" }
   | { kind: "addItem"; content: LoginContent }
+  | { kind: "updateItem"; id: string; content: LoginContent }
+  // Moves to the trash: the content is kept and can be restored.
+  | { kind: "trashItem"; id: string }
+  | { kind: "restoreItem"; id: string }
+  // Erases the content for good. The record itself stays, because a deletion
+  // has to be able to propagate to other devices later.
+  | { kind: "purgeItem"; id: string }
   | { kind: "listItems" };
 
 export type Response =
@@ -34,6 +43,10 @@ export type Response =
   | { ok: true; kind: "unlock" }
   | { ok: true; kind: "lock" }
   | { ok: true; kind: "addItem"; id: string }
+  | { ok: true; kind: "updateItem" }
+  | { ok: true; kind: "trashItem" }
+  | { ok: true; kind: "restoreItem" }
+  | { ok: true; kind: "purgeItem" }
   | { ok: true; kind: "listItems"; items: DecryptedItem[] }
   | { ok: false; error: string };
 
