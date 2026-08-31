@@ -30,7 +30,14 @@ import type {
   Response,
   VaultStatus,
 } from "../lib/messages.js";
-import { allItems, getVault, putItem, putVault, type StoredItem } from "../lib/vault-db.js";
+import {
+  allItems,
+  getItem,
+  getVault,
+  putItem,
+  putVault,
+  type StoredItem,
+} from "../lib/vault-db.js";
 
 /** Idle minutes before the vault locks itself. */
 const AUTO_LOCK_MINUTES = 15;
@@ -162,13 +169,98 @@ async function addItem(content: LoginContent): Promise<string> {
   return id;
 }
 
+/**
+ * Rewrites an item: decrypt, change, re-encrypt at the next version.
+ *
+ * Every mutation goes through here because none of them can be a field edit.
+ * `version` and `deleted` are bound into the authentication tag, so changing
+ * either on a stored record makes it fail to decrypt — which is the whole
+ * point of binding them. A change is therefore always a fresh encryption.
+ *
+ * The version increment is not bookkeeping either: without it a new
+ * ciphertext would be interchangeable with the old one, and a server could
+ * roll you back to a previous password undetected.
+ */
+async function rewriteItem(
+  id: string,
+  change: (current: LoginContent) => { content: string; deleted: boolean },
+): Promise<void> {
+  const vaultKey = await requireUnlocked();
+
+  const stored = await getItem(id);
+  if (!stored) throw new Error("No such item.");
+
+  const current = JSON.parse(decryptItem(stored, vaultKey)) as LoginContent;
+  const { content, deleted } = change(current);
+
+  const encrypted: StoredItem = encryptItem(
+    content,
+    {
+      id,
+      item_type: stored.item_type,
+      version: stored.version + 1,
+      updated_at: Date.now(),
+      deleted,
+    },
+    vaultKey,
+  ) as StoredItem;
+
+  await putItem(encrypted);
+}
+
+async function updateItem(id: string, content: LoginContent): Promise<void> {
+  await rewriteItem(id, () => ({ content: JSON.stringify(content), deleted: false }));
+}
+
+async function trashItem(id: string): Promise<void> {
+  // The content is kept, so this is recoverable.
+  await rewriteItem(id, (current) => ({
+    content: JSON.stringify(current),
+    deleted: true,
+  }));
+}
+
+async function restoreItem(id: string): Promise<void> {
+  await rewriteItem(id, (current) => ({
+    content: JSON.stringify(current),
+    deleted: false,
+  }));
+}
+
+async function purgeItem(id: string): Promise<void> {
+  // The record survives — a deletion has to be able to propagate to other
+  // devices — but its content is replaced, so the secret is genuinely gone.
+  // The marker lives inside the ciphertext, so a server cannot tell a purged
+  // item from any other.
+  await rewriteItem(id, () => ({
+    content: JSON.stringify({ purged: true }),
+    deleted: true,
+  }));
+}
+
 async function listItems(): Promise<DecryptedItem[]> {
   const vaultKey = await requireUnlocked();
   const stored = await allItems();
 
-  return stored.map((item) => {
-    const content = JSON.parse(decryptItem(item, vaultKey)) as LoginContent;
-    return { ...content, id: item.id, updatedAt: item.updated_at };
+  return stored.flatMap((item) => {
+    const content = JSON.parse(decryptItem(item, vaultKey)) as Partial<LoginContent> & {
+      purged?: boolean;
+    };
+    // A purged record is a tombstone with nothing left in it; it exists for
+    // sync, not for the user.
+    if (content.purged === true) return [];
+
+    return [
+      {
+        username: content.username ?? "",
+        password: content.password ?? "",
+        url: content.url ?? "",
+        notes: content.notes ?? "",
+        id: item.id,
+        updatedAt: item.updated_at,
+        deleted: item.deleted,
+      },
+    ];
   });
 }
 
@@ -194,6 +286,22 @@ async function handle(request: Request): Promise<Response> {
       await extendAutoLock();
       return { ok: true, kind: "addItem", id };
     }
+    case "updateItem":
+      await updateItem(request.id, request.content);
+      await extendAutoLock();
+      return { ok: true, kind: "updateItem" };
+    case "trashItem":
+      await trashItem(request.id);
+      await extendAutoLock();
+      return { ok: true, kind: "trashItem" };
+    case "restoreItem":
+      await restoreItem(request.id);
+      await extendAutoLock();
+      return { ok: true, kind: "restoreItem" };
+    case "purgeItem":
+      await purgeItem(request.id);
+      await extendAutoLock();
+      return { ok: true, kind: "purgeItem" };
     case "listItems": {
       const items = await listItems();
       await extendAutoLock();
