@@ -8,6 +8,8 @@ import init, {
   MasterKeyHandle,
   VaultKeyHandle,
   defaultArgon2Params,
+  defaultPasswordOptions,
+  generatePassword,
   deriveMasterKey,
   encryptItem,
   decryptItem,
@@ -19,6 +21,7 @@ import init, {
 
 export type { MasterKeyHandle, VaultKeyHandle };
 export {
+  generatePassword,
   decryptItem,
   deriveMasterKey,
   encryptItem,
@@ -32,6 +35,14 @@ export interface Argon2Params {
   memory_kib: number;
   iterations: number;
   parallelism: number;
+}
+
+export interface PasswordOptions {
+  length: number;
+  lowercase: boolean;
+  uppercase: boolean;
+  digits: boolean;
+  symbols: boolean;
 }
 
 let ready: Promise<unknown> | undefined;
@@ -52,6 +63,10 @@ export async function loadCrypto(): Promise<void> {
 
 export function recommendedParams(): Argon2Params {
   return defaultArgon2Params() as Argon2Params;
+}
+
+export function recommendedPasswordOptions(): PasswordOptions {
+  return defaultPasswordOptions() as PasswordOptions;
 }
 
 /**
