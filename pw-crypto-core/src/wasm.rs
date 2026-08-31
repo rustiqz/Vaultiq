@@ -31,7 +31,7 @@ use crate::keys::{
     KEY_LEN, VaultKey, WrappedVaultKey, derive_auth_key as derive_auth,
     derive_stretched_encryption_key, unwrap_vault_key as unwrap_key, wrap_vault_key as wrap_key,
 };
-use crate::password::{PasswordOptions, generate_password as generate};
+use crate::password::{PasswordOptions, estimate_strength, generate_password as generate};
 use crate::vault_item::{EncryptedItem, ItemHeader, decrypt_item as decrypt, encrypt_item};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -334,6 +334,17 @@ pub fn generate_password_js(options: wasm_bindgen::JsValue) -> Result<String, Js
         CryptoError::InvalidInput(reason) => JsError::new(&format!("invalid options: {reason}")),
         other => opaque(other),
     })
+}
+
+/// Estimates how strong a password looks.
+///
+/// Never fails: an empty or unusual password simply scores low. Scoring
+/// happens here rather than in JavaScript so every client agrees — the same
+/// password rating differently on two devices would be worse than no rating.
+#[wasm_bindgen(js_name = estimateStrength)]
+pub fn estimate_strength_js(password: &str) -> Result<wasm_bindgen::JsValue, JsError> {
+    serde_wasm_bindgen::to_value(&estimate_strength(password))
+        .map_err(|_| JsError::new("could not serialize strength"))
 }
 
 /// Length of a key in bytes, exported so JS can validate without hard-coding.

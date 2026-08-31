@@ -7,6 +7,14 @@
 
 export type VaultStatus = "empty" | "locked" | "unlocked";
 
+/** Bands are anchored to the generator: only its default reaches the top. */
+export type StrengthLevel = "very-weak" | "weak" | "fair" | "strong" | "excellent";
+
+export interface PasswordStrength {
+  bits: number;
+  level: StrengthLevel;
+}
+
 export interface PasswordOptions {
   length: number;
   lowercase: boolean;
@@ -28,6 +36,11 @@ export interface DecryptedItem extends LoginContent {
   updatedAt: number;
   /** In the trash. The content is still here and can be restored. */
   deleted: boolean;
+  /**
+   * Scored in the background while the item is decrypted, so the popup does
+   * not have to load the crypto module to show a badge.
+   */
+  strength: PasswordStrength;
 }
 
 export type Request =
@@ -46,7 +59,8 @@ export type Request =
   | { kind: "listItems" }
   // Generation happens in the background like everything else, so the popup
   // never loads the crypto module itself.
-  | { kind: "generatePassword"; options?: PasswordOptions };
+  | { kind: "generatePassword"; options?: PasswordOptions }
+  | { kind: "checkStrength"; password: string };
 
 export type Response =
   | { ok: true; kind: "status"; status: VaultStatus }
@@ -60,6 +74,7 @@ export type Response =
   | { ok: true; kind: "purgeItem" }
   | { ok: true; kind: "listItems"; items: DecryptedItem[] }
   | { ok: true; kind: "generatePassword"; password: string }
+  | { ok: true; kind: "checkStrength"; strength: PasswordStrength }
   | { ok: true; kind: "passwordOptions"; options: PasswordOptions }
   | { ok: false; error: string };
 

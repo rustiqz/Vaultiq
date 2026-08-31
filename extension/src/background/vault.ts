@@ -18,6 +18,7 @@ import {
   generatePassword,
   recommendedParams,
   recommendedPasswordOptions,
+  scorePassword,
   stashVaultKey,
   takeStashedVaultKey,
   unwrapVaultKey,
@@ -31,6 +32,7 @@ import type {
   DecryptedItem,
   LoginContent,
   PasswordOptions,
+  PasswordStrength,
   VaultStatus,
 } from "../lib/messages.js";
 import {
@@ -247,6 +249,11 @@ export function newPassword(options?: PasswordOptions): string {
   return generatePassword(options ?? recommendedPasswordOptions());
 }
 
+/** Scores a password. Needs no vault key, so it works while locked. */
+export function checkStrength(password: string): PasswordStrength {
+  return scorePassword(password);
+}
+
 export async function listItems(): Promise<DecryptedItem[]> {
   const vaultKey = await requireUnlocked();
   const stored = await allItems();
@@ -268,6 +275,7 @@ export async function listItems(): Promise<DecryptedItem[]> {
         id: item.id,
         updatedAt: item.updated_at,
         deleted: item.deleted,
+        strength: scorePassword(content.password ?? ""),
       },
     ];
   });
