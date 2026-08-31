@@ -100,3 +100,23 @@ li.trashed .name { text-decoration: line-through; }
 .field { display: flex; gap: 6px; }
 .field input { flex: 1; min-width: 0; }
 button.inline { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
+
+/* Strength. Colour carries the level, but so does the text — the label is
+   never the only signal. */
+.meter { font-size: 11.5px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.level-very-weak { color: var(--danger); }
+.level-weak { color: var(--danger); }
+.level-fair { color: var(--muted); }
+.level-strong { color: var(--accent); }
+.level-excellent { color: var(--accent); font-weight: 600; }
+
+.badge {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid currentColor;
+  vertical-align: 1px;
+}

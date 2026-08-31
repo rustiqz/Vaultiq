@@ -9,8 +9,22 @@ import {
   type LoginContent,
   type Request,
   type Response,
+  type StrengthLevel,
   type VaultStatus,
 } from "../lib/messages.js";
+
+const STRENGTH_LABEL: Record<StrengthLevel, string> = {
+  "very-weak": "Very weak",
+  weak: "Weak",
+  fair: "Fair",
+  strong: "Strong",
+  excellent: "Excellent",
+};
+
+/** Levels worth nagging about in the list. */
+function isWeak(level: StrengthLevel): boolean {
+  return level === "very-weak" || level === "weak";
+}
 
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("popup root missing");
@@ -129,6 +143,7 @@ function itemForm(
         if (response.kind !== "generatePassword") throw new Error("unexpected reply");
         password.value = response.password;
         password.type = "text";
+        rescore();
       })
       .catch((error: unknown) => {
         showError(error instanceof Error ? error.message : "Failed.");
@@ -137,6 +152,27 @@ function itemForm(
         generate.disabled = false;
       });
   });
+
+  // Scored in the background as you type, so the popup never loads the
+  // crypto module and every client agrees on the number.
+  const meter = el("div", { className: "meter muted" });
+  let pending = 0;
+  const rescore = (): void => {
+    const value = password.value;
+    const token = ++pending;
+    if (!value) {
+      meter.textContent = "";
+      meter.className = "meter muted";
+      return;
+    }
+    void send({ kind: "checkStrength", password: value }).then((response) => {
+      if (token !== pending || !response.ok || response.kind !== "checkStrength") return;
+      const { level, bits } = response.strength;
+      meter.textContent = `${STRENGTH_LABEL[level]} · ~${String(bits)} bits`;
+      meter.className = `meter level-${level}`;
+    });
+  };
+  password.addEventListener("input", rescore);
 
   const save = el("button", { className: "primary", type: "submit", textContent: submitLabel });
   const actions = el("div", { className: "row" }, [save]);
@@ -149,7 +185,7 @@ function itemForm(
 
   const form = el("form", {}, [
     el("label", {}, ["Username", username]),
-    el("label", {}, ["Password", el("div", { className: "field" }, [password, generate])]),
+    el("label", {}, ["Password", el("div", { className: "field" }, [password, generate]), meter]),
     el("label", {}, ["Site", url]),
     actions,
   ]);
@@ -191,8 +227,22 @@ function action(label: string, request: Request, confirmWith?: string): HTMLButt
 
 function liveRow(item: DecryptedItem): HTMLLIElement {
   const edit = el("button", { type: "button", textContent: "Edit" });
+
+  const heading = el("div", { className: "name" }, [item.username || "(no username)"]);
+  if (isWeak(item.strength.level)) {
+    // Surfaced rather than hidden behind a health screen: the whole point is
+    // noticing without going looking.
+    heading.append(
+      el("span", {
+        className: `badge level-${item.strength.level}`,
+        textContent: STRENGTH_LABEL[item.strength.level],
+        title: `About ${String(item.strength.bits)} bits. Worth replacing.`,
+      }),
+    );
+  }
+
   const row = el("li", {}, [
-    el("div", { className: "name", textContent: item.username || "(no username)" }),
+    heading,
     el("div", { className: "meta", textContent: item.url || "(no site)" }),
     el("div", { className: "row" }, [edit, action("Delete", { kind: "trashItem", id: item.id })]),
   ]);
