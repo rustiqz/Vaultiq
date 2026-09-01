@@ -24,5 +24,8 @@
     "vite": "7.1.12",
     "vitest": "4.1.11",
     "web-ext": "8.10.0"
+  },
+  "dependencies": {
+    "tldts": "7.4.11"
   }
 }
