@@ -59,7 +59,10 @@ const manifest = {
   // `activeTab` lets the background read the URL of the tab you are looking
   // at when you open the popup — granted by that click, and by nothing else.
   // No blanket host access yet; that arrives with autofill.
-  permissions: ["storage", "alarms", "activeTab"],
+  // `clipboardRead` is only so a copied secret can be *taken back*: the timer
+  // checks the clipboard still holds what it put there before clearing it,
+  // rather than wiping whatever the user copied in the meantime.
+  permissions: ["storage", "alarms", "activeTab", "clipboardWrite", "clipboardRead"],
 
   // Autofill has to work on whatever login page you land on, so the content
   // script runs everywhere. This is the largest grant in the extension: it
