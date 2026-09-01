@@ -98,21 +98,40 @@ export async function getItem(id: string): Promise<StoredItem | undefined> {
 }
 
 /**
- * The single encrypted record holding usage stats for every item.
+ * One device's record of what it has done, encrypted.
  *
- * Stored the same way an item is, so it gets the same authentication — its
+ * Deliberately one record *per device* rather than one shared blob. Every
+ * autofill rewrites it, so a shared blob would collide the moment two devices
+ * were used near each other — and since each device only ever writes its own,
+ * a conflict is impossible by construction.
+ *
+ * It is also what makes the audit trail answer "which device", rather than
+ * only "when".
+ *
+ * Stored the same way an item is, so it carries the same authentication: its
  * id and version are bound into the tag like everything else.
  */
 export interface UsageRecord {
-  id: "usage";
+  /** `usage:<deviceId>` */
+  id: string;
+  deviceId: string;
   item: StoredItem;
 }
 
-export async function getUsage(): Promise<UsageRecord | undefined> {
+export async function getUsage(deviceId: string): Promise<UsageRecord | undefined> {
   return await run<UsageRecord | undefined>(
     STORE_USAGE,
     "readonly",
-    (s) => s.get("usage") as IDBRequest<UsageRecord | undefined>,
+    (s) => s.get(`usage:${deviceId}`) as IDBRequest<UsageRecord | undefined>,
+  );
+}
+
+/** Every device's record, for merging into one view. */
+export async function allUsage(): Promise<UsageRecord[]> {
+  return await run<UsageRecord[]>(
+    STORE_USAGE,
+    "readonly",
+    (s) => s.getAll() as IDBRequest<UsageRecord[]>,
   );
 }
 

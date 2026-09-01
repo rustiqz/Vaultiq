@@ -506,7 +506,7 @@ describe("usage", () => {
     await vault.addItem(CONTENT);
 
     const [item] = await vault.listItems();
-    expect(item?.usage).toEqual({ useCount: 0 });
+    expect(item?.usage.useCount).toBe(0);
   });
 
   it("counts an autofill and marks it as one", async () => {
@@ -525,7 +525,7 @@ describe("usage", () => {
     await vault.create("correct horse battery staple");
     const id = await vault.addItem(CONTENT);
 
-    await vault.recordUse(id, false);
+    await vault.recordUse(id, "copied");
 
     const [item] = await vault.listItems();
     expect(item?.usage.useCount).toBe(1);
@@ -537,9 +537,9 @@ describe("usage", () => {
     await vault.create("correct horse battery staple");
     const id = await vault.addItem(CONTENT);
 
-    await vault.recordUse(id, false);
-    await vault.recordUse(id, false);
-    await vault.recordUse(id, false);
+    await vault.recordUse(id, "copied");
+    await vault.recordUse(id, "copied");
+    await vault.recordUse(id, "copied");
 
     expect((await vault.listItems())[0]?.usage.useCount).toBe(3);
   });
@@ -550,7 +550,7 @@ describe("usage", () => {
     const id = await vault.addItem(CONTENT);
     const before = db.items.get(id)?.version;
 
-    await vault.recordUse(id, false);
+    await vault.recordUse(id, "copied");
 
     // version drives sync's optimistic concurrency. If a fill moved it, two
     // devices using one login would collide over nothing that changed.
@@ -561,12 +561,17 @@ describe("usage", () => {
     await vault.create("correct horse battery staple");
     await vault.addItem(CONTENT);
     const anyItem = db.items.values().next().value!;
-    db.usage = { id: "usage", item: { ...anyItem, plaintext: "not json" } as typeof anyItem };
+    const { id: deviceId } = await vault.device();
+    db.usage.set(`usage:${deviceId}`, {
+      id: `usage:${deviceId}`,
+      deviceId,
+      item: { ...anyItem, plaintext: "not json" } as typeof anyItem,
+    });
 
     // Statistics are not the vault. Losing them must not stop it opening.
     const items = await vault.listItems();
     expect(items).toHaveLength(1);
-    expect(items[0]?.usage).toEqual({ useCount: 0 });
+    expect(items[0]?.usage.useCount).toBe(0);
   });
 });
 
@@ -609,6 +614,88 @@ describe("reused passwords", () => {
     // Strength scoring cannot see this, which is the whole point.
     expect(items[0]?.strength.level).toBe("excellent");
     expect(items[0]?.reusedBy).toBe(1);
+  });
+});
+
+describe("audit trail", () => {
+  it("names the device that did something", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+    await vault.recordUse(id, "copied");
+
+    const me = await vault.device();
+    const [item] = await vault.listItems();
+    expect(item?.usage.devices).toHaveLength(1);
+    expect(item?.usage.devices[0]?.deviceId).toBe(me.id);
+    expect(item?.usage.devices[0]?.count).toBe(1);
+  });
+
+  it("counts each kind of use separately", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    await vault.recordUse(id, "copied");
+    await vault.recordUse(id, "copied");
+    await vault.recordUse(id, "revealed");
+    await vault.credentialForFill(id, "https://example.com");
+
+    const [item] = await vault.listItems();
+    expect(item?.usage.counts).toMatchObject({ copied: 2, revealed: 1, autofilled: 1 });
+    expect(item?.usage.useCount).toBe(4);
+    expect(item?.usage.lastAutofilledAt).toBeGreaterThan(0);
+  });
+
+  it("keeps a history, newest first", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+    await vault.recordUse(id, "copied");
+    await vault.recordUse(id, "revealed");
+
+    const { events, devices } = await vault.auditLog();
+    expect(events[0]?.kind).toBe("revealed");
+    expect(events[1]?.kind).toBe("copied");
+    expect(devices).toHaveLength(1);
+  });
+
+  it("bounds the history rather than growing without limit", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+    for (let i = 0; i < 260; i += 1) await vault.recordUse(id, "copied");
+
+    // An unbounded log is a growing liability as much as a growing file.
+    const { events } = await vault.auditLog();
+    expect(events).toHaveLength(200);
+
+    // The counter is not bounded, only the event list.
+    expect((await vault.listItems())[0]?.usage.counts.copied).toBe(260);
+  });
+
+  it("carries a renamed device into the trail", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+    await vault.recordUse(id, "copied");
+    await vault.renameDevice("Work laptop");
+
+    const [item] = await vault.listItems();
+    expect(item?.usage.devices[0]?.deviceName).toBe("Work laptop");
+  });
+
+  it("still lists items when one device's record is unreadable", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+    await vault.recordUse(id, "copied");
+
+    const me = await vault.device();
+    const record = db.usage.get(`usage:${me.id}`)!;
+    db.usage.set(record.id, {
+      ...record,
+      item: { ...record.item, plaintext: "not json" } as typeof record.item,
+    });
+
+    // Statistics are not the vault.
+    const items = await vault.listItems();
+    expect(items).toHaveLength(1);
+    expect(items[0]?.usage.useCount).toBe(0);
   });
 });
 
