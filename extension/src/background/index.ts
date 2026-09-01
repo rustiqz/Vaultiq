@@ -18,8 +18,11 @@ import {
   credentialForFill,
   saveSubmitted,
   shouldOfferToSave,
+  auditLog,
+  device,
   itemsForUrl,
   recordUse,
+  renameDevice,
   newPassword,
   lock,
   purgeItem,
@@ -114,9 +117,19 @@ async function handle(
       return { ok: true, kind: "saveSubmitted" };
     }
     case "recordUse":
-      await recordUse(request.id, false);
+      await recordUse(request.id, request.event ?? "copied");
       await extendAutoLock();
       return { ok: true, kind: "recordUse" };
+    case "device":
+      return { ok: true, kind: "device", device: await device() };
+    case "renameDevice":
+      await renameDevice(request.name);
+      return { ok: true, kind: "renameDevice" };
+    case "auditLog": {
+      const log = await auditLog();
+      await extendAutoLock();
+      return { ok: true, kind: "auditLog", ...log };
+    }
     case "listItems": {
       const items = await listItems();
       await extendAutoLock();

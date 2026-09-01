@@ -30,15 +30,20 @@ import {
 export { assertSessionStorage, loadCrypto };
 import { matchesSite, siteScope } from "../lib/site.js";
 import type {
+  AuditEvent,
   DecryptedItem,
+  DeviceIdentity,
   ItemUsage,
+  UsageEvent,
   LoginContent,
   PasswordOptions,
   PasswordStrength,
   VaultStatus,
 } from "../lib/messages.js";
+import { renameDevice as storeDeviceName, thisDevice } from "../lib/device.js";
 import {
   allItems,
+  allUsage,
   getItem,
   getUsage,
   getVault,
@@ -52,9 +57,14 @@ import {
 const AUTO_LOCK_MINUTES = 15;
 export const AUTO_LOCK_ALARM = "vaultiq-auto-lock";
 const ITEM_TYPE = "login";
-const USAGE_ID = "usage";
 const USAGE_TYPE = "usage";
-const NO_USAGE: ItemUsage = { useCount: 0 };
+
+/** How many recent events one device keeps. Enough to be useful, bounded. */
+const AUDIT_LIMIT = 200;
+
+function emptyUsage(): ItemUsage {
+  return { useCount: 0, counts: {}, devices: [] };
+}
 const VAULT_FORMAT = 1;
 
 /**
@@ -162,27 +172,43 @@ async function requireUnlocked(): Promise<VaultKeyHandle> {
   return vaultKey;
 }
 
-/** Everything recorded about how items have been reached for. */
-type UsageMap = Record<string, ItemUsage>;
+/** What one device has recorded: per-item counters, plus recent events. */
+interface DeviceRecord {
+  device: DeviceIdentity;
+  items: Record<string, Partial<Record<UsageEvent, { count: number; lastAt: number }>>>;
+  events: AuditEvent[];
+}
 
-async function readUsage(vaultKey: VaultKeyHandle): Promise<UsageMap> {
-  const record = await getUsage();
-  if (!record) return {};
+function emptyRecord(device: DeviceIdentity): DeviceRecord {
+  return { device, items: {}, events: [] };
+}
+
+async function readDeviceRecord(
+  vaultKey: VaultKeyHandle,
+  device: DeviceIdentity,
+): Promise<DeviceRecord> {
+  const stored = await getUsage(device.id);
+  if (!stored) return emptyRecord(device);
   try {
-    return JSON.parse(decryptItem(record.item, vaultKey)) as UsageMap;
+    const parsed = JSON.parse(decryptItem(stored.item, vaultKey)) as DeviceRecord;
+    // The name can change; the record keeps whatever it was called last.
+    return { ...parsed, device };
   } catch {
-    // A usage blob that will not decrypt is a statistic, not a vault. Losing
-    // it must never stop the vault opening.
-    return {};
+    // A usage record that will not decrypt is a statistic, not a vault.
+    // Losing it must never stop the vault opening.
+    return emptyRecord(device);
   }
 }
 
-async function writeUsage(vaultKey: VaultKeyHandle, usage: UsageMap): Promise<void> {
-  const previous = await getUsage();
+async function writeDeviceRecord(
+  vaultKey: VaultKeyHandle,
+  record: DeviceRecord,
+): Promise<void> {
+  const previous = await getUsage(record.device.id);
   const item: StoredItem = encryptItem(
-    JSON.stringify(usage),
+    JSON.stringify(record),
     {
-      id: USAGE_ID,
+      id: `usage:${record.device.id}`,
       item_type: USAGE_TYPE,
       version: (previous?.item.version ?? 0) + 1,
       updated_at: Date.now(),
@@ -191,24 +217,107 @@ async function writeUsage(vaultKey: VaultKeyHandle, usage: UsageMap): Promise<vo
     vaultKey,
   ) as StoredItem;
 
-  await putUsage({ id: USAGE_ID, item });
+  await putUsage({ id: `usage:${record.device.id}`, deviceId: record.device.id, item });
 }
 
-/** Notes that an item was reached for. `filled` marks an autofill. */
-export async function recordUse(id: string, filled: boolean): Promise<void> {
+/** Every device's record, decrypted, for merging into one view. */
+async function readAllRecords(vaultKey: VaultKeyHandle): Promise<DeviceRecord[]> {
+  const records: DeviceRecord[] = [];
+  for (const stored of await allUsage()) {
+    try {
+      records.push(JSON.parse(decryptItem(stored.item, vaultKey)) as DeviceRecord);
+    } catch {
+      // Skip a record that will not decrypt rather than failing the list.
+    }
+  }
+  return records;
+}
+
+/** Notes that something was done with an item, on this device. */
+export async function recordUse(id: string, event: UsageEvent = "autofilled"): Promise<void> {
   const vaultKey = await requireUnlocked();
-  const usage = await readUsage(vaultKey);
+  const device = await thisDevice();
+  const record = await readDeviceRecord(vaultKey, device);
   const now = Date.now();
 
-  const previous = usage[id] ?? NO_USAGE;
-  usage[id] = {
-    ...previous,
-    lastUsedAt: now,
-    ...(filled ? { lastAutofilledAt: now } : {}),
-    useCount: previous.useCount + 1,
-  };
+  const forItem = record.items[id] ?? {};
+  const previous = forItem[event] ?? { count: 0, lastAt: 0 };
+  forItem[event] = { count: previous.count + 1, lastAt: now };
+  record.items[id] = forItem;
 
-  await writeUsage(vaultKey, usage);
+  // Newest first, and bounded — an unbounded history is a growing liability
+  // as much as a growing file.
+  record.events = [{ at: now, itemId: id, kind: event }, ...record.events].slice(0, AUDIT_LIMIT);
+
+  await writeDeviceRecord(vaultKey, record);
+}
+
+/** This device, as the audit trail names it. */
+export async function device(): Promise<DeviceIdentity> {
+  return await thisDevice();
+}
+
+export async function renameDevice(name: string): Promise<void> {
+  const renamed = await storeDeviceName(name);
+  // Carried into this device's own record, so the new name shows up in the
+  // merged view without waiting for the next use.
+  const vaultKey = await currentVaultKey();
+  if (!vaultKey) return;
+  await writeDeviceRecord(vaultKey, await readDeviceRecord(vaultKey, renamed));
+}
+
+/** Recent activity across every device, newest first. */
+export async function auditLog(): Promise<{ events: AuditEvent[]; devices: DeviceIdentity[] }> {
+  const vaultKey = await requireUnlocked();
+  const records = await readAllRecords(vaultKey);
+
+  return {
+    events: records
+      .flatMap((record) => record.events)
+      .sort((a, b) => b.at - a.at)
+      .slice(0, AUDIT_LIMIT),
+    devices: records.map((record) => record.device),
+  };
+}
+
+/** Folds every device's record into one view per item. */
+function mergeUsage(records: DeviceRecord[]): Map<string, ItemUsage> {
+  const merged = new Map<string, ItemUsage>();
+
+  for (const record of records) {
+    for (const [itemId, events] of Object.entries(record.items)) {
+      const usage = merged.get(itemId) ?? emptyUsage();
+
+      let deviceCount = 0;
+      let deviceLast = 0;
+
+      for (const [kind, tally] of Object.entries(events) as [
+        UsageEvent,
+        { count: number; lastAt: number },
+      ][]) {
+        usage.counts[kind] = (usage.counts[kind] ?? 0) + tally.count;
+        usage.useCount += tally.count;
+        deviceCount += tally.count;
+        deviceLast = Math.max(deviceLast, tally.lastAt);
+
+        if (tally.lastAt > (usage.lastUsedAt ?? 0)) usage.lastUsedAt = tally.lastAt;
+        if (kind === "autofilled" && tally.lastAt > (usage.lastAutofilledAt ?? 0)) {
+          usage.lastAutofilledAt = tally.lastAt;
+        }
+      }
+
+      usage.devices.push({
+        deviceId: record.device.id,
+        deviceName: record.device.name,
+        count: deviceCount,
+        lastAt: deviceLast,
+      });
+      merged.set(itemId, usage);
+    }
+  }
+
+  for (const usage of merged.values()) usage.devices.sort((a, b) => b.lastAt - a.lastAt);
+  return merged;
 }
 
 export async function addItem(content: LoginContent): Promise<string> {
@@ -323,7 +432,7 @@ export function checkStrength(password: string): PasswordStrength {
 export async function listItems(): Promise<DecryptedItem[]> {
   const vaultKey = await requireUnlocked();
   const stored = await allItems();
-  const usage = await readUsage(vaultKey);
+  const usage = mergeUsage(await readAllRecords(vaultKey));
 
   // Counted over live items only: a password still sitting in the trash is
   // not one you are relying on anywhere.
@@ -360,7 +469,7 @@ export async function listItems(): Promise<DecryptedItem[]> {
         updatedAt: item.updated_at,
         deleted: item.deleted,
         strength: scorePassword(content.password ?? ""),
-        usage: usage[item.id] ?? NO_USAGE,
+        usage: usage.get(item.id) ?? emptyUsage(),
         reusedBy: item.deleted
           ? 0
           : Math.max((shared.get(content.password ?? "") ?? 1) - 1, 0),
@@ -421,7 +530,7 @@ export async function credentialForFill(
 
   // Recorded here rather than in the content script: the fill is the event
   // worth counting, and this is the only place it is known to have happened.
-  await recordUse(id, true);
+  await recordUse(id, "autofilled");
 
   return { username: item.username, password: item.password };
 }

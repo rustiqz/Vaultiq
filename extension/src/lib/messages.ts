@@ -54,6 +54,24 @@ export interface LoginContent {
   lastModifiedAt?: number;
 }
 
+/** What someone did with a login. */
+export type UsageEvent = "created" | "edited" | "autofilled" | "copied" | "revealed";
+
+/** One thing that happened, on one device. */
+export interface AuditEvent {
+  at: number;
+  itemId: string;
+  kind: UsageEvent;
+}
+
+/** What one device has done with one login. */
+export interface DeviceSummary {
+  deviceId: string;
+  deviceName: string;
+  count: number;
+  lastAt: number;
+}
+
 /**
  * How often and how recently a login has been reached for.
  *
@@ -69,6 +87,16 @@ export interface ItemUsage {
   lastUsedAt?: number;
   lastAutofilledAt?: number;
   useCount: number;
+  /** Totals per kind, across every device. */
+  counts: Partial<Record<UsageEvent, number>>;
+  /** Which devices have reached for this login, most recent first. */
+  devices: DeviceSummary[];
+}
+
+/** This browser, as the vault knows it. */
+export interface DeviceIdentity {
+  id: string;
+  name: string;
 }
 
 /** An item as the popup sees it: plaintext, and only while unlocked. */
@@ -120,7 +148,10 @@ export type Request =
   | { kind: "itemsForSite" }
   // Notes that a login was reached for from the popup — copied, revealed, or
   // opened. Autofill records itself.
-  | { kind: "recordUse"; id: string }
+  | { kind: "recordUse"; id: string; event?: UsageEvent }
+  | { kind: "device" }
+  | { kind: "renameDevice"; name: string }
+  | { kind: "auditLog" }
   // The only request that returns a password. Answered only for an item that
   // belongs to the sender's own site, so a compromised page cannot read
   // credentials for anywhere else.
@@ -146,6 +177,9 @@ export type Response =
   | { ok: true; kind: "checkStrength"; strength: PasswordStrength }
   | { ok: true; kind: "itemsForSite"; site: string | null; items: DecryptedItem[] }
   | { ok: true; kind: "recordUse" }
+  | { ok: true; kind: "device"; device: DeviceIdentity }
+  | { ok: true; kind: "renameDevice" }
+  | { ok: true; kind: "auditLog"; events: AuditEvent[]; devices: DeviceIdentity[] }
   | { ok: true; kind: "credentialForFill"; username: string; password: string }
   | { ok: true; kind: "shouldOfferToSave"; offer: false }
   | { ok: true; kind: "shouldOfferToSave"; offer: true; site: string; existingId: string | null }

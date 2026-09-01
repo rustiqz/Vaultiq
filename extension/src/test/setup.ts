@@ -7,12 +7,24 @@
 import { beforeEach, vi } from "vitest";
 
 const session = new Map<string, unknown>();
+const local = new Map<string, unknown>();
 
 /** The page a test pretends the user is looking at. */
 export const activeTab: { url: string | undefined } = { url: undefined };
 
 const browserStub = {
   storage: {
+    // Where the device identity lives: it has to survive the browser closing,
+    // which session storage deliberately does not.
+    local: {
+      get: vi.fn((key: string) =>
+        Promise.resolve(local.has(key) ? { [key]: local.get(key) } : {}),
+      ),
+      set: vi.fn((entries: Record<string, unknown>) => {
+        for (const [key, value] of Object.entries(entries)) local.set(key, value);
+        return Promise.resolve();
+      }),
+    },
     session: {
       get: vi.fn((key: string) =>
         Promise.resolve(session.has(key) ? { [key]: session.get(key) } : {}),
@@ -57,6 +69,7 @@ export const sessionStore = session;
 
 beforeEach(() => {
   session.clear();
+  local.clear();
   activeTab.url = undefined;
   vi.clearAllMocks();
 });
