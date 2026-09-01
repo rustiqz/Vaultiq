@@ -330,6 +330,65 @@ export async function credentialForFill(
   return { username: item.username, password: item.password };
 }
 
+/**
+ * Whether a just-submitted login is worth offering to save.
+ *
+ * Declines silently when the vault is locked or the page has no site: a
+ * banner the user cannot act on is worse than none. Declines when an
+ * identical login is already stored, so signing in every day does not ask
+ * every day.
+ *
+ * When the same username exists for this site with a *different* password,
+ * this reports the existing id so the banner can offer to update rather than
+ * quietly add a duplicate.
+ */
+export async function shouldOfferToSave(
+  submitted: { username: string; password: string },
+  url: string | undefined,
+): Promise<{ offer: false } | { offer: true; site: string; existingId: string | null }> {
+  if (!submitted.password) return { offer: false };
+  if (!url) return { offer: false };
+
+  const site = siteScope(url);
+  if (!site) return { offer: false };
+
+  // Locked is a decline, not an error: the page did nothing wrong.
+  if (!(await currentVaultKey())) return { offer: false };
+
+  const { items } = await itemsForUrl(url);
+  const sameUsername = items.find((item) => item.username === submitted.username);
+
+  if (sameUsername && sameUsername.password === submitted.password) return { offer: false };
+
+  return { offer: true, site, existingId: sameUsername?.id ?? null };
+}
+
+/**
+ * Saves a login the user has just confirmed in the page banner.
+ *
+ * The site is taken from the tab, never from the page — the same rule as
+ * everywhere else. Updates an existing login for this site and username
+ * rather than adding a second one that differs only by password.
+ */
+export async function saveSubmitted(
+  submitted: { username: string; password: string; name?: string },
+  url: string | undefined,
+): Promise<void> {
+  const decision = await shouldOfferToSave(submitted, url);
+  if (!decision.offer) throw new Error("Nothing to save for this site.");
+
+  const content: LoginContent = {
+    ...(submitted.name?.trim() ? { name: submitted.name.trim() } : {}),
+    username: submitted.username,
+    password: submitted.password,
+    url: url ?? "",
+    notes: "",
+  };
+
+  if (decision.existingId) await updateItem(decision.existingId, content);
+  else await addItem(content);
+}
+
 /** The page the user is looking at, as the browser reports it. */
 export async function activeTabUrl(): Promise<string | undefined> {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
