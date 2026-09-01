@@ -389,10 +389,23 @@ export async function saveSubmitted(
   else await addItem(content);
 }
 
-/** The page the user is looking at, as the browser reports it. */
+/**
+ * The page the user is looking at, as the browser reports it.
+ *
+ * `lastFocusedWindow`, not `currentWindow`: "current" means the window
+ * containing the code that is asking, and a background event page is not in a
+ * browser window at all — so the query matched nothing and the popup never
+ * showed a "for this site" section.
+ */
 export async function activeTabUrl(): Promise<string | undefined> {
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  return tab?.url;
+  const [focused] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+  if (focused?.url) return focused.url;
+
+  // Falls back for the case `lastFocusedWindow` cannot answer — no browser
+  // window focused, which happens when the popup itself has focus on some
+  // platforms.
+  const [current] = await browser.tabs.query({ active: true, currentWindow: true });
+  return current?.url;
 }
 
 /** What the list shows for an item, and therefore what it sorts on. */
