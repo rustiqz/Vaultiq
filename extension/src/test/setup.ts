@@ -33,7 +33,16 @@ const browserStub = {
     onAlarm: { addListener: vi.fn() },
   },
   tabs: {
-    query: vi.fn(() => Promise.resolve([{ url: activeTab.url }])),
+    // Mirrors the real API: a query only answers when the window filter it
+    // uses can be satisfied. `lastFocusedWindow` is the one that works from a
+    // background page; `currentWindow` is not, which was the bug.
+    query: vi.fn((filter: { lastFocusedWindow?: boolean; currentWindow?: boolean }) =>
+      Promise.resolve(
+        filter.lastFocusedWindow === true && activeTab.url !== undefined
+          ? [{ url: activeTab.url }]
+          : [],
+      ),
+    ),
   },
   runtime: {
     getURL: vi.fn((path: string) => `moz-extension://test/${path}`),

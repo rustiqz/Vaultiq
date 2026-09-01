@@ -9,8 +9,19 @@
 //     a page read the password straight back out of the input.
 
 import { readSubmission, submittedFields } from "./capture.js";
-import { fieldsFor, fillField, type LoginFields } from "./detect.js";
-import { closeDropdown, isInsideDropdown, showDropdown } from "./dropdown.js";
+import {
+  fieldsFor,
+  fillField,
+  isNewPasswordForm,
+  newPasswordFields,
+  type LoginFields,
+} from "./detect.js";
+import {
+  closeDropdown,
+  isInsideDropdown,
+  showDropdown,
+  type DropdownEntry,
+} from "./dropdown.js";
 import { showPrompt } from "./prompt.js";
 import type { Request, Response } from "../lib/messages.js";
 
@@ -18,8 +29,18 @@ async function ask(request: Request): Promise<Response> {
   return (await browser.runtime.sendMessage(request)) as Response;
 }
 
+/**
+ * The id used for the "use a suggested password" row.
+ *
+ * A NUL byte, so it can never collide with a real item id.
+ */
+const SUGGESTION_ID = "\u0000suggested-password";
+
 /** The fields the picker is currently attached to. */
 let active: LoginFields | undefined;
+
+/** The password offered in the current picker, if one was. */
+let suggested: string | undefined;
 
 async function fill(id: string, fields: LoginFields): Promise<void> {
   // The password crosses into the page only here, only for the item just
@@ -32,26 +53,58 @@ async function fill(id: string, fields: LoginFields): Promise<void> {
   fields.password.focus();
 }
 
+/** Writes a suggested password into every field meant to receive it. */
+function useSuggestion(target: HTMLInputElement, password: string): void {
+  const scope = target.closest("form") ?? target.ownerDocument;
+  for (const field of newPasswordFields(scope)) fillField(field, password);
+  target.focus();
+}
+
 async function offer(target: HTMLInputElement): Promise<void> {
   const fields = fieldsFor(target);
   if (!fields) return;
 
+  const scope = target.closest("form") ?? document;
+  const choosing = isNewPasswordForm(fields.password, scope);
+
   // No URL is sent. The background reads it from the sender tab.
   const response = await ask({ kind: "itemsForSite" });
-  if (!response.ok || response.kind !== "itemsForSite" || response.items.length === 0) return;
+  const stored =
+    response.ok && response.kind === "itemsForSite" ? response.items : [];
+
+  const entries: DropdownEntry[] = stored.map((item) => ({
+    id: item.id,
+    label: item.name?.trim() || item.username || "(untitled)",
+    detail: item.name?.trim() ? item.username : (item.url ?? ""),
+  }));
+
+  suggested = undefined;
+  if (choosing) {
+    // Only offered where the user is being asked to choose a password. On a
+    // sign-in form it would be noise at best and a mis-fill at worst.
+    const generated = await ask({ kind: "generatePassword" });
+    if (generated.ok && generated.kind === "generatePassword") {
+      suggested = generated.password;
+      entries.unshift({
+        id: SUGGESTION_ID,
+        label: "Use a suggested password",
+        detail: generated.password,
+        emphasis: true,
+      });
+    }
+  }
+
+  if (entries.length === 0) return;
 
   active = fields;
-  showDropdown(
-    target,
-    response.items.map((item) => ({
-      id: item.id,
-      label: item.name?.trim() || item.username || "(untitled)",
-      detail: item.name?.trim() ? item.username : (item.url ?? ""),
-    })),
-    (id) => {
-      if (active) void fill(id, active);
-    },
-  );
+  showDropdown(target, entries, (id) => {
+    if (!active) return;
+    if (id === SUGGESTION_ID) {
+      if (suggested) useSuggestion(target, suggested);
+      return;
+    }
+    void fill(id, active);
+  });
 }
 
 /** Offers to save what was just typed into a login form. */
