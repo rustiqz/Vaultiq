@@ -325,6 +325,21 @@ export async function listItems(): Promise<DecryptedItem[]> {
   const stored = await allItems();
   const usage = await readUsage(vaultKey);
 
+  // Counted over live items only: a password still sitting in the trash is
+  // not one you are relying on anywhere.
+  const shared = new Map<string, number>();
+  for (const item of stored) {
+    if (item.deleted) continue;
+    try {
+      const parsed = JSON.parse(decryptItem(item, vaultKey)) as Partial<LoginContent>;
+      const password = parsed.password ?? "";
+      if (password) shared.set(password, (shared.get(password) ?? 0) + 1);
+    } catch {
+      // A record that will not decrypt cannot contribute to the count. It is
+      // surfaced elsewhere, not swallowed into a wrong statistic.
+    }
+  }
+
   const decrypted = stored.flatMap((item) => {
     const content = JSON.parse(decryptItem(item, vaultKey)) as Partial<LoginContent> & {
       purged?: boolean;
@@ -346,6 +361,9 @@ export async function listItems(): Promise<DecryptedItem[]> {
         deleted: item.deleted,
         strength: scorePassword(content.password ?? ""),
         usage: usage[item.id] ?? NO_USAGE,
+        reusedBy: item.deleted
+          ? 0
+          : Math.max((shared.get(content.password ?? "") ?? 1) - 1, 0),
         ...(content.email === undefined ? {} : { email: content.email }),
         ...(content.mobile === undefined ? {} : { mobile: content.mobile }),
         ...(content.createdAt === undefined ? {} : { createdAt: content.createdAt }),
@@ -449,7 +467,7 @@ export async function shouldOfferToSave(
  * rather than adding a second one that differs only by password.
  */
 export async function saveSubmitted(
-  submitted: { username: string; password: string; name?: string },
+  submitted: { username: string; password: string; name?: string; notes?: string },
   url: string | undefined,
 ): Promise<void> {
   const decision = await shouldOfferToSave(submitted, url);
@@ -460,7 +478,7 @@ export async function saveSubmitted(
     username: submitted.username,
     password: submitted.password,
     url: url ?? "",
-    notes: "",
+    notes: submitted.notes ?? "",
   };
 
   if (decision.existingId) await updateItem(decision.existingId, content);

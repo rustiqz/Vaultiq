@@ -80,6 +80,14 @@ export interface DecryptedItem extends LoginContent {
   /** Zeroed for a login that has never been reached for. */
   usage: ItemUsage;
   /**
+   * How many *other* live logins share this password.
+   *
+   * Strength scoring cannot see this: a password can be long, varied and
+   * excellent, and still be the one thing standing between a breach of one
+   * site and every other account that reuses it.
+   */
+  reusedBy: number;
+  /**
    * Scored in the background while the item is decrypted, so the popup does
    * not have to load the crypto module to show a badge.
    */
@@ -121,7 +129,7 @@ export type Request =
   // URL: the background uses the sender tab, as everywhere else.
   | { kind: "shouldOfferToSave"; username: string; password: string }
   // Saves it. Only reached after the user says yes in the page banner.
-  | { kind: "saveSubmitted"; username: string; password: string; name?: string };
+  | { kind: "saveSubmitted"; username: string; password: string; name?: string; notes?: string };
 
 export type Response =
   | { ok: true; kind: "status"; status: VaultStatus }
