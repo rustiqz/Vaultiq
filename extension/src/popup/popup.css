@@ -1,122 +1,186 @@
+/* Deep indigo vault.
+   Indigo reads security-native without going cold; one accent, no gradients.
+   Every colour is a token so both themes stay a coherent set. */
+
 :root {
-  color-scheme: light dark;
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --fg: #16181d;
-  --muted: #626a76;
-  --line: #d6dae1;
-  --accent: #7a5b1e;
-  --danger: #9c3b30;
+  --bg: #f4f5fb;
+  --surface: #ffffff;
+  --text: #161329;
+  --accent: #4338ca;
+  --danger: #dc2626;
+  --warn: #c2740c;
+  --good: #0f9960;
+
+  --muted: color-mix(in srgb, var(--text) 58%, var(--bg));
+  --line: color-mix(in srgb, var(--text) 14%, var(--bg));
+  --hover: color-mix(in srgb, var(--accent) 8%, transparent);
+  --on-accent: #ffffff;
+  --shadow: 0 1px 2px rgb(22 19 41 / 6%), 0 8px 24px -14px rgb(22 19 41 / 32%);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16181d;
-    --panel: #1d2027;
-    --fg: #e6e8ec;
-    --muted: #98a0ac;
-    --line: #2d323b;
-    --accent: #d3a24c;
-    --danger: #dd7461;
+  :root:not([data-theme="light"]) {
+    --bg: #100e1c;
+    --surface: #191631;
+    --text: #e9e7f7;
+    --accent: #818cf8;
+    --danger: #f87171;
+    --warn: #fbbf24;
+    --good: #4ade80;
+
+    --hover: color-mix(in srgb, var(--accent) 14%, transparent);
+    --on-accent: #100e1c;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px -14px rgb(0 0 0 / 70%);
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #100e1c;
+  --surface: #191631;
+  --text: #e9e7f7;
+  --accent: #818cf8;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --good: #4ade80;
+
+  --hover: color-mix(in srgb, var(--accent) 14%, transparent);
+  --on-accent: #100e1c;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px -14px rgb(0 0 0 / 70%);
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  width: 340px;
+  /* Wider than the old 340: two columns of detail per row need the room. */
+  width: 420px;
   background: var(--bg);
-  color: var(--fg);
-  font: 14px/1.5 system-ui, sans-serif;
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-main { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+/* The shell: header pinned, list scrolling under it, nothing else moving. */
+#app { display: flex; flex-direction: column; max-height: 560px; }
 
-h1 { font-size: 15px; margin: 0; letter-spacing: -0.01em; }
+header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bar { display: flex; gap: 8px; align-items: center; }
+.bar .grow { flex: 1; min-width: 0; }
+
+main {
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+h1 { font-size: 14px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+h2 {
+  font-size: 11px; font-weight: 700; margin: 0;
+  letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted);
+}
 p { margin: 0; }
 .muted { color: var(--muted); font-size: 13px; }
 .error { color: var(--danger); font-size: 13px; }
 
-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
 
-input {
+input, textarea {
   font: inherit;
   padding: 7px 9px;
   border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--panel);
-  color: var(--fg);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  width: 100%;
 }
-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+textarea { resize: vertical; min-height: 54px; font-size: 13px; }
+input:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+input[type="search"] { border-radius: 999px; padding-left: 12px; }
 
 button {
-  font: inherit;
-  font-weight: 600;
-  padding: 8px 10px;
+  font: inherit; font-weight: 600; font-size: 13px;
+  padding: 7px 11px;
   border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--panel);
-  color: var(--fg);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
   cursor: pointer;
+  white-space: nowrap;
 }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
-button:disabled { opacity: 0.6; cursor: default; }
+button:hover { background: var(--hover); }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button:disabled { opacity: 0.55; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+button.primary:hover { filter: brightness(1.08); }
+button.icon { padding: 6px 9px; }
+button.inline { padding: 6px 9px; font-size: 12px; }
+button.danger { color: var(--danger); }
 
 form { display: flex; flex-direction: column; gap: 9px; }
-
-ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-li {
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 8px 10px;
-  background: var(--panel);
-  overflow-wrap: anywhere;
-}
-li .name { font-weight: 600; }
-li .meta { color: var(--muted); font-size: 12px; }
-
-.row { display: flex; gap: 8px; }
-.row > * { flex: 1; }
-hr { border: none; border-top: 1px solid var(--line); margin: 2px 0; }
-
-h2 {
-  font-size: 13px;
-  font-weight: 700;
-  margin: 0;
-  color: var(--muted);
-  letter-spacing: 0.02em;
-}
-
-li .row { margin-top: 7px; }
-li .row button { padding: 4px 8px; font-size: 12px; font-weight: 500; }
-
-/* Trashed items are still readable, but visibly not part of the vault. */
-li.trashed { opacity: 0.72; border-style: dashed; }
-li.trashed .name { text-decoration: line-through; }
-
-/* A field with an action sitting alongside it. */
 .field { display: flex; gap: 6px; }
 .field input { flex: 1; min-width: 0; }
-button.inline { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
+.row { display: flex; gap: 8px; }
+.row > .grow { flex: 1; }
+hr { border: none; border-top: 1px solid var(--line); margin: 0; }
 
-/* Strength. Colour carries the level, but so does the text — the label is
-   never the only signal. */
-.meter { font-size: 11.5px; margin-top: 4px; font-variant-numeric: tabular-nums; }
-.level-very-weak { color: var(--danger); }
-.level-weak { color: var(--danger); }
-.level-fair { color: var(--muted); }
-.level-strong { color: var(--accent); }
-.level-excellent { color: var(--accent); font-weight: 600; }
+.group { display: flex; flex-direction: column; gap: 7px; }
+ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+
+li {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 9px 11px;
+  box-shadow: var(--shadow);
+  overflow-wrap: anywhere;
+}
+li.trashed { opacity: 0.7; border-style: dashed; box-shadow: none; }
+li.trashed .name { text-decoration: line-through; }
+
+.name { font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.meta { color: var(--muted); font-size: 12px; margin-top: 1px; }
+.stamps { color: var(--muted); font-size: 11px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+li .row { margin-top: 8px; flex-wrap: wrap; }
+
+/* A value you can click to copy. Looks interactive because it is. */
+.copyable {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 3px 6px;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 400;
+}
+.copyable:hover { border-color: var(--line); background: var(--hover); }
+.copyable.copied { color: var(--good); border-color: var(--good); }
 
 .badge {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
   border: 1px solid currentColor;
-  vertical-align: 1px;
 }
+.meter { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+.level-very-weak, .level-weak { color: var(--danger); }
+.level-fair { color: var(--warn); }
+.level-strong { color: var(--good); }
+.level-excellent { color: var(--accent); font-weight: 600; }

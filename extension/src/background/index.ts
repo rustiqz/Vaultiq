@@ -19,6 +19,7 @@ import {
   saveSubmitted,
   shouldOfferToSave,
   itemsForUrl,
+  recordUse,
   newPassword,
   lock,
   purgeItem,
@@ -112,6 +113,10 @@ async function handle(
       await extendAutoLock();
       return { ok: true, kind: "saveSubmitted" };
     }
+    case "recordUse":
+      await recordUse(request.id, false);
+      await extendAutoLock();
+      return { ok: true, kind: "recordUse" };
     case "listItems": {
       const items = await listItems();
       await extendAutoLock();

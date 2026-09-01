@@ -3,7 +3,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { closePrompt, isPromptOpen, showPrompt } from "./prompt.js";
+import { answerFrom, buildPromptCard, closePrompt, isPromptOpen, showPrompt } from "./prompt.js";
 
 const COPY = { title: "Save this login?", detail: "ada@example.test · example.com", confirm: "Save" };
 
@@ -46,6 +46,50 @@ describe("resisting the page", () => {
     showPrompt(document, { ...COPY, detail: "ada@example.test · example.com" }, vi.fn());
     expect(host()!.outerHTML).not.toContain("s3cret");
     expect(host()!.outerHTML.toLowerCase()).not.toContain("password");
+  });
+});
+
+describe("what a click means", () => {
+  it("trims what was typed", () => {
+    expect(answerFrom(true, "  Work  ", " second account ")).toEqual({
+      name: "Work",
+      notes: "second account",
+    });
+  });
+
+  it("saves with empty strings when nothing was typed", () => {
+    expect(answerFrom(true, "", "")).toEqual({ name: "", notes: "" });
+  });
+
+  it("yields nothing at all when dismissed", () => {
+    // "Not now" has to be distinguishable from "save without a name", or a
+    // dismissal would quietly store the login anyway.
+    expect(answerFrom(false, "typed anyway", "and notes")).toBeUndefined();
+  });
+});
+
+describe("the name and notes fields", () => {
+  it("are on the card, and scroll rather than clipping the buttons", () => {
+    const card = buildPromptCard(document, COPY, vi.fn());
+    document.body.append(card);
+
+    expect(card.querySelector(".name")).not.toBeNull();
+    expect(card.querySelector(".notes")).not.toBeNull();
+    expect(card.querySelector(".fields")).not.toBeNull();
+  });
+
+  it("ignores a click the page synthesised", () => {
+    // Nothing dispatched from script is trusted, so this is the real guard
+    // rather than a stand-in — and it is why the decision above is tested as
+    // a function instead of through the DOM.
+    const decide = vi.fn();
+    const card = buildPromptCard(document, COPY, decide);
+    document.body.append(card);
+
+    card.querySelector<HTMLButtonElement>(".save")!.click();
+    card.querySelector<HTMLButtonElement>(".dismiss")!.click();
+
+    expect(decide).not.toHaveBeenCalled();
   });
 });
 

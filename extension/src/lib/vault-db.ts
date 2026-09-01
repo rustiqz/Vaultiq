@@ -6,9 +6,12 @@
 // unreadable (CLAUDE.md §4.10).
 
 const DB_NAME = "vaultiq";
-const DB_VERSION = 1;
+// Bumped for the usage store. onupgradeneeded creates only what is missing,
+// so an existing vault keeps its items untouched.
+const DB_VERSION = 2;
 const STORE_VAULT = "vault";
 const STORE_ITEMS = "items";
+const STORE_USAGE = "usage";
 
 /** The single record describing this vault. Contains no key material. */
 export interface VaultRecord {
@@ -45,6 +48,9 @@ function open(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_ITEMS)) {
         db.createObjectStore(STORE_ITEMS, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STORE_USAGE)) {
+        db.createObjectStore(STORE_USAGE, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -89,6 +95,29 @@ export async function getItem(id: string): Promise<StoredItem | undefined> {
     "readonly",
     (s) => s.get(id) as IDBRequest<StoredItem | undefined>,
   );
+}
+
+/**
+ * The single encrypted record holding usage stats for every item.
+ *
+ * Stored the same way an item is, so it gets the same authentication — its
+ * id and version are bound into the tag like everything else.
+ */
+export interface UsageRecord {
+  id: "usage";
+  item: StoredItem;
+}
+
+export async function getUsage(): Promise<UsageRecord | undefined> {
+  return await run<UsageRecord | undefined>(
+    STORE_USAGE,
+    "readonly",
+    (s) => s.get("usage") as IDBRequest<UsageRecord | undefined>,
+  );
+}
+
+export async function putUsage(record: UsageRecord): Promise<void> {
+  await run(STORE_USAGE, "readwrite", (s) => s.put(record));
 }
 
 /**
