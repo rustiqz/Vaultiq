@@ -3,6 +3,8 @@
 // background context.
 
 import "./popup.css";
+import { CLIPBOARD_SECONDS, copyForAWhile } from "../lib/clipboard.js";
+import { ago } from "./format.js";
 import {
   send,
   type DecryptedItem,
@@ -40,6 +42,62 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/**
+ * A value that copies itself when clicked.
+ *
+ * Secrets go to the clipboard on a timer — see `copyForAWhile`. `masked`
+ * keeps a password off screen until asked for, which is the default for one.
+ */
+function copyable(
+  value: string,
+  options: { masked?: boolean; onCopy?: () => void } = {},
+): HTMLElement {
+  if (!value) return el("span", { className: "muted", textContent: "—" });
+
+  // Destructured rather than reached through on each call: a member access
+  // to a function property reads as an unbound method to the linter.
+  const { masked, onCopy } = options;
+  const hidden = masked === true;
+  const button = el("button", {
+    className: "copyable",
+    type: "button",
+    title: `Copy — cleared after ${String(CLIPBOARD_SECONDS)} seconds`,
+  });
+
+  let shown = !hidden;
+  const paint = (label?: string): void => {
+    button.textContent = label ?? (shown ? value : "•".repeat(Math.min(value.length, 12)));
+  };
+  paint();
+
+  button.addEventListener("click", () => {
+    void copyForAWhile(value)
+      .then(() => {
+        onCopy?.();
+        button.classList.add("copied");
+        paint("Copied");
+        setTimeout(() => {
+          button.classList.remove("copied");
+          paint();
+        }, 1200);
+      })
+      .catch(() => {
+        showError("Could not copy.");
+      });
+  });
+
+  if (!hidden) return button;
+
+  const reveal = el("button", { className: "inline", type: "button", textContent: "Show" });
+  reveal.addEventListener("click", () => {
+    shown = !shown;
+    reveal.textContent = shown ? "Hide" : "Show";
+    paint();
+  });
+
+  return el("span", { className: "field" }, [button, reveal]);
+}
+
 function showError(message: string): void {
   root.append(el("p", { className: "error", textContent: message }));
 }
@@ -51,7 +109,7 @@ function unwrap(response: Response): Response & { ok: true } {
 }
 
 async function refresh(): Promise<void> {
-  root.replaceChildren(el("p", { className: "muted", textContent: "Loading…" }));
+  root.replaceChildren(el("main", {}, [el("p", { className: "muted", textContent: "Loading…" })]));
   try {
     const response = unwrap(await send({ kind: "status" }));
     if (response.kind !== "status") throw new Error("unexpected reply");
@@ -89,6 +147,7 @@ function passwordForm(label: string, action: (value: string) => Promise<void>): 
 
 function renderEmpty(): void {
   root.replaceChildren(
+    el("main", {}, [
     el("h1", { textContent: "Create your vault" }),
     el("p", {
       className: "muted",
@@ -98,15 +157,53 @@ function renderEmpty(): void {
     passwordForm("Create vault", async (value) => {
       unwrap(await send({ kind: "create", masterPassword: value }));
     }),
+    ]),
   );
+}
+
+/**
+ * A generator that needs no vault.
+ *
+ * Offered on the locked screen too: wanting a password is not a reason to
+ * have unlocked, and a signup form does not wait.
+ */
+function generatorPanel(): HTMLElement {
+  const output = el("div", { className: "muted", textContent: "—" });
+  const make = el("button", { className: "inline", type: "button", textContent: "Generate one" });
+
+  make.addEventListener("click", () => {
+    make.disabled = true;
+    void send({ kind: "generatePassword" })
+      .then(unwrap)
+      .then((response) => {
+        if (response.kind !== "generatePassword") throw new Error("unexpected reply");
+        output.replaceChildren(copyable(response.password));
+      })
+      .catch((error: unknown) => {
+        showError(error instanceof Error ? error.message : "Failed.");
+      })
+      .finally(() => {
+        make.disabled = false;
+      });
+  });
+
+  return el("div", { className: "group" }, [
+    el("h2", { textContent: "Password generator" }),
+    output,
+    make,
+  ]);
 }
 
 function renderLocked(): void {
   root.replaceChildren(
-    el("h1", { textContent: "Vaultiq is locked" }),
-    passwordForm("Unlock", async (value) => {
-      unwrap(await send({ kind: "unlock", masterPassword: value }));
-    }),
+    el("main", {}, [
+      el("h1", { textContent: "Vaultiq is locked" }),
+      passwordForm("Unlock", async (value) => {
+        unwrap(await send({ kind: "unlock", masterPassword: value }));
+      }),
+      el("hr"),
+      generatorPanel(),
+    ]),
   );
 }
 
@@ -125,12 +222,26 @@ function itemForm(
   const username = el("input", { type: "text", required: true, autocomplete: "off" });
   const password = el("input", { type: "password", required: true, autocomplete: "off" });
   const url = el("input", { type: "text", autocomplete: "off", placeholder: "https://" });
+  const email = el("input", { type: "email", autocomplete: "off" });
+  const mobile = el("input", { type: "tel", autocomplete: "off" });
+  const notes = el("textarea", { autocomplete: "off" });
 
   if (initial) {
     name.value = initial.name ?? "";
     username.value = initial.username;
     password.value = initial.password;
     url.value = initial.url;
+    email.value = initial.email ?? "";
+    mobile.value = initial.mobile ?? "";
+    notes.value = initial.notes;
+  } else {
+    // A new login is almost always for the page you are looking at, so the
+    // site is filled in rather than typed. Still editable.
+    void send({ kind: "itemsForSite" }).then((response) => {
+      if (response.ok && response.kind === "itemsForSite" && response.site && !url.value) {
+        url.value = response.site;
+      }
+    });
   }
 
   // Generation happens in the background; the popup never loads the crypto
@@ -192,7 +303,7 @@ function itemForm(
   const form = el("form", {}, [
     el("label", {}, ["Name", name]),
     el("label", {}, ["Username", username]),
-    el("label", {}, ["Password", el("div", { className: "field" }, [password, generate]), meter]),
+    el("label", {}, ["Password", el("div", { className: "field" }, [password, generate])]),
     el("label", {}, ["Site", url]),
     actions,
   ]);
@@ -236,14 +347,21 @@ function action(label: string, request: Request, confirmWith?: string): HTMLButt
   return button;
 }
 
+function stamps(item: DecryptedItem): HTMLElement {
+  const parts = [
+    `used ${ago(item.usage.lastUsedAt)}`,
+    item.usage.useCount ? `${String(item.usage.useCount)}×` : "",
+    `changed ${ago(item.lastModifiedAt)}`,
+  ].filter(Boolean);
+  return el("div", { className: "stamps", textContent: parts.join(" · ") });
+}
+
 function liveRow(item: DecryptedItem): HTMLLIElement {
-  const edit = el("button", { type: "button", textContent: "Edit" });
+  const edit = el("button", { className: "inline", type: "button", textContent: "Edit" });
 
   const label = item.name?.trim();
   const heading = el("div", { className: "name" }, [label || item.username || "(untitled)"]);
   if (isWeak(item.strength.level)) {
-    // Surfaced rather than hidden behind a health screen: the whole point is
-    // noticing without going looking.
     heading.append(
       el("span", {
         className: `badge level-${item.strength.level}`,
@@ -253,14 +371,22 @@ function liveRow(item: DecryptedItem): HTMLLIElement {
     );
   }
 
-  // With several logins for one site, the username is what tells them apart
-  // once a name is showing.
-  const detail = [label ? item.username : "", item.url].filter(Boolean).join(" · ");
+  const noteUse = (): void => {
+    void send({ kind: "recordUse", id: item.id });
+  };
 
   const row = el("li", {}, [
     heading,
-    el("div", { className: "meta", textContent: detail || "(no site)" }),
-    el("div", { className: "row" }, [edit, action("Delete", { kind: "trashItem", id: item.id })]),
+    el("div", { className: "meta", textContent: item.url || "(no site)" }),
+    el("div", { className: "row" }, [
+      copyable(item.username, { onCopy: noteUse }),
+      copyable(item.password, { masked: true, onCopy: noteUse }),
+    ]),
+    stamps(item),
+    el("div", { className: "row" }, [
+      edit,
+      action("Delete", { kind: "trashItem", id: item.id }),
+    ]),
   ]);
 
   edit.addEventListener("click", () => {
@@ -282,7 +408,7 @@ function liveRow(item: DecryptedItem): HTMLLIElement {
 function trashedRow(item: DecryptedItem): HTMLLIElement {
   const label = item.name?.trim();
   return el("li", { className: "trashed" }, [
-    el("div", { className: "name", textContent: label || item.username || "(untitled)" }),
+    el("div", { className: "name" }, [label || item.username || "(untitled)"]),
     el("div", {
       className: "meta",
       textContent: [label ? item.username : "", item.url].filter(Boolean).join(" · ") || "(no site)",
@@ -298,66 +424,138 @@ function trashedRow(item: DecryptedItem): HTMLLIElement {
   ]);
 }
 
+/** Everything the search box looks at. Never the password. */
+function haystack(item: DecryptedItem): string {
+  return [item.name, item.username, item.email, item.mobile, item.url, item.notes]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+/** Most recently used first; anything never used falls back to its name. */
+function byRecentUse(a: DecryptedItem, b: DecryptedItem): number {
+  const left = a.usage.lastUsedAt ?? 0;
+  const right = b.usage.lastUsedAt ?? 0;
+  if (left !== right) return right - left;
+  return (a.name ?? a.username).localeCompare(b.name ?? b.username, undefined, {
+    sensitivity: "base",
+  });
+}
+
+/** Kept across a re-render, so typing does not reset the list. */
+let query = "";
+let showTrash = false;
+
 async function renderUnlocked(): Promise<void> {
   const response = unwrap(await send({ kind: "listItems" }));
   if (response.kind !== "listItems") throw new Error("unexpected reply");
 
-  // Asked for separately, and without naming a site: the background reads the
-  // active tab itself, so nothing here can widen what it returns.
   const forSite = unwrap(await send({ kind: "itemsForSite" }));
   if (forSite.kind !== "itemsForSite") throw new Error("unexpected reply");
 
-  const matching = new Set(forSite.items.map((item) => item.id));
-  const live = response.items.filter((item) => !item.deleted && !matching.has(item.id));
-  const trashed = response.items.filter((item) => item.deleted);
+  const needle = query.trim().toLowerCase();
+  const matches = (item: DecryptedItem): boolean =>
+    needle === "" || haystack(item).includes(needle);
 
-  const lockButton = el("button", { textContent: "Lock" });
-  lockButton.addEventListener("click", () => {
+  const matching = new Set(forSite.items.map((item) => item.id));
+  const site = forSite.items.filter(matches).sort(byRecentUse);
+  const live = response.items
+    .filter((item) => !item.deleted && !matching.has(item.id) && matches(item))
+    .sort(byRecentUse);
+  const trashed = response.items.filter((item) => item.deleted && matches(item));
+
+  // --- header, pinned ---
+
+  const search = el("input", {
+    type: "search",
+    placeholder: "Search logins",
+    value: query,
+    autocomplete: "off",
+  });
+  search.addEventListener("input", () => {
+    query = search.value;
+    void renderUnlocked();
+  });
+
+  const add = el("button", { className: "primary", type: "button", textContent: "Add" });
+  const lock = el("button", { type: "button", textContent: "Lock" });
+  lock.addEventListener("click", () => {
     void send({ kind: "lock" }).then(refresh);
   });
 
-  const total = live.length + forSite.items.length;
-  const children: (Node | string)[] = [
-    el("div", { className: "row" }, [
-      el("h1", { textContent: `${String(total)} item(s)` }),
-      lockButton,
+  const header = el("header", {}, [
+    el("div", { className: "bar" }, [
+      el("span", { className: "grow" }, [search]),
+      add,
+      lock,
     ]),
-  ];
+  ]);
 
-  if (forSite.items.length) {
-    children.push(
-      el("h2", { textContent: `For ${forSite.site ?? "this site"}` }),
-      el("ul", {}, forSite.items.map(liveRow)),
+  // --- body, scrolling ---
+
+  const body = el("main");
+
+  if (site.length) {
+    body.append(
+      el("div", { className: "group" }, [
+        el("h2", { textContent: `For ${forSite.site ?? "this site"}` }),
+        el("ul", {}, site.map(liveRow)),
+      ]),
       el("hr"),
     );
   }
 
-  children.push(
+  body.append(
     live.length
-      ? el("ul", {}, live.map(liveRow))
+      ? el("div", { className: "group" }, [
+          el("h2", { textContent: site.length ? "Everything else" : "All logins" }),
+          el("ul", {}, live.map(liveRow)),
+        ])
       : el("p", {
           className: "muted",
-          textContent: total ? "Nothing else saved." : "Nothing saved yet.",
+          textContent: needle
+            ? "Nothing matches that."
+            : site.length
+              ? "Nothing else saved."
+              : "Nothing saved yet.",
         }),
   );
 
   if (trashed.length) {
-    children.push(
-      el("hr"),
-      el("h2", { textContent: `Trash (${trashed.length})` }),
-      el("ul", {}, trashed.map(trashedRow)),
-    );
+    const toggle = el("button", {
+      className: "inline",
+      type: "button",
+      textContent: `${showTrash ? "Hide" : "Show"} trash (${String(trashed.length)})`,
+    });
+    toggle.addEventListener("click", () => {
+      showTrash = !showTrash;
+      void renderUnlocked();
+    });
+
+    body.append(el("hr"), toggle);
+    if (showTrash) body.append(el("ul", {}, trashed.map(trashedRow)));
   }
 
-  children.push(
-    el("hr"),
-    el("h2", { textContent: "Add an item" }),
-    itemForm("Save item", undefined, async (content) => {
-      unwrap(await send({ kind: "addItem", content }));
-    }),
-  );
+  body.append(el("hr"), generatorPanel());
 
-  root.replaceChildren(...children);
+  add.addEventListener("click", () => {
+    body.replaceChildren(
+      el("h2", { textContent: "New login" }),
+      itemForm(
+        "Save item",
+        undefined,
+        async (content) => {
+          unwrap(await send({ kind: "addItem", content }));
+        },
+        () => void refresh(),
+      ),
+    );
+  });
+
+  root.replaceChildren(header, body);
+  // Focus lands on search so typing filters immediately, but only on the
+  // first paint — refocusing on every keystroke would fight the caret.
+  if (document.activeElement === document.body) search.focus();
 }
 
 function render(status: VaultStatus): void {
