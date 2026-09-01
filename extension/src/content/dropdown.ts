@@ -22,6 +22,8 @@ export interface DropdownEntry {
   id: string;
   label: string;
   detail: string;
+  /** Rendered set apart, for the generated-password suggestion. */
+  emphasis?: boolean;
 }
 
 const HOST_ID = "vaultiq-picker";
@@ -101,6 +103,11 @@ export function showDropdown(
     button:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
     .label { font-weight: 600; }
     .detail { opacity: .7; font-size: 12px; }
+    li.emphasis { border-bottom: 1px solid rgba(128,128,128,.3); margin-bottom: 2px; }
+    li.emphasis .detail {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      opacity: .95; overflow-wrap: anywhere;
+    }
     .brand {
       padding: 4px 9px 6px; font: 10px/1 system-ui, sans-serif;
       letter-spacing: .09em; text-transform: uppercase; opacity: .55;
@@ -132,6 +139,7 @@ export function showDropdown(
     });
 
     const item = doc.createElement("li");
+    if (entry.emphasis) item.className = "emphasis";
     item.append(button);
     list.append(item);
   }

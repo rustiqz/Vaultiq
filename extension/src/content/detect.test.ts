@@ -106,6 +106,70 @@ describe("finding the fields", () => {
   });
 });
 
+describe("recognising a form that asks you to choose a password", () => {
+  it("takes autocomplete at its word", async () => {
+    const { isNewPasswordForm } = await import("./detect.js");
+    render(`<form><input type="password" id="p" autocomplete="new-password"></form>`);
+
+    const password = document.querySelector<HTMLInputElement>("#p")!;
+    expect(isNewPasswordForm(password, document)).toBe(true);
+  });
+
+  it("treats two password fields as a sign-up", async () => {
+    const { isNewPasswordForm } = await import("./detect.js");
+    render(`<form>
+      <input type="password" id="p">
+      <input type="password" id="repeat">
+    </form>`);
+
+    expect(isNewPasswordForm(document.querySelector("#p")!, document)).toBe(true);
+  });
+
+  it("does not mistake a sign-in form for one", async () => {
+    const { isNewPasswordForm } = await import("./detect.js");
+    render(`<form><input type="text"><input type="password" id="p"></form>`);
+
+    // One password field and nothing saying otherwise: the user is recalling
+    // a password, not choosing one. Suggesting here would be a mis-fill.
+    expect(isNewPasswordForm(document.querySelector("#p")!, document)).toBe(false);
+  });
+});
+
+describe("choosing which fields a new password goes into", () => {
+  it("fills the password and its confirmation", async () => {
+    const { newPasswordFields } = await import("./detect.js");
+    render(`<form>
+      <input type="password" id="p">
+      <input type="password" id="repeat">
+    </form>`);
+
+    expect(newPasswordFields(document).map((f) => f.id)).toEqual(["p", "repeat"]);
+  });
+
+  it("leaves the current password alone on a change form", async () => {
+    const { newPasswordFields } = await import("./detect.js");
+    render(`<form>
+      <input type="password" id="current" autocomplete="current-password">
+      <input type="password" id="new" autocomplete="new-password">
+      <input type="password" id="repeat" autocomplete="new-password">
+    </form>`);
+
+    // Overwriting the current one would replace what the site is about to
+    // check against, and the change would be rejected.
+    expect(newPasswordFields(document).map((f) => f.id)).toEqual(["new", "repeat"]);
+  });
+
+  it("skips a hidden field", async () => {
+    const { newPasswordFields } = await import("./detect.js");
+    render(`<form>
+      <input type="password" id="p">
+      <input type="password" id="trap" hidden>
+    </form>`);
+
+    expect(newPasswordFields(document).map((f) => f.id)).toEqual(["p"]);
+  });
+});
+
 describe("filling a field", () => {
   it("sets the value and announces it", () => {
     render(`<input type="text" id="u">`);
