@@ -86,6 +86,9 @@ export interface DecryptedItem extends LoginContent {
   strength: PasswordStrength;
 }
 
+/** Ordering the list offers. */
+export type SortOrder = "recent" | "name";
+
 export type Request =
   | { kind: "status" }
   | { kind: "create"; masterPassword: string }
