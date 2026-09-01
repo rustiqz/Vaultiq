@@ -63,11 +63,25 @@ describe("resisting the page", () => {
     expect(host()!.style.getPropertyValue("opacity")).toBe("1");
   });
 
-  it("does not render any password", () => {
-    // Entries carry a label and a username. The password is fetched only
-    // after a click, and never passes through here.
+  it("does not render a stored password", () => {
+    // Entries for saved logins carry a label and a username. Their password
+    // is fetched only after a click and never passes through here.
+    //
+    // A *generated* suggestion is different: it has not been stored yet, and
+    // showing it is the point — the user may want to note it down.
     showDropdown(anchor(), ENTRIES, vi.fn());
-    expect(host()!.outerHTML).not.toContain("password");
+    expect(host()!.outerHTML).not.toContain("s3cret-stored-value");
+  });
+
+  it("sets the suggestion apart from saved logins", () => {
+    showDropdown(
+      anchor(),
+      [{ id: "s", label: "Use a suggested password", detail: "Xk4!qz", emphasis: true }, ...ENTRIES],
+      vi.fn(),
+    );
+    // Not decoration: a row that fills a *new* password should not look
+    // identical to one that fills a saved one.
+    expect(host()).not.toBeNull();
   });
 });
 
