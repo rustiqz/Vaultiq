@@ -42,6 +42,12 @@ import type {
 } from "../lib/messages.js";
 import { renameDevice as storeDeviceName, thisDevice } from "../lib/device.js";
 import {
+  armQuickUnlock,
+  disarmQuickUnlock,
+  quickUnlock as openWithPin,
+  quickUnlockReady,
+} from "../lib/quick-unlock.js";
+import {
   allItems,
   allUsage,
   getItem,
@@ -53,8 +59,9 @@ import {
   type StoredItem,
 } from "../lib/vault-db.js";
 
-/** Idle minutes before the vault locks itself. */
-const AUTO_LOCK_MINUTES = 15;
+/** Idle minutes before the vault locks itself, unless configured otherwise. */
+const DEFAULT_AUTO_LOCK_MINUTES = 15;
+const AUTO_LOCK_SETTING = "autoLockMinutes";
 export const AUTO_LOCK_ALARM = "vaultiq-auto-lock";
 const ITEM_TYPE = "login";
 const USAGE_TYPE = "usage";
@@ -80,14 +87,35 @@ async function currentVaultKey(): Promise<VaultKeyHandle | undefined> {
   return warmVaultKey;
 }
 
+/** How long the vault waits before locking. Zero means never. */
+export async function autoLockMinutes(): Promise<number> {
+  const stored = await browser.storage.local.get(AUTO_LOCK_SETTING);
+  const value: unknown = stored[AUTO_LOCK_SETTING];
+  return typeof value === "number" && value >= 0 ? value : DEFAULT_AUTO_LOCK_MINUTES;
+}
+
+export async function setAutoLockMinutes(minutes: number): Promise<void> {
+  await browser.storage.local.set({ [AUTO_LOCK_SETTING]: Math.max(0, Math.round(minutes)) });
+  await extendAutoLock();
+}
+
 /** Pushes the auto-lock deadline out. Called on every successful request. */
 export async function extendAutoLock(): Promise<void> {
   await browser.alarms.clear(AUTO_LOCK_ALARM);
-  browser.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: AUTO_LOCK_MINUTES });
+  const minutes = await autoLockMinutes();
+  if (minutes > 0) browser.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: minutes });
 }
 
-export async function lock(): Promise<void> {
+/**
+ * Locks the vault.
+ *
+ * `forget` also tears down the PIN, which is what "Lock" in the popup does.
+ * The idle alarm leaves it armed on purpose — being asked for a PIN after
+ * twenty minutes is the point of having one.
+ */
+export async function lock(forget = false): Promise<void> {
   await browser.alarms.clear(AUTO_LOCK_ALARM);
+  if (forget) await disarmQuickUnlock();
   await clearStashedVaultKey();
   // Handles are not garbage collected: without free() the key would sit in
   // wasm memory until the context is torn down.
@@ -97,7 +125,25 @@ export async function lock(): Promise<void> {
 
 export async function status(): Promise<VaultStatus> {
   if (!(await getVault())) return "empty";
-  return (await currentVaultKey()) ? "unlocked" : "locked";
+  if (await currentVaultKey()) return "unlocked";
+  return (await quickUnlockReady()) ? "quick" : "locked";
+}
+
+/** Arms a PIN for this browser session. Requires an unlocked vault. */
+export async function setPin(pin: string): Promise<void> {
+  const vaultKey = await requireUnlocked();
+  await armQuickUnlock(pin, vaultKey, generateSalt);
+}
+
+export async function forgetPin(): Promise<void> {
+  await disarmQuickUnlock();
+}
+
+/** Reopens the vault with a PIN rather than the master password. */
+export async function unlockWithPin(pin: string): Promise<void> {
+  const vaultKey = await openWithPin(pin);
+  await stashVaultKey(vaultKey);
+  warmVaultKey = vaultKey;
 }
 
 /** Derives the master key and immediately frees it — it is never cached. */

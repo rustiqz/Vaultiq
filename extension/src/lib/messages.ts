@@ -5,7 +5,8 @@
 // (a later phase) run inside pages and are the least trustworthy surface in
 // the extension, so the same rule will apply to them.
 
-export type VaultStatus = "empty" | "locked" | "unlocked";
+/** `quick` means locked, but a PIN can reopen it without the master password. */
+export type VaultStatus = "empty" | "locked" | "quick" | "unlocked";
 
 /** Bands are anchored to the generator: only its default reaches the top. */
 export type StrengthLevel = "very-weak" | "weak" | "fair" | "strong" | "excellent";
@@ -129,7 +130,12 @@ export type Request =
   | { kind: "status" }
   | { kind: "create"; masterPassword: string }
   | { kind: "unlock"; masterPassword: string }
-  | { kind: "lock" }
+  | { kind: "lock"; forget?: boolean }
+  | { kind: "setPin"; pin: string }
+  | { kind: "forgetPin" }
+  | { kind: "unlockWithPin"; pin: string }
+  | { kind: "autoLock" }
+  | { kind: "setAutoLock"; minutes: number }
   | { kind: "addItem"; content: LoginContent }
   | { kind: "updateItem"; id: string; content: LoginContent }
   // Moves to the trash: the content is kept and can be restored.
@@ -167,6 +173,11 @@ export type Response =
   | { ok: true; kind: "create" }
   | { ok: true; kind: "unlock" }
   | { ok: true; kind: "lock" }
+  | { ok: true; kind: "setPin" }
+  | { ok: true; kind: "forgetPin" }
+  | { ok: true; kind: "unlockWithPin" }
+  | { ok: true; kind: "autoLock"; minutes: number }
+  | { ok: true; kind: "setAutoLock" }
   | { ok: true; kind: "addItem"; id: string }
   | { ok: true; kind: "updateItem" }
   | { ok: true; kind: "trashItem" }
