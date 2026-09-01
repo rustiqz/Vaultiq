@@ -92,7 +92,9 @@ describe("trash", () => {
     await vault.trashItem(id);
 
     expect(lastHeader().deleted).toBe(true);
-    expect(storedContent(id)).toEqual(CONTENT);
+    // toMatchObject, not toEqual: the content also carries createdAt and
+    // lastModifiedAt, which trashing must leave alone.
+    expect(storedContent(id)).toMatchObject(CONTENT);
   });
 
   it("restores as a live item with the content intact", async () => {
@@ -101,7 +103,7 @@ describe("trash", () => {
     await vault.restoreItem(id);
 
     expect(lastHeader().deleted).toBe(false);
-    expect(storedContent(id)).toEqual(CONTENT);
+    expect(storedContent(id)).toMatchObject(CONTENT);
   });
 
   it("still lists trashed items, flagged", async () => {
@@ -452,6 +454,119 @@ describe("saving a submitted login", () => {
     await vault.create("correct horse battery staple");
     await vault.lock();
     await expect(vault.saveSubmitted(SUBMITTED, SITE)).rejects.toThrow(/nothing to save/i);
+  });
+});
+
+describe("audit timestamps", () => {
+  it("stamps when a login was created and last changed", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+
+    const [item] = await vault.listItems();
+    expect(item?.createdAt).toBeGreaterThan(0);
+    expect(item?.lastModifiedAt).toBe(item?.createdAt);
+    void id;
+  });
+
+  it("keeps createdAt across an edit and moves lastModifiedAt", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+    const created = (await vault.listItems())[0]?.createdAt;
+
+    vi.setSystemTime(new Date(Date.now() + 60_000));
+    await vault.updateItem(id, { ...CONTENT, password: "changed" });
+
+    const [item] = await vault.listItems();
+    expect(item?.createdAt).toBe(created);
+    expect(item?.lastModifiedAt).toBeGreaterThan(created ?? 0);
+    vi.useRealTimers();
+  });
+
+  it("leaves them absent on a login saved before they existed", async () => {
+    // They live inside the encrypted content, so older records simply lack
+    // them. Nothing is migrated and nothing may break on their absence.
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+
+    const stored = db.items.get(id);
+    const content = JSON.parse(stored!.plaintext) as Record<string, unknown>;
+    delete content.createdAt;
+    delete content.lastModifiedAt;
+    db.items.set(id, { ...stored!, plaintext: JSON.stringify(content) });
+
+    const [item] = await vault.listItems();
+    expect(item?.createdAt).toBeUndefined();
+    expect(item?.username).toBe(CONTENT.username);
+  });
+});
+
+describe("usage", () => {
+  it("starts at nothing", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(CONTENT);
+
+    const [item] = await vault.listItems();
+    expect(item?.usage).toEqual({ useCount: 0 });
+  });
+
+  it("counts an autofill and marks it as one", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    await vault.credentialForFill(id, "https://example.com");
+
+    const [item] = await vault.listItems();
+    expect(item?.usage.useCount).toBe(1);
+    expect(item?.usage.lastAutofilledAt).toBeGreaterThan(0);
+    expect(item?.usage.lastUsedAt).toBe(item?.usage.lastAutofilledAt);
+  });
+
+  it("counts a use from the popup without calling it an autofill", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+
+    await vault.recordUse(id, false);
+
+    const [item] = await vault.listItems();
+    expect(item?.usage.useCount).toBe(1);
+    expect(item?.usage.lastUsedAt).toBeGreaterThan(0);
+    expect(item?.usage.lastAutofilledAt).toBeUndefined();
+  });
+
+  it("accumulates", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+
+    await vault.recordUse(id, false);
+    await vault.recordUse(id, false);
+    await vault.recordUse(id, false);
+
+    expect((await vault.listItems())[0]?.usage.useCount).toBe(3);
+  });
+
+  // The reason usage is not stored inside the item.
+  it("does not bump the item version", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+    const before = db.items.get(id)?.version;
+
+    await vault.recordUse(id, false);
+
+    // version drives sync's optimistic concurrency. If a fill moved it, two
+    // devices using one login would collide over nothing that changed.
+    expect(db.items.get(id)?.version).toBe(before);
+  });
+
+  it("survives a usage blob that will not decrypt", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(CONTENT);
+    const anyItem = db.items.values().next().value!;
+    db.usage = { id: "usage", item: { ...anyItem, plaintext: "not json" } as typeof anyItem };
+
+    // Statistics are not the vault. Losing them must not stop it opening.
+    const items = await vault.listItems();
+    expect(items).toHaveLength(1);
+    expect(items[0]?.usage).toEqual({ useCount: 0 });
   });
 });
 
