@@ -699,6 +699,84 @@ describe("audit trail", () => {
   });
 });
 
+describe("quick unlock", () => {
+  it("reports locked when no PIN is armed", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.lock();
+    expect(await vault.status()).toBe("locked");
+  });
+
+  it("reports quick when a PIN is armed", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.setPin("1234");
+    await vault.lock(false);
+
+    // Locked, but reopenable without the master password.
+    expect(await vault.status()).toBe("quick");
+  });
+
+  it("reopens with the PIN", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(CONTENT);
+    await vault.setPin("1234");
+    await vault.lock(false);
+
+    await vault.unlockWithPin("1234");
+    expect(await vault.status()).toBe("unlocked");
+    expect(await vault.listItems()).toHaveLength(1);
+  });
+
+  it("forgets the PIN when the user locks deliberately", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.setPin("1234");
+
+    // "Lock" in the popup means lock, not "ask me for a PIN".
+    await vault.lock(true);
+    expect(await vault.status()).toBe("locked");
+  });
+
+  it("keeps the PIN across an idle lock", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.setPin("1234");
+
+    // Being asked for a PIN after twenty idle minutes is the point of it.
+    await vault.lock(false);
+    expect(await vault.status()).toBe("quick");
+  });
+
+  it("refuses to arm a PIN while locked", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.lock();
+    await expect(vault.setPin("1234")).rejects.toThrow(/locked/i);
+  });
+});
+
+describe("auto-lock timing", () => {
+  it("defaults to fifteen minutes", async () => {
+    expect(await vault.autoLockMinutes()).toBe(15);
+  });
+
+  it("remembers a different timeout", async () => {
+    await vault.setAutoLockMinutes(60);
+    expect(await vault.autoLockMinutes()).toBe(60);
+  });
+
+  it("treats zero as never locking", async () => {
+    await vault.setAutoLockMinutes(0);
+    expect(await vault.autoLockMinutes()).toBe(0);
+
+    // No alarm is scheduled, so nothing will lock it.
+    vi.mocked(browser.alarms.create).mockClear();
+    await vault.extendAutoLock();
+    expect(browser.alarms.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a negative timeout rather than storing one", async () => {
+    await vault.setAutoLockMinutes(-5);
+    expect(await vault.autoLockMinutes()).toBe(0);
+  });
+});
+
 describe("strength", () => {
   it("rides along on every listed item", async () => {
     await withOneItem();

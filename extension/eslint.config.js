@@ -16,6 +16,12 @@ export default tseslint.config(
       "@typescript-eslint/no-misused-promises": "error",
       // Never log a caught value wholesale — it may carry plaintext.
       "no-console": ["error", { allow: ["warn", "error"] }],
+      // A test fake has to declare the arguments it is verifying, even when
+      // it ignores their values; an underscore marks that as deliberate.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   },
   {
