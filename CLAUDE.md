@@ -327,6 +327,14 @@ Never edit either version by hand — the next release overwrites both.
    commit, pushes both, and cuts a GitHub release with notes generated from
    the commit subjects.
 
+**Merging two PRs close together starts two release jobs**, and the slower one
+would be rejected when it pushes, because `main` has moved. The concurrency
+group does not prevent this — it serialises the jobs, not the branch. The job
+therefore checks whether `main` has moved past the commit it was started for
+and stands aside if so. Nothing is lost: git-cliff computes from the last tag,
+so the newer run's release contains the older one's commits too. A skipped
+release job with "main has moved past …" in its log is working as intended.
+
 Because the release is cut straight from `main`, **the commit message is the
 last chance to catch a mistyped change** — there is no release PR to review
 before the tag lands. A key-derivation change typed as `fix:` releases as a
