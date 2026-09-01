@@ -248,6 +248,22 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Two merges landing close together start two of these. Both check
+          # out their own merge commit, both build a version commit, and the
+          # slower one is then rejected when it pushes — main has moved. The
+          # concurrency group does not prevent this: it serialises the jobs,
+          # not the branch.
+          #
+          # Being overtaken is not a failure. git-cliff computes from the last
+          # tag, so the newer run's release will contain this run's commits
+          # too. Stand aside rather than racing it.
+          git fetch --quiet origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "main has moved past $GITHUB_SHA; the newer run releases this."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           current=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           next=$(git cliff --bumped-version)
 
@@ -313,6 +329,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+
+          # Checked again: main could have moved while the versions were being
+          # written. Cheaper to stand aside than to push and be rejected.
+          git fetch --quiet origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "main moved while this run was working; leaving it to the newer run."
+            exit 0
+          fi
+
           # Push the version commit first, then tag it, so the tag and main
           # agree about what this release contains.
           git push origin HEAD:main
