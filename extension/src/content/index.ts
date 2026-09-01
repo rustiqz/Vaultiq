@@ -127,8 +127,14 @@ async function offerToSave(target: EventTarget | null): Promise<void> {
       detail: `${submitted.username || "(no username)"} · ${decision.site}`,
       confirm: decision.existingId ? "Update" : "Save",
     },
-    (save) => {
-      if (save) void ask({ kind: "saveSubmitted", ...submitted });
+    (answer) => {
+      if (!answer) return;
+      void ask({
+        kind: "saveSubmitted",
+        ...submitted,
+        ...(answer.name ? { name: answer.name } : {}),
+        ...(answer.notes ? { notes: answer.notes } : {}),
+      });
     },
   );
 }
