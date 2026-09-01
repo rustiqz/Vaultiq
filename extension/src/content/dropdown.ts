@@ -29,7 +29,9 @@ export interface DropdownEntry {
 const HOST_ID = "vaultiq-picker";
 
 let host: HTMLElement | undefined;
-let onDismiss: (() => void) | undefined;
+let anchored: HTMLElement | undefined;
+let onScroll: ((event: Event) => void) | undefined;
+let onResize: (() => void) | undefined;
 
 function style(element: HTMLElement, rules: Record<string, string>): void {
   for (const [property, value] of Object.entries(rules)) {
@@ -38,9 +40,15 @@ function style(element: HTMLElement, rules: Record<string, string>): void {
 }
 
 export function closeDropdown(): void {
+  const doc = host?.ownerDocument;
+  if (onScroll) doc?.removeEventListener("scroll", onScroll, true);
+  if (onResize) doc?.defaultView?.removeEventListener("resize", onResize);
+
   host?.remove();
   host = undefined;
-  onDismiss = undefined;
+  anchored = undefined;
+  onScroll = undefined;
+  onResize = undefined;
 }
 
 /**
@@ -151,14 +159,36 @@ export function showDropdown(
   shadow.append(sheet, list, brand);
   doc.body.append(host);
 
-  onDismiss = () => {
+  anchored = anchor;
+
+  // Only an *inner* scroll dismisses. The picker is positioned in page
+  // coordinates, so scrolling the window carries it along with the field it
+  // belongs to — closing there would kill it the instant a browser scrolled
+  // the focused field into view, which is exactly what it did.
+  onScroll = (event: Event) => {
+    if (event.target !== doc && event.target !== doc.defaultView) closeDropdown();
+  };
+  onResize = () => {
     closeDropdown();
   };
-  doc.addEventListener("scroll", onDismiss, { capture: true, once: true });
-  doc.defaultView?.addEventListener("resize", onDismiss, { once: true });
+
+  doc.addEventListener("scroll", onScroll, true);
+  doc.defaultView?.addEventListener("resize", onResize);
 }
 
 /** Whether a click landed inside the picker. */
 export function isInsideDropdown(target: EventTarget | null): boolean {
   return host !== undefined && target instanceof Node && host.contains(target);
+}
+
+/**
+ * Whether a click should leave the picker open.
+ *
+ * True inside the picker, and true on the field it belongs to — clicking that
+ * field is what opened it, and treating that click as "elsewhere" closed it
+ * again the same instant.
+ */
+export function belongsToDropdown(target: EventTarget | null): boolean {
+  if (isInsideDropdown(target)) return true;
+  return anchored !== undefined && target instanceof Node && anchored.contains(target);
 }
