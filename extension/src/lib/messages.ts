@@ -38,6 +38,37 @@ export interface LoginContent {
   password: string;
   url: string;
   notes: string;
+
+  /** Optional, for forms that ask for one of these specifically. */
+  email?: string;
+  mobile?: string;
+
+  /**
+   * When this login was first saved, and when its content last changed.
+   *
+   * Inside the encrypted content, and only ever written when the content
+   * itself does — so they cost nothing in version churn. Absent on anything
+   * saved before these existed.
+   */
+  createdAt?: number;
+  lastModifiedAt?: number;
+}
+
+/**
+ * How often and how recently a login has been reached for.
+ *
+ * Deliberately *not* part of the item. Recording a use inside the encrypted
+ * content would re-encrypt it and bump `version` on every autofill — and
+ * `version` is what sync uses for optimistic concurrency, so two devices
+ * filling the same login would collide constantly over nothing that changed.
+ *
+ * Kept in its own encrypted record instead: one blob, rewritten on use,
+ * leaving item versions to mean what they say.
+ */
+export interface ItemUsage {
+  lastUsedAt?: number;
+  lastAutofilledAt?: number;
+  useCount: number;
 }
 
 /** An item as the popup sees it: plaintext, and only while unlocked. */
@@ -46,12 +77,25 @@ export interface DecryptedItem extends LoginContent {
   updatedAt: number;
   /** In the trash. The content is still here and can be restored. */
   deleted: boolean;
+  /** Zeroed for a login that has never been reached for. */
+  usage: ItemUsage;
+  /**
+   * How many *other* live logins share this password.
+   *
+   * Strength scoring cannot see this: a password can be long, varied and
+   * excellent, and still be the one thing standing between a breach of one
+   * site and every other account that reuses it.
+   */
+  reusedBy: number;
   /**
    * Scored in the background while the item is decrypted, so the popup does
    * not have to load the crypto module to show a badge.
    */
   strength: PasswordStrength;
 }
+
+/** Ordering the list offers. */
+export type SortOrder = "recent" | "name";
 
 export type Request =
   | { kind: "status" }
@@ -74,6 +118,9 @@ export type Request =
   // Deliberately takes no URL. The background reads the active tab itself —
   // a caller that could name its own site could enumerate the vault.
   | { kind: "itemsForSite" }
+  // Notes that a login was reached for from the popup — copied, revealed, or
+  // opened. Autofill records itself.
+  | { kind: "recordUse"; id: string }
   // The only request that returns a password. Answered only for an item that
   // belongs to the sender's own site, so a compromised page cannot read
   // credentials for anywhere else.
@@ -82,7 +129,7 @@ export type Request =
   // URL: the background uses the sender tab, as everywhere else.
   | { kind: "shouldOfferToSave"; username: string; password: string }
   // Saves it. Only reached after the user says yes in the page banner.
-  | { kind: "saveSubmitted"; username: string; password: string; name?: string };
+  | { kind: "saveSubmitted"; username: string; password: string; name?: string; notes?: string };
 
 export type Response =
   | { ok: true; kind: "status"; status: VaultStatus }
@@ -98,6 +145,7 @@ export type Response =
   | { ok: true; kind: "generatePassword"; password: string }
   | { ok: true; kind: "checkStrength"; strength: PasswordStrength }
   | { ok: true; kind: "itemsForSite"; site: string | null; items: DecryptedItem[] }
+  | { ok: true; kind: "recordUse" }
   | { ok: true; kind: "credentialForFill"; username: string; password: string }
   | { ok: true; kind: "shouldOfferToSave"; offer: false }
   | { ok: true; kind: "shouldOfferToSave"; offer: true; site: string; existingId: string | null }
