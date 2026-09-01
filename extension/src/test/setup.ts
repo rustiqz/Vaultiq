@@ -26,15 +26,18 @@ const browserStub = {
       }),
     },
     session: {
-      get: vi.fn((key: string) =>
-        Promise.resolve(session.has(key) ? { [key]: session.get(key) } : {}),
-      ),
+      get: vi.fn((key: string | string[]) => {
+        const keys = Array.isArray(key) ? key : [key];
+        const found: Record<string, unknown> = {};
+        for (const one of keys) if (session.has(one)) found[one] = session.get(one);
+        return Promise.resolve(found);
+      }),
       set: vi.fn((entries: Record<string, unknown>) => {
         for (const [key, value] of Object.entries(entries)) session.set(key, value);
         return Promise.resolve();
       }),
-      remove: vi.fn((key: string) => {
-        session.delete(key);
+      remove: vi.fn((key: string | string[]) => {
+        for (const one of Array.isArray(key) ? key : [key]) session.delete(one);
         return Promise.resolve();
       }),
     },

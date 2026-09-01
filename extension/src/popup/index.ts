@@ -161,6 +161,70 @@ function renderEmpty(): void {
   );
 }
 
+/** PIN, auto-lock and this device's name. */
+function settingsPanel(): HTMLElement {
+  const panel = el("div", { className: "group" }, [el("h2", { textContent: "Settings" })]);
+
+  // --- PIN ---
+  const pin = el("input", {
+    type: "password",
+    inputMode: "numeric",
+    autocomplete: "off",
+    placeholder: "At least 4 digits",
+  });
+  const setPin = el("button", { className: "inline", type: "button", textContent: "Set PIN" });
+  setPin.addEventListener("click", () => {
+    setPin.disabled = true;
+    void send({ kind: "setPin", pin: pin.value })
+      .then(unwrap)
+      .then(() => {
+        pin.value = "";
+        setPin.textContent = "PIN set";
+        setTimeout(() => (setPin.textContent = "Set PIN"), 1400);
+      })
+      .catch((error: unknown) => {
+        showError(error instanceof Error ? error.message : "Failed.");
+      })
+      .finally(() => {
+        setPin.disabled = false;
+      });
+  });
+
+  panel.append(
+    el("label", {}, ["Quick unlock PIN", el("div", { className: "field" }, [pin, setPin])]),
+    el("p", {
+      className: "muted",
+      textContent:
+        "Reopens the vault after it locks. Held in memory only, so it lasts until the browser closes.",
+    }),
+  );
+
+  // --- auto-lock ---
+  const minutes = el("input", { type: "number", min: "0", max: "1440", step: "1" });
+  void send({ kind: "autoLock" }).then((response) => {
+    if (response.ok && response.kind === "autoLock") minutes.value = String(response.minutes);
+  });
+  minutes.addEventListener("change", () => {
+    void send({ kind: "setAutoLock", minutes: Number(minutes.value) });
+  });
+
+  panel.append(
+    el("label", {}, ["Lock after (minutes, 0 for never)", minutes]),
+  );
+
+  // --- device name ---
+  const name = el("input", { type: "text", autocomplete: "off" });
+  void send({ kind: "device" }).then((response) => {
+    if (response.ok && response.kind === "device") name.value = response.device.name;
+  });
+  name.addEventListener("change", () => {
+    void send({ kind: "renameDevice", name: name.value });
+  });
+
+  panel.append(el("label", {}, ["This device", name]));
+  return panel;
+}
+
 /**
  * A generator that needs no vault.
  *
@@ -192,6 +256,55 @@ function generatorPanel(): HTMLElement {
     output,
     make,
   ]);
+}
+
+/** Unlocking with a PIN, when one is armed for this browser session. */
+function renderQuick(): void {
+  const pin = el("input", {
+    type: "password",
+    required: true,
+    inputMode: "numeric",
+    autocomplete: "off",
+    placeholder: "PIN",
+  });
+  const submit = el("button", { className: "primary", type: "submit", textContent: "Unlock" });
+
+  const form = el("form", {}, [el("label", {}, ["PIN", pin]), submit]);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    void send({ kind: "unlockWithPin", pin: pin.value })
+      .then(unwrap)
+      .then(refresh)
+      .catch((error: unknown) => {
+        submit.disabled = false;
+        pin.value = "";
+        showError(error instanceof Error ? error.message : "Failed.");
+      });
+  });
+
+  const useMaster = el("button", {
+    className: "inline",
+    type: "button",
+    textContent: "Use master password",
+  });
+  useMaster.addEventListener("click", () => {
+    void send({ kind: "forgetPin" }).then(refresh);
+  });
+
+  root.replaceChildren(
+    el("main", {}, [
+      el("h1", { textContent: "Vaultiq is locked" }),
+      el("p", {
+        className: "muted",
+        textContent: "Your PIN lasts until the browser closes.",
+      }),
+      form,
+      useMaster,
+      el("hr"),
+      generatorPanel(),
+    ]),
+  );
 }
 
 function renderLocked(): void {
@@ -547,7 +660,7 @@ async function renderUnlocked(): Promise<void> {
     if (showTrash) body.append(el("ul", {}, trashed.map(trashedRow)));
   }
 
-  body.append(el("hr"), generatorPanel());
+  body.append(el("hr"), generatorPanel(), el("hr"), settingsPanel());
 
   add.addEventListener("click", () => {
     body.replaceChildren(
@@ -575,6 +688,8 @@ function render(status: VaultStatus): void {
       return renderEmpty();
     case "locked":
       return renderLocked();
+    case "quick":
+      return renderQuick();
     case "unlocked":
       void renderUnlocked().catch((error: unknown) => {
         root.replaceChildren();
