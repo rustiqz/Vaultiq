@@ -508,7 +508,7 @@ async function renderUnlocked(): Promise<void> {
 
   if (site.length) {
     body.append(
-      el("div", { className: "group" }, [
+      el("div", { className: "group for-site" }, [
         el("h2", { textContent: `For ${forSite.site ?? "this site"}` }),
         el("ul", {}, site.map(liveRow)),
       ]),
