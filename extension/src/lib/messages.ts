@@ -73,7 +73,11 @@ export type Request =
   | { kind: "checkStrength"; password: string }
   // Deliberately takes no URL. The background reads the active tab itself —
   // a caller that could name its own site could enumerate the vault.
-  | { kind: "itemsForSite" };
+  | { kind: "itemsForSite" }
+  // The only request that returns a password. Answered only for an item that
+  // belongs to the sender's own site, so a compromised page cannot read
+  // credentials for anywhere else.
+  | { kind: "credentialForFill"; id: string };
 
 export type Response =
   | { ok: true; kind: "status"; status: VaultStatus }
@@ -89,6 +93,7 @@ export type Response =
   | { ok: true; kind: "generatePassword"; password: string }
   | { ok: true; kind: "checkStrength"; strength: PasswordStrength }
   | { ok: true; kind: "itemsForSite"; site: string | null; items: DecryptedItem[] }
+  | { ok: true; kind: "credentialForFill"; username: string; password: string }
   | { ok: true; kind: "passwordOptions"; options: PasswordOptions }
   | { ok: false; error: string };
 

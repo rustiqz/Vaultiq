@@ -15,6 +15,7 @@ import {
   loadCrypto,
   activeTabUrl,
   checkStrength,
+  credentialForFill,
   itemsForUrl,
   newPassword,
   lock,
@@ -31,7 +32,22 @@ browser.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === AUTO_LOCK_ALARM) void lock();
 });
 
-async function handle(request: Request): Promise<Response> {
+/**
+ * The URL to treat as "the current site" for a request.
+ *
+ * For a content script it is the tab the message came from, as the browser
+ * reports it — never anything the page supplied. For the popup, which has no
+ * sender tab, it is the active tab. Either way the page does not get to name
+ * its own site.
+ */
+async function requestOrigin(sender: browser.runtime.MessageSender): Promise<string | undefined> {
+  return sender.tab?.url ?? (await activeTabUrl());
+}
+
+async function handle(
+  request: Request,
+  sender: browser.runtime.MessageSender,
+): Promise<Response> {
   await loadCrypto();
 
   switch (request.kind) {
@@ -74,9 +90,14 @@ async function handle(request: Request): Promise<Response> {
     case "checkStrength":
       return { ok: true, kind: "checkStrength", strength: checkStrength(request.password) };
     case "itemsForSite": {
-      const { site, items } = await itemsForUrl(await activeTabUrl());
+      const { site, items } = await itemsForUrl(await requestOrigin(sender));
       await extendAutoLock();
       return { ok: true, kind: "itemsForSite", site, items };
+    }
+    case "credentialForFill": {
+      const credential = await credentialForFill(request.id, await requestOrigin(sender));
+      await extendAutoLock();
+      return { ok: true, kind: "credentialForFill", ...credential };
     }
     case "listItems": {
       const items = await listItems();
@@ -86,9 +107,9 @@ async function handle(request: Request): Promise<Response> {
   }
 }
 
-browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   assertSessionStorage();
-  handle(message as Request)
+  handle(message as Request, sender)
     .then(sendResponse)
     .catch((error: unknown) => {
       // The message is whatever the crypto core chose to say, which for any

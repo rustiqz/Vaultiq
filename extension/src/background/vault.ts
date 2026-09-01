@@ -312,6 +312,24 @@ export async function itemsForUrl(
   };
 }
 
+/**
+ * The credential for one item, for filling into a page.
+ *
+ * The only path by which a password leaves the background. It looks the item
+ * up *within the set already filtered by site*, so an id belonging to another
+ * site is refused however it was obtained — a compromised page cannot ask for
+ * credentials it was not going to be offered anyway.
+ */
+export async function credentialForFill(
+  id: string,
+  url: string | undefined,
+): Promise<{ username: string; password: string }> {
+  const { items } = await itemsForUrl(url);
+  const item = items.find((candidate) => candidate.id === id);
+  if (!item) throw new Error("No such item for this site.");
+  return { username: item.username, password: item.password };
+}
+
 /** The page the user is looking at, as the browser reports it. */
 export async function activeTabUrl(): Promise<string | undefined> {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
