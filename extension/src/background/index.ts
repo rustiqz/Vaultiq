@@ -13,7 +13,9 @@ import {
   extendAutoLock,
   listItems,
   loadCrypto,
+  activeTabUrl,
   checkStrength,
+  itemsForUrl,
   newPassword,
   lock,
   purgeItem,
@@ -71,6 +73,11 @@ async function handle(request: Request): Promise<Response> {
       return { ok: true, kind: "generatePassword", password: newPassword(request.options) };
     case "checkStrength":
       return { ok: true, kind: "checkStrength", strength: checkStrength(request.password) };
+    case "itemsForSite": {
+      const { site, items } = await itemsForUrl(await activeTabUrl());
+      await extendAutoLock();
+      return { ok: true, kind: "itemsForSite", site, items };
+    }
     case "listItems": {
       const items = await listItems();
       await extendAutoLock();
