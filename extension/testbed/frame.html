@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>framed login</title>
+<style>body{font:14px system-ui;margin:12px}
+label{display:block;font-size:13px;color:#666;margin-bottom:8px}
+input{display:block;width:100%;box-sizing:border-box;padding:6px 8px;margin-top:3px}</style>
+</head>
+<body>
+<form id="framed">
+  <label>Email <input type="email"></label>
+  <label>Password <input type="password" autocomplete="current-password"></label>
+  <button type="submit">Sign in</button>
+</form>
+<script>document.getElementById("framed").addEventListener("submit",(e)=>e.preventDefault());</script>
+</body>
+</html>
