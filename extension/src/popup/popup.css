@@ -11,11 +11,15 @@
   --warn: #c2740c;
   --good: #0f9960;
 
-  --muted: color-mix(in srgb, var(--text) 58%, var(--bg));
-  --line: color-mix(in srgb, var(--text) 14%, var(--bg));
-  --hover: color-mix(in srgb, var(--accent) 8%, transparent);
+  --muted: color-mix(in srgb, var(--text) 52%, var(--bg));
+  --line: color-mix(in srgb, var(--accent) 20%, var(--bg));
+  --hover: color-mix(in srgb, var(--accent) 10%, transparent);
+  --tint: color-mix(in srgb, var(--accent) 7%, var(--surface));
   --on-accent: #ffffff;
-  --shadow: 0 1px 2px rgb(22 19 41 / 6%), 0 8px 24px -14px rgb(22 19 41 / 32%);
+  /* Ground sits a shade deeper than the cards, so the list reads as objects
+     on a surface rather than one flat wash. */
+  --sunken: color-mix(in srgb, var(--accent) 6%, var(--bg));
+  --shadow: 0 1px 2px rgb(22 19 41 / 7%), 0 10px 24px -16px rgb(67 56 202 / 45%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -28,9 +32,13 @@
     --warn: #fbbf24;
     --good: #4ade80;
 
-    --hover: color-mix(in srgb, var(--accent) 14%, transparent);
+    --muted: color-mix(in srgb, var(--text) 58%, var(--bg));
+    --line: color-mix(in srgb, var(--accent) 26%, var(--bg));
+    --hover: color-mix(in srgb, var(--accent) 16%, transparent);
+    --tint: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    --sunken: color-mix(in srgb, var(--accent) 5%, var(--bg));
     --on-accent: #100e1c;
-    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px -14px rgb(0 0 0 / 70%);
+    --shadow: 0 1px 2px rgb(0 0 0 / 45%), 0 10px 24px -16px rgb(0 0 0 / 75%);
   }
 }
 
@@ -43,9 +51,13 @@
   --warn: #fbbf24;
   --good: #4ade80;
 
-  --hover: color-mix(in srgb, var(--accent) 14%, transparent);
+  --muted: color-mix(in srgb, var(--text) 58%, var(--bg));
+  --line: color-mix(in srgb, var(--accent) 26%, var(--bg));
+  --hover: color-mix(in srgb, var(--accent) 16%, transparent);
+  --tint: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  --sunken: color-mix(in srgb, var(--accent) 5%, var(--bg));
   --on-accent: #100e1c;
-  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px -14px rgb(0 0 0 / 70%);
+  --shadow: 0 1px 2px rgb(0 0 0 / 45%), 0 10px 24px -16px rgb(0 0 0 / 75%);
 }
 
 * { box-sizing: border-box; }
@@ -54,7 +66,7 @@ body {
   margin: 0;
   /* Wider than the old 340: two columns of detail per row need the room. */
   width: 420px;
-  background: var(--bg);
+  background: var(--sunken);
   color: var(--text);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -66,8 +78,9 @@ header {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--bg);
+  background: var(--tint);
   border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--accent) 12%, transparent);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
@@ -88,7 +101,7 @@ main {
 h1 { font-size: 14px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
 h2 {
   font-size: 11px; font-weight: 700; margin: 0;
-  letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted);
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent);
 }
 p { margin: 0; }
 .muted { color: var(--muted); font-size: 13px; }
@@ -111,7 +124,10 @@ input:focus-visible, textarea:focus-visible {
   outline-offset: 1px;
   border-color: transparent;
 }
-input[type="search"] { border-radius: 999px; padding-left: 12px; }
+input[type="search"] {
+  border-radius: 999px; padding-left: 12px;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--bg));
+}
 
 button {
   font: inherit; font-weight: 600; font-size: 13px;
@@ -144,16 +160,25 @@ ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: col
 
 li {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 9px;
   background: var(--surface);
-  padding: 9px 11px;
+  padding: 10px 12px;
   box-shadow: var(--shadow);
   overflow-wrap: anywhere;
+  transition: border-color 90ms ease, transform 90ms ease;
 }
+li:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--bg)); }
+@media (prefers-reduced-motion: reduce) { li { transition: none; } }
+
+/* The logins for the page you are on: the reason the popup was opened. */
+.for-site li { background: var(--tint); }
 li.trashed { opacity: 0.7; border-style: dashed; box-shadow: none; }
 li.trashed .name { text-decoration: line-through; }
 
-.name { font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.name {
+  font-weight: 650; font-size: 14.5px; letter-spacing: -0.01em;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
 .meta { color: var(--muted); font-size: 12px; margin-top: 1px; }
 .stamps { color: var(--muted); font-size: 11px; margin-top: 4px; font-variant-numeric: tabular-nums; }
 li .row { margin-top: 8px; flex-wrap: wrap; }
@@ -174,9 +199,10 @@ li .row { margin-top: 8px; flex-wrap: wrap; }
 .copyable.copied { color: var(--good); border-color: var(--good); }
 
 .badge {
-  padding: 1px 6px; border-radius: 999px;
+  padding: 1.5px 7px; border-radius: 999px;
   font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
   border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 12%, transparent);
 }
 .meter { font-size: 11.5px; font-variant-numeric: tabular-nums; }
 
