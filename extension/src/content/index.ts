@@ -8,8 +8,10 @@
 //   * It fills only on a genuine user gesture. Filling on page load would let
 //     a page read the password straight back out of the input.
 
+import { readSubmission, submittedFields } from "./capture.js";
 import { fieldsFor, fillField, type LoginFields } from "./detect.js";
 import { closeDropdown, isInsideDropdown, showDropdown } from "./dropdown.js";
+import { showPrompt } from "./prompt.js";
 import type { Request, Response } from "../lib/messages.js";
 
 async function ask(request: Request): Promise<Response> {
@@ -51,6 +53,43 @@ async function offer(target: HTMLInputElement): Promise<void> {
     },
   );
 }
+
+/** Offers to save what was just typed into a login form. */
+async function offerToSave(target: EventTarget | null): Promise<void> {
+  const fields = submittedFields(target, document);
+  if (!fields) return;
+
+  const submitted = readSubmission(fields);
+  if (!submitted) return;
+
+  // The background decides: it declines silently when locked, when the site
+  // is unknown, or when this exact login is already stored.
+  const decision = await ask({ kind: "shouldOfferToSave", ...submitted });
+  if (!decision.ok || decision.kind !== "shouldOfferToSave" || !decision.offer) return;
+
+  showPrompt(
+    document,
+    {
+      title: decision.existingId ? "Update this login?" : "Save this login?",
+      detail: `${submitted.username || "(no username)"} · ${decision.site}`,
+      confirm: decision.existingId ? "Update" : "Save",
+    },
+    (save) => {
+      if (save) void ask({ kind: "saveSubmitted", ...submitted });
+    },
+  );
+}
+
+// Submission is noticed in the capture phase, before the page's own handler
+// can stop propagation or tear the form down.
+document.addEventListener(
+  "submit",
+  (event) => {
+    if (!event.isTrusted) return;
+    void offerToSave(event.target);
+  },
+  true,
+);
 
 // Opening the picker is a user gesture, always. There is no path here that
 // runs on load.
