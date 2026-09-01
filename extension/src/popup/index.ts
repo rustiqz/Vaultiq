@@ -302,7 +302,13 @@ async function renderUnlocked(): Promise<void> {
   const response = unwrap(await send({ kind: "listItems" }));
   if (response.kind !== "listItems") throw new Error("unexpected reply");
 
-  const live = response.items.filter((item) => !item.deleted);
+  // Asked for separately, and without naming a site: the background reads the
+  // active tab itself, so nothing here can widen what it returns.
+  const forSite = unwrap(await send({ kind: "itemsForSite" }));
+  if (forSite.kind !== "itemsForSite") throw new Error("unexpected reply");
+
+  const matching = new Set(forSite.items.map((item) => item.id));
+  const live = response.items.filter((item) => !item.deleted && !matching.has(item.id));
   const trashed = response.items.filter((item) => item.deleted);
 
   const lockButton = el("button", { textContent: "Lock" });
@@ -310,15 +316,30 @@ async function renderUnlocked(): Promise<void> {
     void send({ kind: "lock" }).then(refresh);
   });
 
+  const total = live.length + forSite.items.length;
   const children: (Node | string)[] = [
     el("div", { className: "row" }, [
-      el("h1", { textContent: `${live.length} item(s)` }),
+      el("h1", { textContent: `${String(total)} item(s)` }),
       lockButton,
     ]),
+  ];
+
+  if (forSite.items.length) {
+    children.push(
+      el("h2", { textContent: `For ${forSite.site ?? "this site"}` }),
+      el("ul", {}, forSite.items.map(liveRow)),
+      el("hr"),
+    );
+  }
+
+  children.push(
     live.length
       ? el("ul", {}, live.map(liveRow))
-      : el("p", { className: "muted", textContent: "Nothing saved yet." }),
-  ];
+      : el("p", {
+          className: "muted",
+          textContent: total ? "Nothing else saved." : "Nothing saved yet.",
+        }),
+  );
 
   if (trashed.length) {
     children.push(
