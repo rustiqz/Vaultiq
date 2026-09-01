@@ -570,6 +570,48 @@ describe("usage", () => {
   });
 });
 
+describe("reused passwords", () => {
+  it("counts nothing when every password is different", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, password: "one" });
+    await vault.addItem({ ...CONTENT, password: "two" });
+
+    expect((await vault.listItems()).map((item) => item.reusedBy)).toEqual([0, 0]);
+  });
+
+  it("counts the others sharing a password", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "a", password: "shared" });
+    await vault.addItem({ ...CONTENT, name: "b", password: "shared" });
+    await vault.addItem({ ...CONTENT, name: "c", password: "shared" });
+
+    // Each sees the other two.
+    expect((await vault.listItems()).map((item) => item.reusedBy)).toEqual([2, 2, 2]);
+  });
+
+  it("ignores a password sitting in the trash", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "live", password: "shared" });
+    const trashed = await vault.addItem({ ...CONTENT, name: "gone", password: "shared" });
+    await vault.trashItem(trashed);
+
+    // A password you have deleted is not one you are relying on.
+    const live = (await vault.listItems()).find((item) => !item.deleted);
+    expect(live?.reusedBy).toBe(0);
+  });
+
+  it("flags reuse even when the password is strong", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "a", password: "a-very-long-strong-one" });
+    await vault.addItem({ ...CONTENT, name: "b", password: "a-very-long-strong-one" });
+
+    const items = await vault.listItems();
+    // Strength scoring cannot see this, which is the whole point.
+    expect(items[0]?.strength.level).toBe("excellent");
+    expect(items[0]?.reusedBy).toBe(1);
+  });
+});
+
 describe("strength", () => {
   it("rides along on every listed item", async () => {
     await withOneItem();

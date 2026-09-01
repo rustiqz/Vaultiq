@@ -370,6 +370,17 @@ function liveRow(item: DecryptedItem): HTMLLIElement {
       }),
     );
   }
+  if (item.reusedBy > 0) {
+    // Flagged even when the password scores well: strength says nothing about
+    // whether a breach of one site would open the others.
+    heading.append(
+      el("span", {
+        className: "badge level-fair",
+        textContent: `Reused ×${String(item.reusedBy + 1)}`,
+        title: `This password is also on ${String(item.reusedBy)} other login(s).`,
+      }),
+    );
+  }
 
   const noteUse = (): void => {
     void send({ kind: "recordUse", id: item.id });
