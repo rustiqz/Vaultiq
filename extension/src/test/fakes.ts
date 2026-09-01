@@ -10,7 +10,7 @@
 // nothing here is, or pretends to be, encryption.
 
 import { vi } from "vitest";
-import type { StoredItem, VaultRecord } from "../lib/vault-db.js";
+import type { StoredItem, UsageRecord, VaultRecord } from "../lib/vault-db.js";
 
 export interface FakeHeader {
   id: string;
@@ -82,6 +82,7 @@ export type FakeStoredItem = StoredItem & { plaintext: string };
 export const db = {
   vault: undefined as VaultRecord | undefined,
   items: new Map<string, FakeStoredItem>(),
+  usage: undefined as UsageRecord | undefined,
 };
 
 /** The content a test believes is stored for an item. */
@@ -104,6 +105,11 @@ export const dbFake = {
     return Promise.resolve();
   }),
   allItems: vi.fn(() => Promise.resolve([...db.items.values()])),
+  getUsage: vi.fn(() => Promise.resolve(db.usage)),
+  putUsage: vi.fn((record: UsageRecord) => {
+    db.usage = record;
+    return Promise.resolve();
+  }),
 };
 
 export function resetFakes(): void {
@@ -111,5 +117,6 @@ export function resetFakes(): void {
   freed.length = 0;
   db.vault = undefined;
   db.items.clear();
+  db.usage = undefined;
   cryptoFake.takeStashedVaultKey.mockResolvedValue(undefined);
 }
