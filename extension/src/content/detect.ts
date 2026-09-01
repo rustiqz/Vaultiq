@@ -57,6 +57,39 @@ export function fieldsFor(target: Element): LoginFields | undefined {
   return { username: usernameFor(password, scope), password };
 }
 
+/**
+ * The password fields a new password should be written into.
+ *
+ * Every password field in scope *except* one marked `current-password`. A
+ * change-password form has three — current, new, confirm — and overwriting
+ * the current one would replace what the site is about to check against.
+ */
+export function newPasswordFields(scope: ParentNode): HTMLInputElement[] {
+  return [...scope.querySelectorAll("input")].filter(
+    (input) =>
+      input.type.toLowerCase() === "password" &&
+      isFillable(input) &&
+      input.autocomplete.toLowerCase() !== "current-password",
+  );
+}
+
+/**
+ * Whether this form is asking the user to *choose* a password rather than
+ * recall one.
+ *
+ * Either the field says so with `autocomplete="new-password"`, or there is
+ * more than one password field — which is a sign-up or change form, since a
+ * sign-in page has exactly one.
+ */
+export function isNewPasswordForm(target: HTMLInputElement, scope: ParentNode): boolean {
+  if (target.autocomplete.toLowerCase() === "new-password") return true;
+
+  const passwords = [...scope.querySelectorAll("input")].filter(
+    (input) => input.type.toLowerCase() === "password" && isFillable(input),
+  );
+  return passwords.length > 1;
+}
+
 /** Every distinct login form on the page. */
 export function loginForms(root: ParentNode): LoginFields[] {
   const passwords = [...root.querySelectorAll("input")].filter(
