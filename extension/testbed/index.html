@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vaultiq testbed</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; padding: 32px 24px 96px;
+    max-width: 760px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lede { color: #666; margin: 0 0 28px; }
+  section { border: 1px solid #8884; border-radius: 8px; padding: 16px 18px; margin: 0 0 18px; }
+  h2 { font-size: 15px; margin: 0 0 2px; }
+  .why { color: #777; font-size: 13px; margin: 0 0 12px; }
+  label { display: block; margin: 0 0 9px; font-size: 13px; color: #666; }
+  input { display: block; width: 100%; box-sizing: border-box; padding: 7px 9px;
+          font: inherit; border: 1px solid #8886; border-radius: 5px; margin-top: 3px;
+          background: Canvas; color: CanvasText; }
+  button { font: inherit; font-weight: 600; padding: 7px 12px; border-radius: 5px;
+           border: 1px solid #8886; background: Canvas; color: CanvasText; cursor: pointer; }
+  .expect { font-size: 13px; background: #8881; border-radius: 5px; padding: 8px 10px;
+            margin-top: 12px; }
+  .expect b { font-weight: 600; }
+  #readout { position: fixed; right: 16px; bottom: 16px; width: 300px; font-size: 12px;
+             background: Canvas; border: 1px solid #8886; border-radius: 8px; padding: 10px 12px;
+             box-shadow: 0 6px 22px #0003; max-height: 55vh; overflow: auto; }
+  #readout h3 { margin: 0 0 6px; font-size: 12px; }
+  #readout div { font-family: ui-monospace, monospace; overflow-wrap: anywhere; margin: 2px 0; }
+  iframe { width: 100%; height: 150px; border: 1px dashed #8886; border-radius: 5px; }
+</style>
+</head>
+<body>
+
+<h1>Vaultiq testbed</h1>
+<p class="lede">
+  Nothing here submits anywhere and nothing leaves the page — every form calls
+  <code>preventDefault</code>. Serve it over HTTP rather than opening the file:
+  <code>file://</code> URLs have no hostname, so site matching cannot work, and
+  Firefox gates content scripts on them separately.
+</p>
+<p class="lede">
+  <code>python3 -m http.server 8000</code> from this directory, then save a
+  login for <code>localhost</code> and work down. Sections 8 and 10 are
+  expected to fail; they are here to keep the gaps visible.
+</p>
+
+<section>
+  <h2>1 · Ordinary sign-in</h2>
+  <p class="why">The base case. One username, one password.</p>
+  <form id="signin">
+    <label>Email <input type="email" name="email" autocomplete="username"></label>
+    <label>Password <input type="password" name="password" autocomplete="current-password"></label>
+    <button type="submit">Sign in</button>
+  </form>
+  <p class="expect"><b>Expect:</b> clicking either field shows the picker with your saved
+  logins. No password suggestion — you are recalling, not choosing. Submitting offers to save.</p>
+</section>
+
+<section>
+  <h2>2 · Sign-up, with confirmation</h2>
+  <p class="why">Two password fields and no autocomplete hints. This is the shape most sign-up
+  forms actually have.</p>
+  <form id="signup">
+    <label>Email <input type="email" name="email"></label>
+    <label>Choose a password <input type="password" name="new"></label>
+    <label>Repeat it <input type="password" name="repeat"></label>
+    <button type="submit">Create account</button>
+  </form>
+  <p class="expect"><b>Expect:</b> <b>Use a suggested password</b> at the top of the picker,
+  and choosing it fills <em>both</em> password boxes with the same value.</p>
+</section>
+
+<section>
+  <h2>3 · Sign-up, declared properly</h2>
+  <p class="why">A single field marked <code>autocomplete="new-password"</code>.</p>
+  <form id="declared">
+    <label>Username <input type="text" name="u" autocomplete="username"></label>
+    <label>Password <input type="password" name="p" autocomplete="new-password"></label>
+    <button type="submit">Register</button>
+  </form>
+  <p class="expect"><b>Expect:</b> a suggestion, on the strength of the autocomplete attribute
+  alone.</p>
+</section>
+
+<section>
+  <h2>4 · Change password</h2>
+  <p class="why">Three password fields. The interesting one.</p>
+  <form id="change">
+    <label>Current password
+      <input type="password" name="current" autocomplete="current-password"></label>
+    <label>New password
+      <input type="password" name="new" autocomplete="new-password"></label>
+    <label>Confirm new password
+      <input type="password" name="confirm" autocomplete="new-password"></label>
+    <button type="submit">Change</button>
+  </form>
+  <p class="expect"><b>Expect:</b> the suggestion fills <em>new</em> and <em>confirm</em> and
+  leaves <em>current</em> untouched. If it overwrites <em>current</em>, that is a bug — the site
+  would reject the change.</p>
+</section>
+
+<section>
+  <h2>5 · Honeypot and disabled fields</h2>
+  <p class="why">A hidden field and a read-only one, which crawlers fill and people do not.</p>
+  <form id="honeypot">
+    <label style="display:none">Leave blank <input type="text" name="trap"></label>
+    <label>Nickname <input type="text" name="nick" readonly value="read-only"></label>
+    <label>Email <input type="email" name="email"></label>
+    <label>Password <input type="password" name="password"></label>
+    <button type="submit">Sign in</button>
+  </form>
+  <p class="expect"><b>Expect:</b> the username goes into <em>Email</em>, never into the hidden
+  trap or the read-only box.</p>
+</section>
+
+<section>
+  <h2>6 · Two forms on one page</h2>
+  <p class="why">Sign in on the left, register on the right — a very common layout.</p>
+  <div style="display:flex; gap:16px">
+    <form id="two-a" style="flex:1">
+      <label>Email <input type="email"></label>
+      <label>Password <input type="password" autocomplete="current-password"></label>
+      <button type="submit">Sign in</button>
+    </form>
+    <form id="two-b" style="flex:1">
+      <label>Email <input type="email"></label>
+      <label>Password <input type="password" autocomplete="new-password"></label>
+      <button type="submit">Register</button>
+    </form>
+  </div>
+  <p class="expect"><b>Expect:</b> each form is treated separately — a suggestion on the right
+  only. Submitting either offers to save only that form's values.</p>
+</section>
+
+<section>
+  <h2>7 · Rendered late</h2>
+  <p class="why">Appears two seconds after load, like a form behind a client-side router.</p>
+  <div id="late"></div>
+  <p class="expect"><b>Expect:</b> works normally. The picker attaches on focus, not on load.</p>
+</section>
+
+<section>
+  <h2>8 · Submits by XHR, with no form event</h2>
+  <p class="why">A button handler rather than a real submission. Known limitation.</p>
+  <div id="xhr">
+    <label>Email <input type="email"></label>
+    <label>Password <input type="password"></label>
+    <button type="button" id="xhr-go">Sign in</button>
+  </div>
+  <p class="expect"><b>Expect:</b> the picker works. The save prompt <em>does not</em> appear —
+  there is no <code>submit</code> event to hear. Worth confirming so the gap is known rather
+  than assumed.</p>
+</section>
+
+<section>
+  <h2>9 · Inside an iframe</h2>
+  <p class="why">Same origin. The content script runs in every frame.</p>
+  <iframe src="frame.html" title="framed login"></iframe>
+  <p class="expect"><b>Expect:</b> the picker works inside the frame, and anchors to the field
+  rather than to the top of the page.</p>
+</section>
+
+<section>
+  <h2>10 · Inside a shadow root</h2>
+  <p class="why">A web component. Known not to work.</p>
+  <div id="shadow-host"></div>
+  <p class="expect"><b>Expect:</b> <em>nothing</em>. Field lookup does not cross shadow
+  boundaries. Confirming this tells us how much it matters.</p>
+</section>
+
+<div id="readout">
+  <h3>Field values <button type="button" id="refresh" style="float:right;padding:1px 6px;font-size:11px">Read</button></h3>
+  <div id="values">Press Read.</div>
+</div>
+
+<script>
+  // Nothing leaves this page.
+  for (const form of document.querySelectorAll("form")) {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      console.log("submit intercepted:", form.id || "(unnamed)");
+    });
+  }
+
+  setTimeout(() => {
+    document.getElementById("late").innerHTML = `
+      <form id="late-form">
+        <label>Email <input type="email"></label>
+        <label>Password <input type="password" autocomplete="current-password"></label>
+        <button type="submit">Sign in</button>
+      </form>`;
+    document.getElementById("late-form").addEventListener("submit", (e) => e.preventDefault());
+  }, 2000);
+
+  document.getElementById("xhr-go").addEventListener("click", () => {
+    console.log("would XHR here; no submit event fires");
+  });
+
+  const shadow = document.getElementById("shadow-host").attachShadow({ mode: "open" });
+  shadow.innerHTML = `
+    <style>label{display:block;font:13px system-ui;color:#666}
+           input{display:block;width:100%;box-sizing:border-box;padding:7px 9px;margin-top:3px}</style>
+    <label>Email <input type="email"></label>
+    <label>Password <input type="password"></label>`;
+
+  document.getElementById("refresh").addEventListener("click", () => {
+    const rows = [];
+    const seen = (root, prefix) => {
+      for (const input of root.querySelectorAll("input")) {
+        const where = input.closest("form")?.id || prefix;
+        const name = input.name || input.type;
+        rows.push(`${where}.${name} = ${JSON.stringify(input.value)}`);
+      }
+    };
+    seen(document, "page");
+    seen(shadow, "shadow");
+    document.getElementById("values").innerHTML =
+      rows.map((r) => `<div>${r}</div>`).join("") || "<div>nothing</div>";
+  });
+</script>
+</body>
+</html>
