@@ -16,6 +16,8 @@ import {
   activeTabUrl,
   checkStrength,
   credentialForFill,
+  saveSubmitted,
+  shouldOfferToSave,
   itemsForUrl,
   newPassword,
   lock,
@@ -98,6 +100,17 @@ async function handle(
       const credential = await credentialForFill(request.id, await requestOrigin(sender));
       await extendAutoLock();
       return { ok: true, kind: "credentialForFill", ...credential };
+    }
+    case "shouldOfferToSave": {
+      const decision = await shouldOfferToSave(request, await requestOrigin(sender));
+      return decision.offer
+        ? { ok: true, kind: "shouldOfferToSave", ...decision }
+        : { ok: true, kind: "shouldOfferToSave", offer: false };
+    }
+    case "saveSubmitted": {
+      await saveSubmitted(request, await requestOrigin(sender));
+      await extendAutoLock();
+      return { ok: true, kind: "saveSubmitted" };
     }
     case "listItems": {
       const items = await listItems();
