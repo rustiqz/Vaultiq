@@ -82,7 +82,7 @@ export type FakeStoredItem = StoredItem & { plaintext: string };
 export const db = {
   vault: undefined as VaultRecord | undefined,
   items: new Map<string, FakeStoredItem>(),
-  usage: undefined as UsageRecord | undefined,
+  usage: new Map<string, UsageRecord>(),
 };
 
 /** The content a test believes is stored for an item. */
@@ -105,9 +105,10 @@ export const dbFake = {
     return Promise.resolve();
   }),
   allItems: vi.fn(() => Promise.resolve([...db.items.values()])),
-  getUsage: vi.fn(() => Promise.resolve(db.usage)),
+  getUsage: vi.fn((deviceId: string) => Promise.resolve(db.usage.get(`usage:${deviceId}`))),
+  allUsage: vi.fn(() => Promise.resolve([...db.usage.values()])),
   putUsage: vi.fn((record: UsageRecord) => {
-    db.usage = record;
+    db.usage.set(record.id, record);
     return Promise.resolve();
   }),
 };
@@ -117,6 +118,6 @@ export function resetFakes(): void {
   freed.length = 0;
   db.vault = undefined;
   db.items.clear();
-  db.usage = undefined;
+  db.usage.clear();
   cryptoFake.takeStashedVaultKey.mockResolvedValue(undefined);
 }
