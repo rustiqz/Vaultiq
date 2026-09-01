@@ -17,8 +17,8 @@ import {
   type LoginFields,
 } from "./detect.js";
 import {
+  belongsToDropdown,
   closeDropdown,
-  isInsideDropdown,
   showDropdown,
   type DropdownEntry,
 } from "./dropdown.js";
@@ -167,7 +167,7 @@ document.addEventListener(
 document.addEventListener(
   "click",
   (event) => {
-    if (!isInsideDropdown(event.target)) closeDropdown();
+    if (!belongsToDropdown(event.target)) closeDropdown();
   },
   true,
 );

@@ -6,7 +6,7 @@
 // test the defences rather than the appearance.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { closeDropdown, isInsideDropdown, showDropdown } from "./dropdown.js";
+import { belongsToDropdown, closeDropdown, isInsideDropdown, showDropdown } from "./dropdown.js";
 
 const ENTRIES = [
   { id: "a", label: "Personal", detail: "me@example.test" },
@@ -111,9 +111,49 @@ describe("behaviour", () => {
     expect(isInsideDropdown(null)).toBe(false);
   });
 
-  it("closes when the page scrolls, so it cannot drift off its field", () => {
+  // The bug this replaced: the browser scrolls a focused field into view, and
+  // the picker closed itself the instant it opened.
+  it("survives the window scrolling", () => {
     showDropdown(anchor(), ENTRIES, vi.fn());
-    document.dispatchEvent(new Event("scroll"));
+
+    const scroll = new Event("scroll");
+    Object.defineProperty(scroll, "target", { value: document });
+    document.dispatchEvent(scroll);
+
+    // Positioned in page coordinates, so a window scroll carries it along
+    // with the field. Closing would be wrong as well as unhelpful.
+    expect(host()).not.toBeNull();
+  });
+
+  it("closes when a container scrolls out from under it", () => {
+    document.body.innerHTML = `<div id="scroller"><input type="password" id="p"></div>`;
+    showDropdown(document.querySelector<HTMLInputElement>("#p")!, ENTRIES, vi.fn());
+
+    const scroller = document.querySelector("#scroller")!;
+    scroller.dispatchEvent(new Event("scroll", { bubbles: false }));
+
+    // An inner scroll does move the field without moving the picker.
     expect(host()).toBeNull();
+  });
+
+  it("stays open when the field that opened it is clicked", () => {
+    // Clicking that field is what opened the picker. Treating the click as
+    // "elsewhere" closed it again the same instant.
+    const field = anchor();
+    showDropdown(field, ENTRIES, vi.fn());
+    expect(belongsToDropdown(field)).toBe(true);
+  });
+
+  it("closes when something else is clicked", () => {
+    showDropdown(anchor(), ENTRIES, vi.fn());
+    expect(belongsToDropdown(document.body)).toBe(false);
+    expect(belongsToDropdown(null)).toBe(false);
+  });
+
+  it("forgets its anchor once closed", () => {
+    const field = anchor();
+    showDropdown(field, ENTRIES, vi.fn());
+    closeDropdown();
+    expect(belongsToDropdown(field)).toBe(false);
   });
 });
