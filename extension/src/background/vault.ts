@@ -31,6 +31,7 @@ export { assertSessionStorage, loadCrypto };
 import { matchesSite, siteScope } from "../lib/site.js";
 import type {
   DecryptedItem,
+  ItemUsage,
   LoginContent,
   PasswordOptions,
   PasswordStrength,
@@ -39,8 +40,10 @@ import type {
 import {
   allItems,
   getItem,
+  getUsage,
   getVault,
   putItem,
+  putUsage,
   putVault,
   type StoredItem,
 } from "../lib/vault-db.js";
@@ -49,6 +52,9 @@ import {
 const AUTO_LOCK_MINUTES = 15;
 export const AUTO_LOCK_ALARM = "vaultiq-auto-lock";
 const ITEM_TYPE = "login";
+const USAGE_ID = "usage";
+const USAGE_TYPE = "usage";
+const NO_USAGE: ItemUsage = { useCount: 0 };
 const VAULT_FORMAT = 1;
 
 /**
@@ -156,13 +162,64 @@ async function requireUnlocked(): Promise<VaultKeyHandle> {
   return vaultKey;
 }
 
+/** Everything recorded about how items have been reached for. */
+type UsageMap = Record<string, ItemUsage>;
+
+async function readUsage(vaultKey: VaultKeyHandle): Promise<UsageMap> {
+  const record = await getUsage();
+  if (!record) return {};
+  try {
+    return JSON.parse(decryptItem(record.item, vaultKey)) as UsageMap;
+  } catch {
+    // A usage blob that will not decrypt is a statistic, not a vault. Losing
+    // it must never stop the vault opening.
+    return {};
+  }
+}
+
+async function writeUsage(vaultKey: VaultKeyHandle, usage: UsageMap): Promise<void> {
+  const previous = await getUsage();
+  const item: StoredItem = encryptItem(
+    JSON.stringify(usage),
+    {
+      id: USAGE_ID,
+      item_type: USAGE_TYPE,
+      version: (previous?.item.version ?? 0) + 1,
+      updated_at: Date.now(),
+      deleted: false,
+    },
+    vaultKey,
+  ) as StoredItem;
+
+  await putUsage({ id: USAGE_ID, item });
+}
+
+/** Notes that an item was reached for. `filled` marks an autofill. */
+export async function recordUse(id: string, filled: boolean): Promise<void> {
+  const vaultKey = await requireUnlocked();
+  const usage = await readUsage(vaultKey);
+  const now = Date.now();
+
+  const previous = usage[id] ?? NO_USAGE;
+  usage[id] = {
+    ...previous,
+    lastUsedAt: now,
+    ...(filled ? { lastAutofilledAt: now } : {}),
+    useCount: previous.useCount + 1,
+  };
+
+  await writeUsage(vaultKey, usage);
+}
+
 export async function addItem(content: LoginContent): Promise<string> {
   const vaultKey = await requireUnlocked();
   const id = crypto.randomUUID();
   const updatedAt = Date.now();
 
+  const stamped: LoginContent = { ...content, createdAt: updatedAt, lastModifiedAt: updatedAt };
+
   const encrypted: StoredItem = encryptItem(
-    JSON.stringify(content),
+    JSON.stringify(stamped),
     { id, item_type: ITEM_TYPE, version: 1, updated_at: updatedAt, deleted: false },
     vaultKey,
   ) as StoredItem;
@@ -211,7 +268,15 @@ async function rewriteItem(
 }
 
 export async function updateItem(id: string, content: LoginContent): Promise<void> {
-  await rewriteItem(id, () => ({ content: JSON.stringify(content), deleted: false }));
+  await rewriteItem(id, (current) => ({
+    content: JSON.stringify({
+      ...content,
+      // Preserved across an edit; only a fresh save sets it.
+      ...(current.createdAt === undefined ? {} : { createdAt: current.createdAt }),
+      lastModifiedAt: Date.now(),
+    }),
+    deleted: false,
+  }));
 }
 
 export async function trashItem(id: string): Promise<void> {
@@ -258,6 +323,7 @@ export function checkStrength(password: string): PasswordStrength {
 export async function listItems(): Promise<DecryptedItem[]> {
   const vaultKey = await requireUnlocked();
   const stored = await allItems();
+  const usage = await readUsage(vaultKey);
 
   const decrypted = stored.flatMap((item) => {
     const content = JSON.parse(decryptItem(item, vaultKey)) as Partial<LoginContent> & {
@@ -279,6 +345,13 @@ export async function listItems(): Promise<DecryptedItem[]> {
         updatedAt: item.updated_at,
         deleted: item.deleted,
         strength: scorePassword(content.password ?? ""),
+        usage: usage[item.id] ?? NO_USAGE,
+        ...(content.email === undefined ? {} : { email: content.email }),
+        ...(content.mobile === undefined ? {} : { mobile: content.mobile }),
+        ...(content.createdAt === undefined ? {} : { createdAt: content.createdAt }),
+        ...(content.lastModifiedAt === undefined
+          ? {}
+          : { lastModifiedAt: content.lastModifiedAt }),
       },
     ];
   });
@@ -327,6 +400,11 @@ export async function credentialForFill(
   const { items } = await itemsForUrl(url);
   const item = items.find((candidate) => candidate.id === id);
   if (!item) throw new Error("No such item for this site.");
+
+  // Recorded here rather than in the content script: the fill is the event
+  // worth counting, and this is the only place it is known to have happened.
+  await recordUse(id, true);
+
   return { username: item.username, password: item.password };
 }
 
