@@ -16,6 +16,7 @@ export default defineConfig({
         // At the package root so Vite emits dist/popup.html rather than
         // burying it under dist/src/popup/, which the manifest cannot reach.
         popup: resolve(__dirname, "popup.html"),
+        content: resolve(__dirname, "src/content/index.ts"),
       },
       output: {
         entryFileNames: "[name].js",
