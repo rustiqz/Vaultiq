@@ -18,8 +18,16 @@ import {
   credentialForFill,
   saveSubmitted,
   shouldOfferToSave,
+  auditLog,
+  autoLockMinutes,
+  device,
+  forgetPin,
   itemsForUrl,
   recordUse,
+  renameDevice,
+  setAutoLockMinutes,
+  setPin,
+  unlockWithPin,
   newPassword,
   lock,
   purgeItem,
@@ -32,7 +40,9 @@ import {
 import type { Request, Response } from "../lib/messages.js";
 
 browser.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === AUTO_LOCK_ALARM) void lock();
+  // Idle lock leaves the PIN armed: being asked for a PIN after twenty
+  // minutes is the point of having one.
+  if (alarm.name === AUTO_LOCK_ALARM) void lock(false);
 });
 
 /**
@@ -65,8 +75,24 @@ async function handle(
       await extendAutoLock();
       return { ok: true, kind: "unlock" };
     case "lock":
-      await lock();
+      await lock(request.forget ?? true);
       return { ok: true, kind: "lock" };
+    case "setPin":
+      await setPin(request.pin);
+      await extendAutoLock();
+      return { ok: true, kind: "setPin" };
+    case "forgetPin":
+      await forgetPin();
+      return { ok: true, kind: "forgetPin" };
+    case "unlockWithPin":
+      await unlockWithPin(request.pin);
+      await extendAutoLock();
+      return { ok: true, kind: "unlockWithPin" };
+    case "autoLock":
+      return { ok: true, kind: "autoLock", minutes: await autoLockMinutes() };
+    case "setAutoLock":
+      await setAutoLockMinutes(request.minutes);
+      return { ok: true, kind: "setAutoLock" };
     case "addItem": {
       const id = await addItem(request.content);
       await extendAutoLock();
@@ -114,9 +140,19 @@ async function handle(
       return { ok: true, kind: "saveSubmitted" };
     }
     case "recordUse":
-      await recordUse(request.id, false);
+      await recordUse(request.id, request.event ?? "copied");
       await extendAutoLock();
       return { ok: true, kind: "recordUse" };
+    case "device":
+      return { ok: true, kind: "device", device: await device() };
+    case "renameDevice":
+      await renameDevice(request.name);
+      return { ok: true, kind: "renameDevice" };
+    case "auditLog": {
+      const log = await auditLog();
+      await extendAutoLock();
+      return { ok: true, kind: "auditLog", ...log };
+    }
     case "listItems": {
       const items = await listItems();
       await extendAutoLock();

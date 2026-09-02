@@ -7,22 +7,37 @@
 import { beforeEach, vi } from "vitest";
 
 const session = new Map<string, unknown>();
+const local = new Map<string, unknown>();
 
 /** The page a test pretends the user is looking at. */
 export const activeTab: { url: string | undefined } = { url: undefined };
 
 const browserStub = {
   storage: {
-    session: {
+    // Where the device identity lives: it has to survive the browser closing,
+    // which session storage deliberately does not.
+    local: {
       get: vi.fn((key: string) =>
-        Promise.resolve(session.has(key) ? { [key]: session.get(key) } : {}),
+        Promise.resolve(local.has(key) ? { [key]: local.get(key) } : {}),
       ),
+      set: vi.fn((entries: Record<string, unknown>) => {
+        for (const [key, value] of Object.entries(entries)) local.set(key, value);
+        return Promise.resolve();
+      }),
+    },
+    session: {
+      get: vi.fn((key: string | string[]) => {
+        const keys = Array.isArray(key) ? key : [key];
+        const found: Record<string, unknown> = {};
+        for (const one of keys) if (session.has(one)) found[one] = session.get(one);
+        return Promise.resolve(found);
+      }),
       set: vi.fn((entries: Record<string, unknown>) => {
         for (const [key, value] of Object.entries(entries)) session.set(key, value);
         return Promise.resolve();
       }),
-      remove: vi.fn((key: string) => {
-        session.delete(key);
+      remove: vi.fn((key: string | string[]) => {
+        for (const one of Array.isArray(key) ? key : [key]) session.delete(one);
         return Promise.resolve();
       }),
     },
@@ -57,6 +72,7 @@ export const sessionStore = session;
 
 beforeEach(() => {
   session.clear();
+  local.clear();
   activeTab.url = undefined;
   vi.clearAllMocks();
 });
