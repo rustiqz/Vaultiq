@@ -154,30 +154,37 @@ jobs:
         working-directory: server
         run: pnpm run lint
 
-      - name: Test
-        working-directory: server
-        run: pnpm run test
-
       - name: Build
         working-directory: server
         run: pnpm run build
 
-      # Proves the schema applies to a real Postgres, not only that the SQL
-      # parses. A migration that is wrong is not caught by any other step.
-      - name: Migrations apply
-        working-directory: server
-        env:
-          DATABASE_URL: postgres://vaultiq:test@127.0.0.1:5432/vaultiq
+      # A real Postgres, because half of what the tests cover lives in SQL:
+      # the single-account constraint, the token lock, the revocation filter.
+      # Without it those tests skip rather than fail, which would be worse.
+      - name: Start Postgres
         run: |
           set -euo pipefail
           docker run -d --name ci-db \
             -e POSTGRES_PASSWORD=test -e POSTGRES_USER=vaultiq -e POSTGRES_DB=vaultiq \
             -p 5432:5432 postgres:17-alpine
           until docker exec ci-db pg_isready -U vaultiq -d vaultiq; do sleep 2; done
+
+      - name: Migrations apply, twice
+        working-directory: server
+        env:
+          DATABASE_URL: postgres://vaultiq:test@127.0.0.1:5432/vaultiq
+        run: |
+          set -euo pipefail
           pnpm run migrate
-          # Twice, because a migration runner that is not idempotent will
-          # break the second deploy rather than the first.
+          # A runner that is not idempotent breaks the second deploy, not the
+          # first, so it is run twice here rather than once.
           pnpm run migrate
+
+      - name: Test
+        working-directory: server
+        env:
+          DATABASE_URL: postgres://vaultiq:test@127.0.0.1:5432/vaultiq
+        run: pnpm run test
 
   audit:
     # Gates the release, so this job must always run: a *skipped* job in
