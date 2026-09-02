@@ -17,6 +17,8 @@
     "@nestjs/common": "11.1.6",
     "@nestjs/core": "11.1.6",
     "@nestjs/platform-express": "11.1.6",
+    "@nestjs/throttler": "6.5.0",
+    "@node-rs/argon2": "2.2.0",
     "class-transformer": "0.5.1",
     "class-validator": "0.14.2",
     "helmet": "8.1.0",
@@ -26,6 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.39.0",
+    "@types/express": "5.0.3",
     "@types/node": "24.10.1",
     "@types/pg": "8.15.6",
     "eslint": "9.39.0",
