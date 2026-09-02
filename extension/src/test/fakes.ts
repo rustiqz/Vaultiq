@@ -53,7 +53,11 @@ export const cryptoFake = {
   })),
   generateSalt: vi.fn(() => "salt-b64"),
   generateVaultKey: vi.fn(() => handle("vault")),
-  deriveMasterKey: vi.fn(() => handle("master")),
+  // Takes the real arguments so a test can assert what it was called with. A
+  // zero-argument fake records empty tuples and verifies nothing.
+  deriveMasterKey: vi.fn(
+    (_password: string, _saltB64: string, _m: number, _t: number, _p: number) => handle("master"),
+  ),
   deriveAuthKey: vi.fn(() => "auth-b64"),
   wrapVaultKey: vi.fn(() => ({ version: 1, ciphertext: [], nonce: [] })),
   unwrapVaultKey: vi.fn(() => handle("vault")),
@@ -82,7 +86,7 @@ export type FakeStoredItem = StoredItem & { plaintext: string };
 export const db = {
   vault: undefined as VaultRecord | undefined,
   items: new Map<string, FakeStoredItem>(),
-  usage: undefined as UsageRecord | undefined,
+  usage: new Map<string, UsageRecord>(),
 };
 
 /** The content a test believes is stored for an item. */
@@ -105,9 +109,10 @@ export const dbFake = {
     return Promise.resolve();
   }),
   allItems: vi.fn(() => Promise.resolve([...db.items.values()])),
-  getUsage: vi.fn(() => Promise.resolve(db.usage)),
+  getUsage: vi.fn((deviceId: string) => Promise.resolve(db.usage.get(`usage:${deviceId}`))),
+  allUsage: vi.fn(() => Promise.resolve([...db.usage.values()])),
   putUsage: vi.fn((record: UsageRecord) => {
-    db.usage = record;
+    db.usage.set(record.id, record);
     return Promise.resolve();
   }),
 };
@@ -115,8 +120,15 @@ export const dbFake = {
 export function resetFakes(): void {
   encryptedHeaders.length = 0;
   freed.length = 0;
+
+  // Implementations, not just call history: a persistent mockImplementation
+  // set by one test would otherwise leak into every test after it.
+  cryptoFake.unwrapVaultKey.mockImplementation(() => handle("vault"));
+  cryptoFake.decryptItem.mockImplementation(
+    (item: StoredItem & { plaintext?: string }) => item.plaintext ?? "{}",
+  );
   db.vault = undefined;
   db.items.clear();
-  db.usage = undefined;
+  db.usage.clear();
   cryptoFake.takeStashedVaultKey.mockResolvedValue(undefined);
 }
