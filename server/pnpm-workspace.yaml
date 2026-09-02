@@ -1,0 +1,10 @@
+# pnpm blocks dependency install scripts until each is explicitly decided, and
+# treats an undecided one as fatal in CI. Recording the decisions here keeps
+# them in version control rather than in a developer's local pnpm state.
+allowBuilds:
+  # Vite/vitest need esbuild's platform binary, which its install script
+  # fetches.
+  esbuild: true
+  # A postinstall banner. Nothing the build or the runtime needs, so it does
+  # not get to run code at install time.
+  "@nestjs/core": false
