@@ -1,0 +1,62 @@
+# The whole deployment: a database, the server, and a reverse proxy that
+# obtains its own certificate.
+#
+#   cp .env.example .env    # set POSTGRES_PASSWORD and VAULTIQ_DOMAIN
+#   docker compose up -d
+#
+# Nothing but Caddy is published. Postgres and the server talk over the
+# internal network only, so the database is not reachable from the host at
+# all — there is no port to find and nothing to brute-force.
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vaultiq
+      POSTGRES_USER: vaultiq
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaultiq -d vaultiq"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  server:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://vaultiq:${POSTGRES_PASSWORD}@db:5432/vaultiq
+      PORT: 3000
+    depends_on:
+      db:
+        # Waits for the database to actually answer, not merely to start.
+        # Migrations run at boot, and a server that races them fails loudly.
+        condition: service_healthy
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      VAULTIQ_DOMAIN: ${VAULTIQ_DOMAIN:?set VAULTIQ_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [server]
+    networks: [internal]
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  internal:

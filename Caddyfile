@@ -1,0 +1,16 @@
+# Caddy obtains and renews the certificate itself once VAULTIQ_DOMAIN points
+# at this machine. TLS is the only thing between the auth key and the wire,
+# so it is treated as load-bearing rather than assumed.
+
+{$VAULTIQ_DOMAIN} {
+	encode zstd gzip
+
+	# Security headers are the application's, set by helmet. Setting them here
+	# too produced two X-Frame-Options with different values, which is worse
+	# than either alone. Caddy only removes what it adds itself.
+	header {
+		-Server
+	}
+
+	reverse_proxy server:3000
+}
