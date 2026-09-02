@@ -125,6 +125,60 @@ jobs:
         working-directory: extension
         run: pnpm run bundle
 
+  server:
+    # The sync server. Runs in parallel with the Rust gate and the extension.
+    name: server · typecheck · lint · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: server/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: server/pnpm-lock.yaml
+
+      - name: Install
+        working-directory: server
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: server
+        run: pnpm run typecheck
+
+      - name: Lint
+        working-directory: server
+        run: pnpm run lint
+
+      - name: Test
+        working-directory: server
+        run: pnpm run test
+
+      - name: Build
+        working-directory: server
+        run: pnpm run build
+
+      # Proves the schema applies to a real Postgres, not only that the SQL
+      # parses. A migration that is wrong is not caught by any other step.
+      - name: Migrations apply
+        working-directory: server
+        env:
+          DATABASE_URL: postgres://vaultiq:test@127.0.0.1:5432/vaultiq
+        run: |
+          set -euo pipefail
+          docker run -d --name ci-db \
+            -e POSTGRES_PASSWORD=test -e POSTGRES_USER=vaultiq -e POSTGRES_DB=vaultiq \
+            -p 5432:5432 postgres:17-alpine
+          until docker exec ci-db pg_isready -U vaultiq -d vaultiq; do sleep 2; done
+          pnpm run migrate
+          # Twice, because a migration runner that is not idempotent will
+          # break the second deploy rather than the first.
+          pnpm run migrate
+
   audit:
     # Gates the release, so this job must always run: a *skipped* job in
     # `needs` skips its dependents too, which would silently stop releases
@@ -227,7 +281,7 @@ jobs:
     # Only after `gate` is green, and only for a merge landing on main.
     # `needs` is what guarantees a broken build can never be tagged.
     name: Tag and release
-    needs: [gate, extension, audit]
+    needs: [gate, extension, server, audit]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
