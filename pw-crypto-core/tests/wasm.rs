@@ -300,3 +300,25 @@ fn default_params_are_exported() {
     assert!(memory >= 19.0 * 1024.0, "must clear the OWASP floor");
     assert_eq!(key_length(), 32);
 }
+
+#[wasm_bindgen_test]
+fn computes_the_rfc_6238_code_across_the_boundary() {
+    // The RFC 6238 seed in base32, and the specification's own first vector.
+    // The algorithm itself is pinned on the host; what this checks is that
+    // the marshalling — string in, string out, no BigInt — survives the
+    // boundary intact.
+    let code = totp_code_js("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", "SHA1", 8, 30.0, 59.0).unwrap();
+    assert_eq!(code, "94287082");
+}
+
+#[wasm_bindgen_test]
+fn a_malformed_totp_secret_is_reported_as_an_argument() {
+    // A caller's own input being the wrong shape is not a decryption failure
+    // and does not have to be indistinguishable from one.
+    assert!(totp_code_js("not base32!", "SHA1", 6, 30.0, 59.0).is_err());
+}
+
+#[wasm_bindgen_test]
+fn reports_how_long_a_code_has_left() {
+    assert_eq!(totp_seconds_remaining_js(30.0, 75.0).unwrap(), 15.0);
+}
