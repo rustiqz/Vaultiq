@@ -718,6 +718,27 @@ export async function listItems(): Promise<DecryptedItem[]> {
       }
       case "note":
         return [{ type: "note", ...common, ...facts }];
+      case "identity":
+        return [
+          {
+            type: "identity",
+            ...common,
+            firstName: text(content.firstName) ?? "",
+            lastName: text(content.lastName) ?? "",
+            email: text(content.email) ?? "",
+            phone: text(content.phone) ?? "",
+            street: text(content.street) ?? "",
+            ...optional("street2", text(content.street2)),
+            city: text(content.city) ?? "",
+            state: text(content.state) ?? "",
+            postalCode: text(content.postalCode) ?? "",
+            country: text(content.country) ?? "",
+            ...optional("company", text(content.company)),
+            ...optional("dateOfBirth", text(content.dateOfBirth)),
+            ...optional("nationalId", text(content.nationalId)),
+            ...facts,
+          },
+        ];
       case "card": {
         const number = text(content.number) ?? "";
         return [

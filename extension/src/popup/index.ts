@@ -12,9 +12,11 @@ import {
   send,
   type DecryptedItem,
   type DecryptedCard,
+  type DecryptedIdentity,
   type DecryptedLogin,
   type DecryptedNote,
   type CardContent,
+  type IdentityContent,
   type ItemContent,
   type ItemType,
   type LoginContent,
@@ -29,6 +31,7 @@ const TYPE_LABEL: Record<ItemType, string> = {
   login: "Login",
   note: "Secure note",
   card: "Card",
+  identity: "Identity",
 };
 
 const STRENGTH_LABEL: Record<StrengthLevel, string> = {
@@ -568,6 +571,69 @@ function itemForm(
       ...(pin.value ? { pin: pin.value } : {}),
       notes: card?.notes ?? "",
     });
+  } else if (type === "identity") {
+    const identity = initial?.type === "identity" ? initial : undefined;
+
+    /** One text input, prefilled from the item being edited. */
+    const line = (
+      key: keyof IdentityContent,
+      options: Partial<HTMLInputElement> = {},
+    ): HTMLInputElement => {
+      const input = el("input", { type: "text", autocomplete: "off", ...options });
+      const value = identity?.[key];
+      if (typeof value === "string") input.value = value;
+      return input;
+    };
+
+    const firstName = line("firstName");
+    const lastName = line("lastName");
+    const company = line("company");
+    const email = line("email", { type: "email" });
+    const phone = line("phone", { type: "tel" });
+    const street = line("street");
+    const street2 = line("street2", { placeholder: "Optional" });
+    const city = line("city");
+    const state = line("state");
+    const postalCode = line("postalCode");
+    const country = line("country");
+    const dateOfBirth = line("dateOfBirth", { type: "date" });
+    // Masked like a password: this is the field that opens accounts on its own.
+    const nationalId = line("nationalId", { type: "password", placeholder: "Optional" });
+
+    fields.push(
+      el("label", {}, ["First name", firstName]),
+      el("label", {}, ["Last name", lastName]),
+      el("label", {}, ["Company", company]),
+      el("label", {}, ["Email", email]),
+      el("label", {}, ["Phone", phone]),
+      el("label", {}, ["Address", street]),
+      el("label", {}, ["Address line 2", street2]),
+      el("label", {}, ["City", city]),
+      el("label", {}, ["State or region", state]),
+      el("label", {}, ["Postcode", postalCode]),
+      el("label", {}, ["Country", country]),
+      el("label", {}, ["Date of birth", dateOfBirth]),
+      el("label", {}, ["Passport or national ID", nationalId]),
+    );
+
+    read = (): IdentityContent => ({
+      type: "identity",
+      ...named(),
+      firstName: firstName.value,
+      lastName: lastName.value,
+      email: email.value,
+      phone: phone.value,
+      street: street.value,
+      ...(street2.value ? { street2: street2.value } : {}),
+      city: city.value,
+      state: state.value,
+      postalCode: postalCode.value,
+      country: country.value,
+      ...(company.value ? { company: company.value } : {}),
+      ...(dateOfBirth.value ? { dateOfBirth: dateOfBirth.value } : {}),
+      ...(nationalId.value ? { nationalId: nationalId.value } : {}),
+      notes: identity?.notes ?? "",
+    });
   } else {
     // A secure note is its name and its text. `notes` is common to every
     // item, so a note needs no field of its own — see NoteContent.
@@ -635,9 +701,53 @@ function liveRow(item: DecryptedItem): HTMLLIElement {
       return loginRow(item);
     case "card":
       return cardRow(item);
+    case "identity":
+      return identityRow(item);
     case "note":
       return noteRow(item);
   }
+}
+
+/** How an identity reads when it has no name of its own. */
+function identityLabel(item: DecryptedIdentity): string {
+  return [item.firstName, item.lastName].filter(Boolean).join(" ");
+}
+
+/** The address as one line, for copying into a single field. */
+function oneLineAddress(item: DecryptedIdentity): string {
+  return [item.street, item.street2, item.city, item.state, item.postalCode, item.country]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function identityRow(item: DecryptedIdentity): HTMLLIElement {
+  const noteUse = (): void => {
+    void send({ kind: "recordUse", id: item.id });
+  };
+
+  const address = oneLineAddress(item);
+  const copies = [
+    copyable(item.email, { onCopy: noteUse }),
+    copyable(item.phone, { onCopy: noteUse }),
+  ];
+  if (address) copies.push(copyable(address, { onCopy: noteUse }));
+  // Only shown when there is one, and never in the clear: a passport or
+  // national ID number opens accounts by itself.
+  if (item.nationalId) {
+    copies.push(copyable(item.nationalId, { masked: true, onCopy: noteUse }));
+  }
+
+  const row = el("li", {}, [
+    el("div", { className: "name" }, [item.name?.trim() || identityLabel(item) || "(unnamed)"]),
+    el("div", {
+      className: "meta",
+      textContent: [item.company, address].filter(Boolean).join(" · ") || TYPE_LABEL.identity,
+    }),
+    el("div", { className: "row" }, copies),
+    stamps(item),
+  ]);
+  row.append(rowActions(item, row));
+  return row;
 }
 
 /** How a card reads when it has no name of its own. */
@@ -759,18 +869,15 @@ function noteRow(item: DecryptedNote): HTMLLIElement {
 
 function trashedRow(item: DecryptedItem): HTMLLIElement {
   const label = item.name?.trim();
-  const fallback =
-    item.type === "login"
-      ? item.username
-      : item.type === "card"
-        ? cardLabel(item)
-        : "(untitled note)";
+  const fallback = untitled(item);
   const detail =
     item.type === "login"
       ? [label ? item.username : "", item.url].filter(Boolean).join(" · ") || "(no site)"
       : item.type === "card"
         ? cardLabel(item)
-        : TYPE_LABEL.note;
+        : item.type === "identity"
+          ? oneLineAddress(item) || TYPE_LABEL.identity
+          : TYPE_LABEL.note;
 
   return el("li", { className: "trashed" }, [
     el("div", { className: "name" }, [label || fallback || "(untitled)"]),
@@ -796,7 +903,20 @@ function haystack(item: DecryptedItem): string {
       ? [item.name, item.username, item.email, item.mobile, item.url, item.notes]
       : item.type === "card"
         ? [item.name, item.cardholder, item.brand, item.last4, item.notes]
-        : [item.name, item.notes];
+        : item.type === "identity"
+          ? // Never the national ID: it is a secret, and nobody searches by it.
+            [
+              item.name,
+              item.firstName,
+              item.lastName,
+              item.company,
+              item.email,
+              item.phone,
+              item.city,
+              item.country,
+              item.notes,
+            ]
+          : [item.name, item.notes];
   return fields.filter(Boolean).join(" ").toLowerCase();
 }
 
@@ -810,9 +930,21 @@ function byRecentUse(a: DecryptedItem, b: DecryptedItem): number {
 
 /** What an item sorts under when nothing has been used recently. */
 function sortName(item: DecryptedItem): string {
-  if (item.name) return item.name;
-  if (item.type === "login") return item.username;
-  return item.type === "card" ? cardLabel(item) : "";
+  return item.name ?? untitled(item);
+}
+
+/** What an item is called when it has no name of its own. */
+function untitled(item: DecryptedItem): string {
+  switch (item.type) {
+    case "login":
+      return item.username;
+    case "card":
+      return cardLabel(item);
+    case "identity":
+      return identityLabel(item);
+    case "note":
+      return "(untitled note)";
+  }
 }
 
 /** Kept across a re-render, so typing does not reset the list. */
