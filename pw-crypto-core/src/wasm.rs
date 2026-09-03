@@ -32,6 +32,7 @@ use crate::keys::{
     derive_stretched_encryption_key, unwrap_vault_key as unwrap_key, wrap_vault_key as wrap_key,
 };
 use crate::password::{PasswordOptions, estimate_strength, generate_password as generate};
+use crate::totp::{TotpAlgorithm, TotpParams, TotpSecret, seconds_remaining, totp_code};
 use crate::vault_item::{EncryptedItem, ItemHeader, decrypt_item as decrypt, encrypt_item};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -351,4 +352,56 @@ pub fn estimate_strength_js(password: &str) -> Result<wasm_bindgen::JsValue, JsE
 #[wasm_bindgen(js_name = keyLength)]
 pub fn key_length() -> usize {
     KEY_LEN
+}
+
+/// Reads the parameters a caller supplied for a one-time password.
+///
+/// The time arrives as an `f64` because that is what `Date.now()` is; a `u64`
+/// would cross as a BigInt and make every call site convert. The saturating
+/// cast cannot panic, and no clock this side of the year 285000 loses a
+/// second to it.
+fn totp_arguments(
+    algorithm: &str,
+    digits: u32,
+    period: f64,
+    unix_seconds: f64,
+) -> Result<(TotpParams, u64), JsError> {
+    let params = TotpParams {
+        algorithm: TotpAlgorithm::parse(algorithm).map_err(|_| bad_argument("TOTP algorithm"))?,
+        digits,
+        period: period.max(0.0) as u64,
+    };
+    Ok((params, unix_seconds.max(0.0) as u64))
+}
+
+/// The one-time code for a moment in time.
+///
+/// The shared secret arrives as the base32 an issuer printed, and the moment
+/// as seconds since the epoch — this layer has no clock of its own, and
+/// neither does the module underneath it.
+///
+/// Returned as a string because a leading zero is part of a code.
+#[wasm_bindgen(js_name = totpCode)]
+pub fn totp_code_js(
+    secret_b32: &str,
+    algorithm: &str,
+    digits: u32,
+    period: f64,
+    unix_seconds: f64,
+) -> Result<String, JsError> {
+    let (params, at) = totp_arguments(algorithm, digits, period, unix_seconds)?;
+    // A malformed secret is reported as the argument problem it is. Nothing
+    // derived from the secret crosses back — the failure says only that what
+    // the caller just supplied was not base32 of a usable length.
+    let secret = TotpSecret::parse(secret_b32).map_err(|_| bad_argument("TOTP secret"))?;
+    totp_code(&secret, &params, at).map_err(|_| bad_argument("TOTP parameters"))
+}
+
+/// How many seconds the current code has left.
+#[wasm_bindgen(js_name = totpSecondsRemaining)]
+pub fn totp_seconds_remaining_js(period: f64, unix_seconds: f64) -> Result<f64, JsError> {
+    let (params, at) = totp_arguments("SHA1", TotpParams::default().digits, period, unix_seconds)?;
+    let left = seconds_remaining(&params, at).map_err(|_| bad_argument("TOTP period"))?;
+    // Back out as an f64 for the same reason it came in as one.
+    Ok(left as f64)
 }
