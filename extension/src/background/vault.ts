@@ -22,6 +22,8 @@ import {
   scorePassword,
   stashVaultKey,
   takeStashedVaultKey,
+  totpCode,
+  totpSecondsRemaining,
   unwrapVaultKey,
   wrapVaultKey,
   type MasterKeyHandle,
@@ -30,12 +32,22 @@ import {
 
 export { assertSessionStorage, loadCrypto };
 export type { SyncSummary };
+import { cardBrand, lastFour, normalizeCardNumber } from "../lib/card.js";
+import { TOTP_DEFAULTS } from "../lib/otpauth.js";
 import { matchesSite, siteScope } from "../lib/site.js";
 import type {
   AuditEvent,
+  CommonContent,
   DecryptedItem,
+  DecryptedLogin,
   DeviceIdentity,
+  FillSuggestion,
+  ItemContent,
+  ItemType,
+  ItemFacts,
   ItemUsage,
+  TotpAlgorithmName,
+  TotpFacts,
   UsageEvent,
   LoginContent,
   PasswordOptions,
@@ -77,7 +89,6 @@ import {
 const DEFAULT_AUTO_LOCK_MINUTES = 15;
 const AUTO_LOCK_SETTING = "autoLockMinutes";
 export const AUTO_LOCK_ALARM = "vaultiq-auto-lock";
-const ITEM_TYPE = "login";
 const USAGE_TYPE = "usage";
 
 /** How many recent events one device keeps. Enough to be useful, bounded. */
@@ -475,16 +486,41 @@ function mergeUsage(records: DeviceRecord[]): Map<string, ItemUsage> {
   return merged;
 }
 
-export async function addItem(content: LoginContent): Promise<string> {
+/**
+ * The stored form of an item's content: every field except the discriminator.
+ *
+ * The type is not written into the ciphertext because it is already in the
+ * record header, where it is bound into the authentication tag. Storing it
+ * twice would be two places for one fact to disagree with itself, and only
+ * one of the two would be tamper-evident.
+ */
+function toStoredContent(content: ItemContent): string {
+  const { type: _type, ...fields } = normalized(content);
+  return JSON.stringify(fields);
+}
+
+/**
+ * Content as it should be stored, rather than exactly as it was typed.
+ *
+ * Only the card number needs this: it is normalized once, on the way in, so
+ * that everything downstream — the last four, and later a fill into a
+ * checkout form — works from one representation instead of re-deriving it.
+ */
+function normalized(content: ItemContent): ItemContent {
+  if (content.type !== "card") return content;
+  return { ...content, number: normalizeCardNumber(content.number) };
+}
+
+export async function addItem(content: ItemContent): Promise<string> {
   const vaultKey = await requireUnlocked();
   const id = crypto.randomUUID();
   const updatedAt = Date.now();
 
-  const stamped: LoginContent = { ...content, createdAt: updatedAt, lastModifiedAt: updatedAt };
+  const stamped: ItemContent = { ...content, createdAt: updatedAt, lastModifiedAt: updatedAt };
 
   const encrypted: StoredItem = encryptItem(
-    JSON.stringify(stamped),
-    { id, item_type: ITEM_TYPE, version: 1, updated_at: updatedAt, deleted: false },
+    toStoredContent(stamped),
+    { id, item_type: content.type, version: 1, updated_at: updatedAt, deleted: false },
     vaultKey,
   ) as StoredItem;
 
@@ -507,15 +543,18 @@ export async function addItem(content: LoginContent): Promise<string> {
  */
 async function rewriteItem(
   id: string,
-  change: (current: LoginContent) => { content: string; deleted: boolean },
+  change: (
+    current: Record<string, unknown>,
+    itemType: string,
+  ) => { content: string; deleted: boolean },
 ): Promise<void> {
   const vaultKey = await requireUnlocked();
 
   const stored = await getItem(id);
   if (!stored) throw new Error("No such item.");
 
-  const current = JSON.parse(decryptItem(stored, vaultKey)) as LoginContent;
-  const { content, deleted } = change(current);
+  const current = JSON.parse(decryptItem(stored, vaultKey)) as Record<string, unknown>;
+  const { content, deleted } = change(current, stored.item_type);
 
   const encrypted: StoredItem = encryptItem(
     content,
@@ -533,16 +572,27 @@ async function rewriteItem(
   scheduleSync();
 }
 
-export async function updateItem(id: string, content: LoginContent): Promise<void> {
-  await rewriteItem(id, (current) => ({
-    content: JSON.stringify({
-      ...content,
-      // Preserved across an edit; only a fresh save sets it.
-      ...(current.createdAt === undefined ? {} : { createdAt: current.createdAt }),
-      lastModifiedAt: Date.now(),
-    }),
-    deleted: false,
-  }));
+export async function updateItem(id: string, content: ItemContent): Promise<void> {
+  await rewriteItem(id, (current, itemType) => {
+    // An item does not change what it is. The type is bound into the
+    // authentication tag, so a rewrite under a different one would produce a
+    // record whose header and content disagree — and the header is the half
+    // that is authenticated.
+    if (itemType !== content.type) {
+      throw new Error("An item cannot change its type.");
+    }
+
+    const createdAt = current.createdAt;
+    return {
+      content: toStoredContent({
+        ...content,
+        // Preserved across an edit; only a fresh save sets it.
+        ...(typeof createdAt === "number" ? { createdAt } : {}),
+        lastModifiedAt: Date.now(),
+      }),
+      deleted: false,
+    };
+  });
 }
 
 export async function trashItem(id: string): Promise<void> {
@@ -586,6 +636,72 @@ export function checkStrength(password: string): PasswordStrength {
   return scorePassword(password);
 }
 
+/** A string field, or nothing if the record does not carry one. */
+function text(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+/** Spreads a field only when it has a value, never as an explicit undefined. */
+function optional<K extends string, V>(key: K, value: V | undefined): Record<K, V> | object {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
+}
+
+/** A positive whole number, or nothing if the record does not carry one. */
+function whole(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/** The stored algorithm, or the RFC default for anything unrecognised. */
+function algorithmName(value: unknown): TotpAlgorithmName {
+  const named = text(value)?.toUpperCase();
+  return named === "SHA256" || named === "SHA512" ? named : "SHA1";
+}
+
+/**
+ * The code showing right now, and how long it lasts.
+ *
+ * A secret that will not decode yields an empty code rather than an
+ * exception: one mistyped account must not empty the whole list, and a row
+ * that says nothing is showing is something the user can act on.
+ */
+function currentCode(account: {
+  secret: string;
+  algorithm: TotpAlgorithmName;
+  digits: number;
+  period: number;
+}): TotpFacts {
+  const now = Date.now() / 1000;
+  try {
+    return {
+      code: totpCode(account.secret, account.algorithm, account.digits, account.period, now),
+      secondsRemaining: totpSecondsRemaining(account.period, now),
+    };
+  } catch {
+    return { code: "", secondsRemaining: 0 };
+  }
+}
+
+/**
+ * The fields every item has, read defensively.
+ *
+ * Any of them can be absent: a record written before a field existed simply
+ * does not have it, and nothing is migrated because the AEAD layout and the
+ * associated data never changed.
+ */
+function readCommon(content: Record<string, unknown>): CommonContent {
+  const createdAt = content.createdAt;
+  const lastModifiedAt = content.lastModifiedAt;
+  return {
+    ...optional("name", text(content.name)),
+    notes: text(content.notes) ?? "",
+    ...optional("createdAt", typeof createdAt === "number" ? createdAt : undefined),
+    ...optional(
+      "lastModifiedAt",
+      typeof lastModifiedAt === "number" ? lastModifiedAt : undefined,
+    ),
+  };
+}
+
 export async function listItems(): Promise<DecryptedItem[]> {
   const vaultKey = await requireUnlocked();
   const stored = await allItems();
@@ -596,6 +712,8 @@ export async function listItems(): Promise<DecryptedItem[]> {
   const shared = new Map<string, number>();
   for (const item of stored) {
     if (item.deleted) continue;
+    // Only logins have a password to share with another login.
+    if (item.item_type !== "login") continue;
     try {
       const parsed = JSON.parse(decryptItem(item, vaultKey)) as Partial<LoginContent>;
       const password = parsed.password ?? "";
@@ -606,38 +724,111 @@ export async function listItems(): Promise<DecryptedItem[]> {
     }
   }
 
-  const decrypted = stored.flatMap((item) => {
-    const content = JSON.parse(decryptItem(item, vaultKey)) as Partial<LoginContent> & {
+  const decrypted = stored.flatMap((item): DecryptedItem[] => {
+    const content = JSON.parse(decryptItem(item, vaultKey)) as Record<string, unknown> & {
       purged?: boolean;
     };
     // A purged record is a tombstone with nothing left in it; it exists for
     // sync, not for the user.
     if (content.purged === true) return [];
 
-    return [
-      {
-        // `name` is absent on anything saved before the field existed.
-        ...(content.name === undefined ? {} : { name: content.name }),
-        username: content.username ?? "",
-        password: content.password ?? "",
-        url: content.url ?? "",
-        notes: content.notes ?? "",
-        id: item.id,
-        updatedAt: item.updated_at,
-        deleted: item.deleted,
-        strength: scorePassword(content.password ?? ""),
-        usage: usage.get(item.id) ?? emptyUsage(),
-        reusedBy: item.deleted
-          ? 0
-          : Math.max((shared.get(content.password ?? "") ?? 1) - 1, 0),
-        ...(content.email === undefined ? {} : { email: content.email }),
-        ...(content.mobile === undefined ? {} : { mobile: content.mobile }),
-        ...(content.createdAt === undefined ? {} : { createdAt: content.createdAt }),
-        ...(content.lastModifiedAt === undefined
-          ? {}
-          : { lastModifiedAt: content.lastModifiedAt }),
-      },
-    ];
+    const facts: ItemFacts = {
+      id: item.id,
+      updatedAt: item.updated_at,
+      deleted: item.deleted,
+      usage: usage.get(item.id) ?? emptyUsage(),
+    };
+    const common = readCommon(content);
+
+    switch (item.item_type) {
+      case "login": {
+        const password = text(content.password) ?? "";
+        return [
+          {
+            type: "login",
+            ...common,
+            username: text(content.username) ?? "",
+            password,
+            url: text(content.url) ?? "",
+            ...optional("email", text(content.email)),
+            ...optional("mobile", text(content.mobile)),
+            ...facts,
+            strength: scorePassword(password),
+            reusedBy: item.deleted ? 0 : Math.max((shared.get(password) ?? 1) - 1, 0),
+          },
+        ];
+      }
+      case "note":
+        return [{ type: "note", ...common, ...facts }];
+      case "totp": {
+        const digits = whole(content.digits) ?? TOTP_DEFAULTS.digits;
+        const period = whole(content.period) ?? TOTP_DEFAULTS.period;
+        return [
+          {
+            type: "totp",
+            ...common,
+            issuer: text(content.issuer) ?? "",
+            account: text(content.account) ?? "",
+            secret: text(content.secret) ?? "",
+            algorithm: algorithmName(content.algorithm),
+            digits,
+            period,
+            ...facts,
+            ...currentCode({
+              secret: text(content.secret) ?? "",
+              algorithm: algorithmName(content.algorithm),
+              digits,
+              period,
+            }),
+          },
+        ];
+      }
+      case "identity":
+        return [
+          {
+            type: "identity",
+            ...common,
+            firstName: text(content.firstName) ?? "",
+            lastName: text(content.lastName) ?? "",
+            email: text(content.email) ?? "",
+            phone: text(content.phone) ?? "",
+            street: text(content.street) ?? "",
+            ...optional("street2", text(content.street2)),
+            city: text(content.city) ?? "",
+            state: text(content.state) ?? "",
+            postalCode: text(content.postalCode) ?? "",
+            country: text(content.country) ?? "",
+            ...optional("company", text(content.company)),
+            ...optional("dateOfBirth", text(content.dateOfBirth)),
+            ...optional("nationalId", text(content.nationalId)),
+            ...facts,
+          },
+        ];
+      case "card": {
+        const number = text(content.number) ?? "";
+        return [
+          {
+            type: "card",
+            ...common,
+            cardholder: text(content.cardholder) ?? "",
+            number,
+            expiryMonth: text(content.expiryMonth) ?? "",
+            expiryYear: text(content.expiryYear) ?? "",
+            securityCode: text(content.securityCode) ?? "",
+            ...optional("pin", text(content.pin)),
+            ...facts,
+            brand: cardBrand(number),
+            last4: lastFour(number),
+          },
+        ];
+      }
+      default:
+        // An item type this build does not know: written by a newer client
+        // and synced down. The record itself is kept and passed on untouched
+        // — dropping it would delete another device's data — but there is
+        // nothing sensible to render for it here.
+        return [];
+    }
   });
 
   // Storage order is by id, which is a random UUID — effectively shuffled.
@@ -646,6 +837,28 @@ export async function listItems(): Promise<DecryptedItem[]> {
   return decrypted.sort((a, b) =>
     displayName(a).localeCompare(displayName(b), undefined, { sensitivity: "base" }),
   );
+}
+
+/**
+ * The code for one authenticator account.
+ *
+ * Its own request rather than a re-list: the popup refreshes a countdown once
+ * a second, and re-listing would decrypt every item in the vault to produce
+ * six digits.
+ */
+export async function totpCodeFor(id: string): Promise<TotpFacts> {
+  const vaultKey = await requireUnlocked();
+
+  const stored = await getItem(id);
+  if (!stored || stored.item_type !== "totp") throw new Error("No such authenticator account.");
+
+  const content = JSON.parse(decryptItem(stored, vaultKey)) as Record<string, unknown>;
+  return currentCode({
+    secret: text(content.secret) ?? "",
+    algorithm: algorithmName(content.algorithm),
+    digits: whole(content.digits) ?? TOTP_DEFAULTS.digits,
+    period: whole(content.period) ?? TOTP_DEFAULTS.period,
+  });
 }
 
 /**
@@ -658,24 +871,31 @@ export async function listItems(): Promise<DecryptedItem[]> {
  */
 export async function itemsForUrl(
   url: string | undefined,
-): Promise<{ site: string | null; items: DecryptedItem[] }> {
+): Promise<{ site: string | null; items: DecryptedLogin[] }> {
   if (!url) return { site: null, items: [] };
 
   const all = await listItems();
   return {
     site: siteScope(url),
-    // Trashed items are not offered: deleting one should stop it turning up.
-    items: all.filter((item) => !item.deleted && matchesSite(item.url, url)),
+    // Logins only, and never a trashed one: a secure note has no site to
+    // belong to, and deleting a login should stop it turning up. The
+    // predicate narrows the element type as well as filtering, so everything
+    // downstream — autofill included — is holding a login by construction.
+    items: all.filter(
+      (item): item is DecryptedLogin =>
+        !item.deleted && item.type === "login" && matchesSite(item.url, url),
+    ),
   };
 }
 
 /**
  * The credential for one item, for filling into a page.
  *
- * The only path by which a password leaves the background. It looks the item
- * up *within the set already filtered by site*, so an id belonging to another
- * site is refused however it was obtained — a compromised page cannot ask for
- * credentials it was not going to be offered anyway.
+ * One of the two paths by which a password leaves the background — see
+ * `fillValues` for the other, which applies the same site check. Both look
+ * the item up *within the set already filtered by site*, so an id belonging
+ * to another site is refused however it was obtained: a compromised page
+ * cannot ask for credentials it was not going to be offered anyway.
  */
 export async function credentialForFill(
   id: string,
@@ -740,6 +960,7 @@ export async function saveSubmitted(
   if (!decision.offer) throw new Error("Nothing to save for this site.");
 
   const content: LoginContent = {
+    type: "login",
     ...(submitted.name?.trim() ? { name: submitted.name.trim() } : {}),
     username: submitted.username,
     password: submitted.password,
@@ -749,6 +970,167 @@ export async function saveSubmitted(
 
   if (decision.existingId) await updateItem(decision.existingId, content);
   else await addItem(content);
+}
+
+// ---------------------------------------------------------------------------
+// Autofill beyond logins
+//
+// A login is offered for the site it belongs to and nowhere else. A card, an
+// address and a one-time code have no site: the same card is used at every
+// shop. That removes the protection site-scoping gives a password, so these
+// are governed by a different rule — nothing is ever offered without the user
+// focusing a field that asks for it, and no value leaves this file until the
+// user has picked one item by hand. There is no path here that fills on load.
+
+/** What the picker shows for one item: names, never values. */
+function suggestionFor(item: DecryptedItem): FillSuggestion {
+  const named = item.name?.trim();
+  switch (item.type) {
+    case "login":
+      return {
+        id: item.id,
+        type: item.type,
+        label: named || item.username || "(untitled)",
+        detail: named ? item.username : item.url,
+      };
+    case "card": {
+      const scheme = item.brand ?? "Card";
+      const tail = item.last4 ? ` ···· ${item.last4}` : "";
+      return {
+        id: item.id,
+        type: item.type,
+        label: named || `${scheme}${tail}`,
+        // The expiry, not the number: enough to tell two cards apart.
+        detail: [item.cardholder, item.expiryMonth && `${item.expiryMonth}/${item.expiryYear}`]
+          .filter(Boolean)
+          .join(" · "),
+      };
+    }
+    case "identity":
+      return {
+        id: item.id,
+        type: item.type,
+        label: named || [item.firstName, item.lastName].filter(Boolean).join(" ") || "(unnamed)",
+        detail: [item.city, item.country].filter(Boolean).join(", "),
+      };
+    case "totp":
+      return {
+        id: item.id,
+        type: item.type,
+        // Never the code: it would be stale before it could be read, and the
+        // picker is a list of names.
+        label: named || [item.issuer, item.account].filter(Boolean).join(" · ") || "(unnamed)",
+        detail: named ? item.issuer : "",
+      };
+    case "note":
+      return { id: item.id, type: item.type, label: named || "(untitled note)", detail: "" };
+  }
+}
+
+/**
+ * What to offer for the field that was just focused.
+ *
+ * `wants` says what the *form* is asking for, worked out from its fields.
+ * Logins are still filtered to the sender's own site; everything else is not
+ * site-scoped, because it is not a credential for a site.
+ *
+ * Secure notes are never offered: there is no field on any page that a note
+ * is the answer to.
+ */
+export async function fillSuggestions(
+  wants: ItemType[],
+  url: string | undefined,
+): Promise<{ site: string | null; suggestions: FillSuggestion[] }> {
+  const vaultKey = await currentVaultKey();
+  // Locked is an empty list, not an error: the page did nothing wrong. Nor is
+  // a page the browser reports no URL for.
+  if (!vaultKey || !url) return { site: null, suggestions: [] };
+
+  const asked = new Set<ItemType>(wants.filter((type) => type !== "note"));
+  const site = siteScope(url);
+
+  const all = await listItems();
+  const offered = all.filter((item) => {
+    if (item.deleted || !asked.has(item.type)) return false;
+    // A login is only ever offered to the site it belongs to.
+    return item.type !== "login" || matchesSite(item.url, url);
+  });
+
+  return { site, suggestions: offered.map(suggestionFor) };
+}
+
+/**
+ * The values for one item, keyed by autocomplete token.
+ *
+ * Reached only after the user picked this item from the picker. A login is
+ * looked up within the set already filtered by site, exactly as
+ * `credentialForFill` does, so an id belonging to another site is refused
+ * however it was obtained.
+ */
+export async function fillValues(
+  id: string,
+  url: string | undefined,
+): Promise<Record<string, string>> {
+  const items = await listItems();
+  const item = items.find((candidate) => candidate.id === id && !candidate.deleted);
+  if (!item) throw new Error("No such item.");
+
+  if (item.type === "login" && (!url || !matchesSite(item.url, url))) {
+    throw new Error("No such item for this site.");
+  }
+
+  const values = valuesFor(item);
+  if (!values) throw new Error("Nothing on this page to fill from that.");
+
+  // The fill is the event worth counting, and this is the only place it is
+  // known to have happened.
+  await recordUse(id, "autofilled");
+  return values;
+}
+
+/** One item's fields, named the way a form names them. */
+function valuesFor(item: DecryptedItem): Record<string, string> | undefined {
+  switch (item.type) {
+    case "card":
+      return withoutEmpty({
+        "cc-name": item.cardholder,
+        "cc-number": item.number,
+        "cc-exp-month": item.expiryMonth,
+        "cc-exp-year": item.expiryYear,
+        "cc-csc": item.securityCode,
+      });
+    case "identity":
+      return withoutEmpty({
+        "given-name": item.firstName,
+        "family-name": item.lastName,
+        organization: item.company ?? "",
+        email: item.email,
+        tel: item.phone,
+        // Both spellings: a form asks for one line or two, never both.
+        "street-address": [item.street, item.street2].filter(Boolean).join("\\n"),
+        "address-line1": item.street,
+        "address-line2": item.street2 ?? "",
+        "address-level2": item.city,
+        "address-level1": item.state,
+        "postal-code": item.postalCode,
+        "country-name": item.country,
+        bday: item.dateOfBirth ?? "",
+      });
+    case "totp": {
+      const { code } = currentCode(item);
+      // An unreadable secret fills nothing rather than an empty box.
+      return code ? { "one-time-code": code } : undefined;
+    }
+    case "login":
+      return withoutEmpty({ username: item.username, password: item.password });
+    case "note":
+      return undefined;
+  }
+}
+
+/** Drops the fields this item does not have, so nothing is filled blank. */
+function withoutEmpty(values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== ""));
 }
 
 /**
@@ -772,7 +1154,9 @@ export async function activeTabUrl(): Promise<string | undefined> {
 
 /** What the list shows for an item, and therefore what it sorts on. */
 function displayName(item: DecryptedItem): string {
-  return item.name?.trim() || item.username;
+  const named = item.name?.trim();
+  if (named) return named;
+  return item.type === "login" ? item.username : "";
 }
 
 

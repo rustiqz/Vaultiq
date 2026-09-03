@@ -17,6 +17,8 @@ import init, {
   decryptItem,
   generateSalt,
   generateVaultKey,
+  totpCode,
+  totpSecondsRemaining,
   unwrapVaultKey,
   wrapVaultKey,
 } from "../../vendor/pw-crypto-core/pw_crypto_core.js";
@@ -30,6 +32,8 @@ export {
   encryptItem,
   generateSalt,
   generateVaultKey,
+  totpCode,
+  totpSecondsRemaining,
   unwrapVaultKey,
   wrapVaultKey,
 };

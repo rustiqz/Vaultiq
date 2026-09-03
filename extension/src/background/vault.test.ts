@@ -6,6 +6,15 @@
 // rollback protection that the AAD binding exists to provide is quietly gone.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  CardContent,
+  DecryptedCard,
+  DecryptedItem,
+  IdentityContent,
+  LoginContent,
+  NoteContent,
+  TotpContent,
+} from "../lib/messages.js";
 import { activeTab } from "../test/setup.js";
 import {
   cryptoFake,
@@ -22,7 +31,35 @@ vi.mock("../lib/vault-db.js", () => dbFake);
 
 const vault = await import("./vault.js");
 
-const CONTENT = { username: "ada@example.test", password: "hunter2", url: "https://x.test", notes: "" };
+const CONTENT = {
+  type: "login",
+  username: "ada@example.test",
+  password: "hunter2",
+  url: "https://x.test",
+  notes: "",
+} satisfies LoginContent;
+
+/**
+ * The same content as it is actually stored: everything but the type.
+ *
+ * The discriminator lives in the record header, where it is bound into the
+ * authentication tag. Writing it into the ciphertext as well would be two
+ * places for one fact to disagree, and only one of them tamper-evident.
+ */
+const { type: _type, ...STORED } = CONTENT;
+
+/**
+ * Narrows a listed item to a login.
+ *
+ * Most of these tests are about logins specifically, and the union is what
+ * stops `item.password` from silently being undefined on something that never
+ * had one — so the narrowing is stated rather than asserted away.
+ */
+function asLogin(item: DecryptedItem | undefined): LoginContent & DecryptedItem {
+  if (!item) throw new Error("no item");
+  if (item.type !== "login") throw new Error(`expected a login, got ${item.type}`);
+  return item;
+}
 
 /** Puts the vault in an unlocked state with one item already saved. */
 async function withOneItem(): Promise<string> {
@@ -94,7 +131,7 @@ describe("trash", () => {
     expect(lastHeader().deleted).toBe(true);
     // toMatchObject, not toEqual: the content also carries createdAt and
     // lastModifiedAt, which trashing must leave alone.
-    expect(storedContent(id)).toMatchObject(CONTENT);
+    expect(storedContent(id)).toMatchObject(STORED);
   });
 
   it("restores as a live item with the content intact", async () => {
@@ -103,7 +140,7 @@ describe("trash", () => {
     await vault.restoreItem(id);
 
     expect(lastHeader().deleted).toBe(false);
-    expect(storedContent(id)).toMatchObject(CONTENT);
+    expect(storedContent(id)).toMatchObject(STORED);
   });
 
   it("still lists trashed items, flagged", async () => {
@@ -113,7 +150,7 @@ describe("trash", () => {
     const items = await vault.listItems();
     expect(items).toHaveLength(1);
     expect(items[0]?.deleted).toBe(true);
-    expect(items[0]?.password).toBe(CONTENT.password);
+    expect(asLogin(items[0]).password).toBe(CONTENT.password);
   });
 });
 
@@ -198,7 +235,7 @@ describe("names", () => {
     expect(items).toHaveLength(1);
     expect(items[0]?.id).toBe(id);
     expect(items[0]?.name).toBeUndefined();
-    expect(items[0]?.username).toBe(CONTENT.username);
+    expect(asLogin(items[0]).username).toBe(CONTENT.username);
   });
 
   it("keeps several logins for one site apart", async () => {
@@ -223,7 +260,7 @@ describe("names", () => {
     await vault.addItem({ ...CONTENT, username: "mid@example.test" });
 
     const items = await vault.listItems();
-    expect(items.map((item) => item.name ?? item.username)).toEqual([
+    expect(items.map((item) => item.name ?? asLogin(item).username)).toEqual([
       "Alpha",
       "mid@example.test",
       "zeta",
@@ -371,7 +408,7 @@ describe("offering to save a submitted login", () => {
 
   it("stays quiet when the identical login is already stored", async () => {
     await unlockedVault();
-    await vault.addItem({ ...SUBMITTED, url: SITE, notes: "" });
+    await vault.addItem({ type: "login", ...SUBMITTED, url: SITE, notes: "" });
 
     // Signing in every day must not ask every day.
     expect(await vault.shouldOfferToSave(SUBMITTED, SITE)).toEqual({ offer: false });
@@ -379,7 +416,7 @@ describe("offering to save a submitted login", () => {
 
   it("offers to update when the password changed", async () => {
     await unlockedVault();
-    const id = await vault.addItem({ ...SUBMITTED, password: "old", url: SITE, notes: "" });
+    const id = await vault.addItem({ type: "login", ...SUBMITTED, password: "old", url: SITE, notes: "" });
 
     const decision = await vault.shouldOfferToSave(SUBMITTED, SITE);
     expect(decision).toEqual({ offer: true, site: "example.com", existingId: id });
@@ -387,7 +424,13 @@ describe("offering to save a submitted login", () => {
 
   it("treats a different username on the same site as a new login", async () => {
     await unlockedVault();
-    await vault.addItem({ ...SUBMITTED, username: "other@example.test", url: SITE, notes: "" });
+    await vault.addItem({
+      type: "login",
+      ...SUBMITTED,
+      username: "other@example.test",
+      url: SITE,
+      notes: "",
+    });
 
     const decision = await vault.shouldOfferToSave(SUBMITTED, SITE);
     expect(decision).toMatchObject({ offer: true, existingId: null });
@@ -426,20 +469,20 @@ describe("saving a submitted login", () => {
 
     const items = await vault.listItems();
     expect(items).toHaveLength(1);
-    expect(items[0]?.username).toBe(SUBMITTED.username);
-    expect(items[0]?.url).toBe(SITE);
+    expect(asLogin(items[0]).username).toBe(SUBMITTED.username);
+    expect(asLogin(items[0]).url).toBe(SITE);
   });
 
   it("updates the existing login rather than adding a duplicate", async () => {
     await vault.create("correct horse battery staple");
-    const id = await vault.addItem({ ...SUBMITTED, password: "old", url: SITE, notes: "" });
+    const id = await vault.addItem({ type: "login", ...SUBMITTED, password: "old", url: SITE, notes: "" });
 
     await vault.saveSubmitted(SUBMITTED, SITE);
 
     const items = await vault.listItems();
     expect(items).toHaveLength(1);
     expect(items[0]?.id).toBe(id);
-    expect(items[0]?.password).toBe(SUBMITTED.password);
+    expect(asLogin(items[0]).password).toBe(SUBMITTED.password);
   });
 
   it("refuses when there is nothing worth saving", async () => {
@@ -496,7 +539,7 @@ describe("audit timestamps", () => {
 
     const [item] = await vault.listItems();
     expect(item?.createdAt).toBeUndefined();
-    expect(item?.username).toBe(CONTENT.username);
+    expect(asLogin(item).username).toBe(CONTENT.username);
   });
 });
 
@@ -581,7 +624,7 @@ describe("reused passwords", () => {
     await vault.addItem({ ...CONTENT, password: "one" });
     await vault.addItem({ ...CONTENT, password: "two" });
 
-    expect((await vault.listItems()).map((item) => item.reusedBy)).toEqual([0, 0]);
+    expect((await vault.listItems()).map((item) => asLogin(item).reusedBy)).toEqual([0, 0]);
   });
 
   it("counts the others sharing a password", async () => {
@@ -591,7 +634,7 @@ describe("reused passwords", () => {
     await vault.addItem({ ...CONTENT, name: "c", password: "shared" });
 
     // Each sees the other two.
-    expect((await vault.listItems()).map((item) => item.reusedBy)).toEqual([2, 2, 2]);
+    expect((await vault.listItems()).map((item) => asLogin(item).reusedBy)).toEqual([2, 2, 2]);
   });
 
   it("ignores a password sitting in the trash", async () => {
@@ -602,7 +645,7 @@ describe("reused passwords", () => {
 
     // A password you have deleted is not one you are relying on.
     const live = (await vault.listItems()).find((item) => !item.deleted);
-    expect(live?.reusedBy).toBe(0);
+    expect(asLogin(live).reusedBy).toBe(0);
   });
 
   it("flags reuse even when the password is strong", async () => {
@@ -612,8 +655,8 @@ describe("reused passwords", () => {
 
     const items = await vault.listItems();
     // Strength scoring cannot see this, which is the whole point.
-    expect(items[0]?.strength.level).toBe("excellent");
-    expect(items[0]?.reusedBy).toBe(1);
+    expect(asLogin(items[0]).strength.level).toBe("excellent");
+    expect(asLogin(items[0]).reusedBy).toBe(1);
   });
 });
 
@@ -781,8 +824,8 @@ describe("strength", () => {
   it("rides along on every listed item", async () => {
     await withOneItem();
     const items = await vault.listItems();
-    expect(items[0]?.strength.level).toBe("weak");
-    expect(items[0]?.strength.bits).toBe(CONTENT.password.length * 6);
+    expect(asLogin(items[0]).strength.level).toBe("weak");
+    expect(asLogin(items[0]).strength.bits).toBe(CONTENT.password.length * 6);
   });
 
   it("is scored from the item's own password, not something else", async () => {
@@ -790,7 +833,7 @@ describe("strength", () => {
     await vault.updateItem(id, { ...CONTENT, password: "a-much-longer-password" });
 
     const items = await vault.listItems();
-    expect(items[0]?.strength.level).toBe("excellent");
+    expect(asLogin(items[0]).strength.level).toBe("excellent");
   });
 
   it("works while locked", () => {
@@ -913,5 +956,500 @@ describe("changing the master password", () => {
     // collected; an unfreed handle leaves key material in wasm memory.
     expect(freed.filter((name) => name === "master")).toHaveLength(2);
     expect(freed).toContain("vault");
+  });
+});
+
+describe("item types", () => {
+  const NOTE = {
+    type: "note",
+    name: "Recovery codes",
+    notes: "1111-2222\n3333-4444",
+  } satisfies NoteContent;
+
+  it("carries the type in the header, never in the ciphertext", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(NOTE);
+
+    // The header field is bound into the authentication tag; the content is
+    // not. Keeping the type in only the authenticated half is what stops a
+    // server relabelling a secure note as a login.
+    expect(lastHeader().item_type).toBe("note");
+    expect(storedContent(id)).not.toHaveProperty("type");
+  });
+
+  it("round-trips a secure note", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(NOTE);
+
+    const [item] = await vault.listItems();
+    expect(item).toMatchObject({ type: "note", name: NOTE.name, notes: NOTE.notes });
+  });
+
+  it("refuses to change what an item is", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(NOTE);
+
+    // The type is in the tag of every version this item has ever had. A
+    // rewrite under a different one would leave header and content disagreeing
+    // about what the record is.
+    await expect(vault.updateItem(id, CONTENT)).rejects.toThrow(/cannot change its type/i);
+  });
+
+  it("never offers a note to a page", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...NOTE, notes: "https://example.com is in here" });
+    await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    // Only logins belong to a site. A note that merely mentions one is not a
+    // credential for it.
+    const { items } = await vault.itemsForUrl("https://example.com");
+    expect(items).toHaveLength(1);
+    expect(items.every((item) => item.type === "login")).toBe(true);
+  });
+
+  it("does not count notes towards password reuse", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "a", password: "shared" });
+    await vault.addItem({ ...CONTENT, name: "b", password: "shared" });
+    await vault.addItem({ ...NOTE, notes: "shared" });
+
+    const logins = (await vault.listItems()).filter((item) => item.type === "login");
+    expect(logins.map((item) => asLogin(item).reusedBy)).toEqual([1, 1]);
+  });
+
+  it("keeps an item type it does not understand", async () => {
+    await vault.create("correct horse battery staple");
+    // As a newer client would have written it, arriving here over sync.
+    db.items.set("from-the-future", {
+      id: "from-the-future",
+      // Deferred by PROJECT.md, so it stays unknown to this build for as long
+      // as this test is worth having.
+      item_type: "passkey",
+      format: 1,
+      ciphertext: [],
+      nonce: [],
+      version: 1,
+      updated_at: Date.now(),
+      deleted: false,
+      plaintext: JSON.stringify({ name: "Front door" }),
+    });
+
+    // Nothing sensible to render, so it is not listed — but the record stays
+    // in the store and keeps syncing. Dropping it would delete another
+    // device's data.
+    expect(await vault.listItems()).toHaveLength(0);
+    expect(db.items.has("from-the-future")).toBe(true);
+  });
+});
+
+describe("cards", () => {
+  const CARD = {
+    type: "card",
+    name: "Everyday",
+    cardholder: "A LOVELACE",
+    // The scheme's own published test number — documentation, not a card.
+    number: "4242 4242 4242 4242",
+    expiryMonth: "04",
+    expiryYear: "2030",
+    securityCode: "737",
+    notes: "",
+  } satisfies CardContent;
+
+  function asCard(item: DecryptedItem | undefined): DecryptedCard {
+    if (!item) throw new Error("no item");
+    if (item.type !== "card") throw new Error(`expected a card, got ${item.type}`);
+    return item;
+  }
+
+  it("normalizes the number once, on the way in", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CARD);
+
+    // Stored as digits so the last four, and later a fill into a checkout
+    // form, work from one representation rather than re-deriving it.
+    expect(storedContent(id)).toMatchObject({ number: "4242424242424242" });
+  });
+
+  it("derives the scheme and the last four rather than storing them", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CARD);
+
+    const card = asCard((await vault.listItems())[0]);
+    expect(card.brand).toBe("Visa");
+    expect(card.last4).toBe("4242");
+    // A stored brand would be a copy that could disagree with the number it
+    // describes, and a migration the day the scheme list changes.
+    expect(storedContent(id)).not.toHaveProperty("brand");
+    expect(storedContent(id)).not.toHaveProperty("last4");
+  });
+
+  it("keeps a card it cannot name", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CARD, number: "9999888877776666" });
+
+    // A gift card, a store card, a scheme newer than the list. Storing it is
+    // not conditional on recognising it.
+    const card = asCard((await vault.listItems())[0]);
+    expect(card.brand).toBeNull();
+    expect(card.last4).toBe("6666");
+  });
+
+  it("carries the PIN only when there is one", async () => {
+    await vault.create("correct horse battery staple");
+    const bare = await vault.addItem(CARD);
+    const withPin = await vault.addItem({ ...CARD, name: "Other", pin: "4021" });
+
+    expect(storedContent(bare)).not.toHaveProperty("pin");
+    expect(storedContent(withPin)).toMatchObject({ pin: "4021" });
+  });
+
+  it("never offers a card to a page", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(CARD);
+    await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    // Autofill for cards is its own decision, made per form. Until then a
+    // card is not a credential for any site.
+    const { items } = await vault.itemsForUrl("https://example.com");
+    expect(items).toHaveLength(1);
+    expect(items.every((item) => item.type === "login")).toBe(true);
+  });
+
+  it("does not count a security code towards password reuse", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, password: "737" });
+    await vault.addItem(CARD);
+
+    // Only logins have a password to share with another login.
+    expect(asLogin((await vault.listItems()).find((item) => item.type === "login")).reusedBy).toBe(
+      0,
+    );
+  });
+});
+
+describe("identities", () => {
+  // Entirely invented, like every other fixture here (CLAUDE.md §2.6).
+  const IDENTITY = {
+    type: "identity",
+    firstName: "Ada",
+    lastName: "Lovelace",
+    email: "ada@example.test",
+    phone: "+44 20 7946 0000",
+    street: "12 Analytical Way",
+    city: "London",
+    state: "Greater London",
+    postalCode: "N1 9AA",
+    country: "United Kingdom",
+    notes: "",
+  } satisfies IdentityContent;
+
+  it("round-trips every field it was given", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(IDENTITY);
+
+    expect((await vault.listItems())[0]).toMatchObject(IDENTITY);
+  });
+
+  it("omits the optional fields rather than storing them empty", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(IDENTITY);
+
+    for (const field of ["street2", "company", "dateOfBirth", "nationalId"]) {
+      expect(storedContent(id)).not.toHaveProperty(field);
+    }
+  });
+
+  it("keeps a national ID when there is one", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...IDENTITY, nationalId: "X1234567" });
+
+    const [item] = await vault.listItems();
+    expect(item).toMatchObject({ type: "identity", nationalId: "X1234567" });
+  });
+
+  it("never offers an identity to a page", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(IDENTITY);
+    await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    const { items } = await vault.itemsForUrl("https://example.com");
+    expect(items).toHaveLength(1);
+    expect(items.every((item) => item.type === "login")).toBe(true);
+  });
+
+  it("sorts among everything else by what it is called", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "Zebra" });
+    await vault.addItem({ ...IDENTITY, name: "Ada at home" });
+
+    // One list, whatever the types: an item is found by its name, not by
+    // first choosing a category.
+    expect((await vault.listItems()).map((item) => item.name)).toEqual(["Ada at home", "Zebra"]);
+  });
+});
+
+describe("authenticator accounts", () => {
+  // RFC 6238's own published seed in base32 (CLAUDE.md §2.6).
+  const TOTP = {
+    type: "totp",
+    issuer: "Example",
+    account: "ada@example.test",
+    secret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    notes: "",
+  } satisfies TotpContent;
+
+  it("stores the shape of the codes, not just the secret", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({ ...TOTP, algorithm: "SHA256", digits: 8, period: 60 });
+
+    // A record carrying only a secret is one whose codes change the day a
+    // default does.
+    expect(storedContent(id)).toMatchObject({
+      algorithm: "SHA256",
+      digits: 8,
+      period: 60,
+    });
+  });
+
+  it("computes the code where the item is decrypted", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...TOTP, digits: 8 });
+
+    const [item] = await vault.listItems();
+    // Derived, never stored: it is only true for the next few seconds.
+    expect(item).toMatchObject({ type: "totp", code: "11111111" });
+    expect(storedContent((await vault.listItems())[0]?.id ?? "")).not.toHaveProperty("code");
+  });
+
+  it("answers for one account without decrypting the vault", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(TOTP);
+    await vault.addItem(CONTENT);
+
+    cryptoFake.decryptItem.mockClear();
+    const facts = await vault.totpCodeFor(id);
+
+    expect(facts.code).toBe("111111");
+    // One item read, not the whole list: this runs once a second while the
+    // popup is open.
+    expect(cryptoFake.decryptItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to compute a code for something that is not one", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+    await expect(vault.totpCodeFor(id)).rejects.toThrow(/no such authenticator/i);
+  });
+
+  it("says nothing is showing rather than emptying the list", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...TOTP, secret: "bad-secret" });
+    await vault.addItem(CONTENT);
+
+    // One mistyped secret must not take the rest of the vault with it.
+    const items = await vault.listItems();
+    expect(items).toHaveLength(2);
+    expect(items.find((item) => item.type === "totp")).toMatchObject({ code: "" });
+  });
+
+  it("falls back to the RFC defaults for a record that lacks them", async () => {
+    await vault.create("correct horse battery staple");
+    db.items.set("older", {
+      id: "older",
+      item_type: "totp",
+      format: 1,
+      ciphertext: [],
+      nonce: [],
+      version: 1,
+      updated_at: Date.now(),
+      deleted: false,
+      plaintext: JSON.stringify({ issuer: "Old", account: "a", secret: "GEZDGNBVGY3TQOJQ" }),
+    });
+
+    expect((await vault.listItems())[0]).toMatchObject({
+      algorithm: "SHA1",
+      digits: 6,
+      period: 30,
+    });
+  });
+
+  it("never offers an authenticator account to a page", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(TOTP);
+    await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    const { items } = await vault.itemsForUrl("https://example.com");
+    expect(items).toHaveLength(1);
+    expect(items.every((item) => item.type === "login")).toBe(true);
+  });
+});
+
+describe("what the autofill picker is told", () => {
+  const CARD = {
+    type: "card",
+    name: "Everyday",
+    cardholder: "A LOVELACE",
+    number: "4242424242424242",
+    expiryMonth: "04",
+    expiryYear: "2030",
+    securityCode: "737",
+    notes: "",
+  } satisfies CardContent;
+
+  const IDENTITY = {
+    type: "identity",
+    name: "Home",
+    firstName: "Ada",
+    lastName: "Lovelace",
+    email: "ada@example.test",
+    phone: "+44 20 7946 0000",
+    street: "12 Analytical Way",
+    city: "London",
+    state: "Greater London",
+    postalCode: "N1 9AA",
+    country: "United Kingdom",
+    notes: "",
+  } satisfies IdentityContent;
+
+  async function stocked(): Promise<void> {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, url: "https://example.com" });
+    await vault.addItem({ ...CONTENT, name: "Elsewhere", url: "https://other.test" });
+    await vault.addItem(CARD);
+    await vault.addItem(IDENTITY);
+    await vault.addItem({ type: "note", name: "Recovery codes", notes: "1111-2222" });
+  }
+
+  it("sends names, never values", async () => {
+    await stocked();
+
+    const { suggestions } = await vault.fillSuggestions(
+      ["login", "card", "identity"],
+      "https://example.com",
+    );
+
+    // The content script runs inside the page. It is handed enough to draw a
+    // list and nothing that would be worth stealing from it.
+    const payload = JSON.stringify(suggestions);
+    expect(payload).not.toContain(CONTENT.password);
+    expect(payload).not.toContain(CARD.number);
+    expect(payload).not.toContain(CARD.securityCode);
+    expect(suggestions.every((entry) => Object.keys(entry).length === 4)).toBe(true);
+  });
+
+  it("offers a login only to its own site", async () => {
+    await stocked();
+
+    const here = await vault.fillSuggestions(["login"], "https://example.com");
+    expect(here.suggestions.map((entry) => entry.label)).toEqual([CONTENT.username]);
+  });
+
+  it("offers a card anywhere, because a card belongs to no site", async () => {
+    await stocked();
+
+    const anywhere = await vault.fillSuggestions(["card"], "https://somewhere-else.test");
+    expect(anywhere.suggestions.map((entry) => entry.label)).toEqual(["Everyday"]);
+  });
+
+  it("never offers a note", async () => {
+    await stocked();
+
+    // There is no field on any page that a secure note is the answer to.
+    const asked = await vault.fillSuggestions(
+      ["login", "card", "identity", "note", "totp"],
+      "https://example.com",
+    );
+    expect(asked.suggestions.some((entry) => entry.type === "note")).toBe(false);
+  });
+
+  it("offers nothing at all while locked", async () => {
+    await stocked();
+    await vault.lock();
+
+    // A decline, not an error: the page did nothing wrong.
+    expect(await vault.fillSuggestions(["card"], "https://example.com")).toEqual({
+      site: null,
+      suggestions: [],
+    });
+  });
+});
+
+describe("filling a card or an identity", () => {
+  const CARD = {
+    type: "card",
+    cardholder: "A LOVELACE",
+    number: "4242424242424242",
+    expiryMonth: "04",
+    expiryYear: "2030",
+    securityCode: "737",
+    notes: "",
+  } satisfies CardContent;
+
+  it("names each value the way a form names it", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CARD);
+
+    expect(await vault.fillValues(id, "https://shop.test")).toEqual({
+      "cc-name": "A LOVELACE",
+      "cc-number": "4242424242424242",
+      "cc-exp-month": "04",
+      "cc-exp-year": "2030",
+      "cc-csc": "737",
+    });
+  });
+
+  it("leaves out what the item does not have", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({
+      type: "identity",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ada@example.test",
+      phone: "",
+      street: "12 Analytical Way",
+      city: "London",
+      state: "",
+      postalCode: "N1 9AA",
+      country: "United Kingdom",
+      notes: "",
+    });
+
+    // A blank field must not blank the page's box.
+    const values = await vault.fillValues(id, "https://shop.test");
+    expect(values).not.toHaveProperty("tel");
+    expect(values).not.toHaveProperty("address-level1");
+    expect(values["address-line1"]).toBe("12 Analytical Way");
+  });
+
+  it("still refuses a login belonging to another site", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    // The site scoping a password has always had is not loosened by having
+    // grown a second way to fill.
+    await expect(vault.fillValues(id, "https://phishing.test")).rejects.toThrow(/no such item/i);
+    await expect(vault.fillValues(id, "https://example.com")).resolves.toMatchObject({
+      password: CONTENT.password,
+    });
+  });
+
+  it("counts the fill", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CARD);
+
+    await vault.fillValues(id, "https://shop.test");
+
+    const [item] = await vault.listItems();
+    expect(item?.usage.counts.autofilled).toBe(1);
+  });
+
+  it("refuses an item there is nothing to fill from", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({ type: "note", name: "Recovery codes", notes: "1111" });
+
+    await expect(vault.fillValues(id, "https://shop.test")).rejects.toThrow(/nothing on this page/i);
   });
 });
