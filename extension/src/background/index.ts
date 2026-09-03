@@ -17,6 +17,8 @@ import {
   activeTabUrl,
   checkStrength,
   credentialForFill,
+  fillSuggestions,
+  fillValues,
   saveSubmitted,
   shouldOfferToSave,
   auditLog,
@@ -141,6 +143,15 @@ async function handle(
       const credential = await credentialForFill(request.id, await requestOrigin(sender));
       await extendAutoLock();
       return { ok: true, kind: "credentialForFill", ...credential };
+    }
+    case "fillSuggestions": {
+      const offered = await fillSuggestions(request.wants, await requestOrigin(sender));
+      return { ok: true, kind: "fillSuggestions", ...offered };
+    }
+    case "fillValues": {
+      const values = await fillValues(request.id, await requestOrigin(sender));
+      await extendAutoLock();
+      return { ok: true, kind: "fillValues", values };
     }
     case "shouldOfferToSave": {
       const decision = await shouldOfferToSave(request, await requestOrigin(sender));

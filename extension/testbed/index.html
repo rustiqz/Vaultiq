@@ -170,6 +170,64 @@
   boundaries. Confirming this tells us how much it matters.</p>
 </section>
 
+<section>
+  <h2>11 · Checkout, declared properly</h2>
+  <p class="why">Every field named with its autocomplete token, the way a payment form
+  should be. No password anywhere, so nothing here is site-scoped.</p>
+  <form id="checkout">
+    <input autocomplete="cc-name" placeholder="Name on card" />
+    <input autocomplete="cc-number" placeholder="Card number" inputmode="numeric" />
+    <input autocomplete="cc-exp-month" placeholder="MM" size="4" />
+    <input autocomplete="cc-exp-year" placeholder="YYYY" size="6" />
+    <input autocomplete="cc-csc" placeholder="CVC" size="4" />
+    <button type="submit">Pay</button>
+  </form>
+  <p class="expect"><b>Expect:</b> focusing any of these offers your cards — on this page as
+  on any other, because a card belongs to no site. Picking one fills all five.</p>
+</section>
+
+<section>
+  <h2>12 · Checkout, named the way developers actually name things</h2>
+  <p class="why">No autocomplete attributes at all. This is the guesswork path.</p>
+  <form id="checkout-guessed">
+    <input name="cardNumber" placeholder="Card number" />
+    <input name="cvv" placeholder="CVV" />
+    <input name="code" placeholder="Promo code" />
+    <button type="submit">Pay</button>
+  </form>
+  <p class="expect"><b>Expect:</b> the first two are recognised and filled. The promo code is
+  <em>not</em> — "code" alone is too ambiguous to act on, and guessing wrong would type a
+  security code into a discount box.</p>
+</section>
+
+<section>
+  <h2>13 · Billing and shipping in one form</h2>
+  <p class="why">Two sections, one form. The section prefix is what tells them apart.</p>
+  <form id="two-addresses">
+    <input autocomplete="billing given-name" placeholder="Billing first name" />
+    <input autocomplete="billing address-line1" placeholder="Billing address" />
+    <input autocomplete="billing postal-code" placeholder="Billing postcode" />
+    <hr />
+    <input autocomplete="shipping given-name" placeholder="Shipping first name" />
+    <input autocomplete="shipping address-line1" placeholder="Shipping address" />
+    <input autocomplete="shipping postal-code" placeholder="Shipping postcode" />
+    <button type="submit">Continue</button>
+  </form>
+  <p class="expect"><b>Expect:</b> filling from a billing field leaves every shipping field
+  untouched, and the other way round.</p>
+</section>
+
+<section>
+  <h2>14 · One-time code</h2>
+  <p class="why">The second step of a sign-in, on its own page as it usually is.</p>
+  <form id="otp">
+    <input autocomplete="one-time-code" placeholder="6-digit code" inputmode="numeric" />
+    <button type="submit">Verify</button>
+  </form>
+  <p class="expect"><b>Expect:</b> your authenticator accounts are offered, and picking one
+  fills the code showing right now.</p>
+</section>
+
 <div id="readout">
   <h3>Field values <button type="button" id="refresh" style="float:right;padding:1px 6px;font-size:11px">Read</button></h3>
   <div id="values">Press Read.</div>
