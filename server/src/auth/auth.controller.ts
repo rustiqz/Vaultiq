@@ -7,7 +7,7 @@ import {
   type VaultBootstrap,
 } from "./auth.service.js";
 import { DeviceGuard, type AuthedRequest } from "./device.guard.js";
-import { EnrollDto, EnrollmentParamsDto, RegisterDto } from "./dto.js";
+import { ChangeMasterPasswordDto, EnrollDto, EnrollmentParamsDto, RegisterDto } from "./dto.js";
 
 @Controller()
 export class AuthController {
@@ -67,5 +67,27 @@ export class AuthController {
   @UseGuards(DeviceGuard)
   async vault(@Req() request: AuthedRequest): Promise<VaultBootstrap> {
     return await this.auth.vaultBootstrap(request.caller);
+  }
+
+  /**
+   * Re-wraps the vault under a new master password.
+   *
+   * Throttled like the other routes that take an auth key: this one accepts a
+   * guess at the current password, and rate limiting is the only thing
+   * standing between the endpoint and an online search for it.
+   */
+  @Post("vault/master-password")
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(DeviceGuard)
+  async changeMasterPassword(
+    @Req() request: AuthedRequest,
+    @Body() body: ChangeMasterPasswordDto,
+  ): Promise<{ changed: true }> {
+    await this.auth.changeMasterPassword(request.caller, {
+      currentAuthKey: body.currentAuthKey,
+      newAuthKey: body.newAuthKey,
+      vault: body.vault,
+    });
+    return { changed: true };
   }
 }

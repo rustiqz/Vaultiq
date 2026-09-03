@@ -70,6 +70,7 @@ import {
   putUsage,
   putVault,
   type StoredItem,
+  type VaultRecord,
 } from "../lib/vault-db.js";
 
 /** Idle minutes before the vault locks itself, unless configured otherwise. */
@@ -225,6 +226,88 @@ export async function unlock(masterPassword: string): Promise<void> {
   await stashVaultKey(vaultKey);
   warmVaultKey = vaultKey;
   syncOnUnlock();
+}
+
+/**
+ * Changes the master password.
+ *
+ * The vault key is not touched: it is unwrapped with the old password and
+ * wrapped again with the new one, so every item stays exactly as it is and
+ * nothing has to be re-encrypted. That indirection is the reason this
+ * operation is cheap enough to do whenever it is wanted.
+ *
+ * There is no recovery path and there is no going back — the old password
+ * opens nothing afterwards, on this device or any other.
+ */
+export async function changeMasterPassword(current: string, next: string): Promise<void> {
+  const vault = await getVault();
+  if (!vault) throw new Error("No vault on this device yet.");
+  if (!next) throw new Error("Choose a new master password.");
+
+  const state = await readState();
+
+  // Verifies the current password by doing the one thing only it can do. A
+  // wrong one fails here, indistinguishably from a tampered record.
+  const opened = withMasterKey(
+    current,
+    vault.saltB64,
+    { memory_kib: vault.memoryKib, iterations: vault.iterations, parallelism: vault.parallelism },
+    (masterKey) => ({
+      vaultKey: unwrapVaultKey(vault.wrappedVaultKey, masterKey),
+      // Derived only to prove the current password to the server; a vault
+      // with no server never needs it.
+      authKey: state ? deriveAuthKey(masterKey) : "",
+    }),
+  );
+
+  try {
+    // A fresh salt, and today's costs rather than the ones this vault was
+    // created with. A rotation is the natural moment to raise them, and the
+    // parameters travel with the record, so nothing older breaks.
+    const saltB64 = generateSalt();
+    const params = recommendedParams();
+
+    const rewrapped = withMasterKey(next, saltB64, params, (masterKey) => ({
+      wrappedVaultKey: wrapVaultKey(opened.vaultKey, masterKey) as unknown,
+      authKey: deriveAuthKey(masterKey),
+    }));
+
+    const record: VaultRecord = {
+      id: "vault",
+      format: VAULT_FORMAT,
+      saltB64,
+      memoryKib: params.memory_kib,
+      iterations: params.iterations,
+      parallelism: params.parallelism,
+      wrappedVaultKey: rewrapped.wrappedVaultKey,
+    };
+
+    // The server is written first, deliberately. It holds the record every
+    // other device reads, so if only one of the two writes lands it has to be
+    // that one: this device would still open with the old password and adopt
+    // the new record on its next sync. The other order leaves this device on
+    // the new password and the next sync quietly handing back the old record.
+    if (state) {
+      const client = new SyncClient(state.server, openCredential(state, opened.vaultKey));
+      await client.changeMasterPassword({
+        currentAuthKey: opened.authKey,
+        newAuthKey: rewrapped.authKey,
+        vault: {
+          saltB64: record.saltB64,
+          memoryKib: record.memoryKib,
+          iterations: record.iterations,
+          parallelism: record.parallelism,
+          wrappedVaultKey: record.wrappedVaultKey,
+        },
+      });
+    }
+
+    await putVault(record);
+  } finally {
+    // A handle of its own, separate from whatever the session holds: without
+    // free() the key would sit in wasm memory until the context is torn down.
+    opened.vaultKey.free();
+  }
 }
 
 /**
@@ -832,6 +915,88 @@ export async function enrollWithServer(
   await syncNow();
 }
 
+/** The floors the server enforces on a write, checked again on the way back. */
+const KDF_FLOOR = { memoryKib: 19 * 1024, iterations: 2, parallelism: 1 };
+
+/**
+ * JSON with object keys in a fixed order.
+ *
+ * The wrapped key goes to the server as JSON and comes back out of a `jsonb`
+ * column, which does not preserve field order. Without this, an unchanged
+ * record would compare as different on every sync.
+ */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, held: unknown) =>
+    held !== null && typeof held === "object" && !Array.isArray(held)
+      ? Object.fromEntries(
+          Object.entries(held as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)),
+        )
+      : held,
+  );
+}
+
+/**
+ * Takes on the vault record the server holds, when it differs from this one.
+ *
+ * This is how a master password change reaches the other devices. The vault
+ * key itself never changes, so a device that adopts the new record carries on
+ * syncing exactly as before — it simply needs the new password the next time
+ * it unlocks.
+ *
+ * The record cannot be verified here: telling a genuine one from a
+ * substituted one means unwrapping it, and that needs a password nobody has
+ * typed. So a compromised server can hand over a record this device cannot
+ * open, which costs that device access to its own copy — a denial of service
+ * by a server that could equally refuse to answer at all. It learns nothing
+ * either way. What *is* checked is that the record is well formed and its
+ * costs have not been lowered — a weakened Argon2 is the one substitution
+ * that would still open, and it would open cheaply.
+ */
+async function adoptServerVault(client: SyncClient): Promise<void> {
+  const local = await getVault();
+  if (!local) return;
+
+  const remote = await client.vault();
+  if (
+    remote.saltB64 === local.saltB64 &&
+    remote.memoryKib === local.memoryKib &&
+    remote.iterations === local.iterations &&
+    remote.parallelism === local.parallelism &&
+    canonical(remote.wrappedVaultKey) === canonical(local.wrappedVaultKey)
+  ) {
+    return;
+  }
+
+  // Shape and floors together: this record is about to replace the only thing
+  // on this device that can open the vault, so a malformed answer must be
+  // refused rather than stored. The floors are the ones the server enforces on
+  // the way in, checked again on the way out.
+  if (
+    typeof remote.saltB64 !== "string" ||
+    remote.saltB64 === "" ||
+    remote.wrappedVaultKey === undefined ||
+    remote.wrappedVaultKey === null ||
+    !Number.isInteger(remote.memoryKib) ||
+    !Number.isInteger(remote.iterations) ||
+    !Number.isInteger(remote.parallelism) ||
+    remote.memoryKib < KDF_FLOOR.memoryKib ||
+    remote.iterations < KDF_FLOOR.iterations ||
+    remote.parallelism < KDF_FLOOR.parallelism
+  ) {
+    throw new Error("The server offered a vault record this device will not accept.");
+  }
+
+  await putVault({
+    id: "vault",
+    format: VAULT_FORMAT,
+    saltB64: remote.saltB64,
+    memoryKib: remote.memoryKib,
+    iterations: remote.iterations,
+    parallelism: remote.parallelism,
+    wrappedVaultKey: remote.wrappedVaultKey,
+  });
+}
+
 /**
  * Runs a full reconcile now.
  *
@@ -844,6 +1009,11 @@ export async function syncNow(): Promise<SyncOutcome> {
   const vaultKey = await requireUnlocked();
 
   try {
+    // Before anything else: a master password change made on another device
+    // arrives as a new vault record, and adopting it is what makes that
+    // change take effect here.
+    await adoptServerVault(client);
+
     const outcome = await reconcile(client, vaultKey, state.cursor);
     const settled = await readState();
     if (settled) {

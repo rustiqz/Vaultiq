@@ -153,7 +153,7 @@ function renderEmpty(): void {
   );
 }
 
-/** PIN, auto-lock and this device's name. */
+/** PIN, auto-lock, this device's name, and the master password itself. */
 function settingsPanel(): HTMLElement {
   const panel = el("div", { className: "group" }, [el("h2", { textContent: "Settings" })]);
 
@@ -214,6 +214,61 @@ function settingsPanel(): HTMLElement {
   });
 
   panel.append(el("label", {}, ["This device", name]));
+
+  // --- master password ---
+  const currentPassword = el("input", { type: "password", autocomplete: "off" });
+  const nextPassword = el("input", { type: "password", autocomplete: "new-password" });
+  const againPassword = el("input", { type: "password", autocomplete: "new-password" });
+  const change = el("button", {
+    className: "inline",
+    type: "button",
+    textContent: "Change password",
+  });
+
+  change.addEventListener("click", () => {
+    if (nextPassword.value !== againPassword.value) {
+      showError("The new passwords do not match.");
+      return;
+    }
+
+    change.disabled = true;
+    change.textContent = "Working…";
+    void send({
+      kind: "changeMasterPassword",
+      currentPassword: currentPassword.value,
+      newPassword: nextPassword.value,
+    })
+      .then(unwrap)
+      .then(() => {
+        // Nothing typed here is kept once the request has gone out.
+        currentPassword.value = "";
+        nextPassword.value = "";
+        againPassword.value = "";
+        change.textContent = "Changed";
+        setTimeout(() => (change.textContent = "Change password"), 1800);
+      })
+      .catch((error: unknown) => {
+        change.textContent = "Change password";
+        showError(error instanceof Error ? error.message : "Failed.");
+      })
+      .finally(() => {
+        change.disabled = false;
+      });
+  });
+
+  panel.append(
+    el("h3", { textContent: "Master password" }),
+    el("label", {}, ["Current", currentPassword]),
+    el("label", {}, ["New", nextPassword]),
+    el("label", {}, ["New again", againPassword]),
+    el("div", { className: "field" }, [change]),
+    el("p", {
+      className: "muted",
+      textContent:
+        "Re-wraps the vault key, so no item is re-encrypted and nothing has to re-sync. Other devices pick the change up the next time they sync. The old password then opens nothing, and there is no way back.",
+    }),
+  );
+
   return panel;
 }
 
