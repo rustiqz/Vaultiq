@@ -69,9 +69,11 @@ To load it: `pnpm run dev` rebuilds on change and launches Firefox with the
 extension installed. To load it by hand instead, open `about:debugging` →
 **This Firefox** → **Load Temporary Add-on** and pick `extension/dist/manifest.json`.
 
-There is a manual test page at `extension/testbed/index.html` with ten login
-forms — including an iframe, a multi-step flow and a few awkward layouts — for
-exercising autofill without registering anywhere real.
+There is a manual test page at `extension/testbed/index.html` with ten cases
+for exercising autofill without registering anywhere real: sign-in, sign-up
+with confirmation, a change-password form, honeypot and disabled fields, two
+forms on one page, a form rendered late, one that submits by XHR with no form
+event, and one each inside an iframe and a closed shadow root.
 
 ## The server
 
