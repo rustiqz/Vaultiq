@@ -312,8 +312,18 @@ component's shipped artifact changes:
 | `pw-crypto-core` | `pw-crypto-core/Cargo.toml` |
 | `extension` | `extension/package.json`, copied into `manifest.json` at build |
 
-Both come from the same commits and the same tags — a component's version is
-that history filtered by path, computed by `scripts/component-versions.sh`.
+Both come from the same commits and the same tags, computed by
+`scripts/component-versions.sh`: a component that changed since the last tag
+takes the version being cut, and one that did not keeps the version of the
+release that last carried it — the earliest tag containing its most recent
+change.
+
+That rule replaced a path-filtered `git cliff --bumped-version`, which was
+quietly wrong. Filtering the history to one component also filters out the
+`chore(release)` commits the tags sit on, so every release since that
+component's last change vanished from the filtered view and the answer came
+back a version or more behind. The core and the extension were spared only
+because the release commit happens to write their manifests.
 The release job writes them **before** it tags, so a tagged tree states the
 truth about what it contains.
 

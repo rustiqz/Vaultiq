@@ -20,10 +20,6 @@ cd "$(dirname "$0")/.."
 write=false
 [ "${1:-}" = "--write" ] && write=true
 
-# A component's paths must cover everything that ends up in its artifact, not
-# merely its own directory. The extension bundles the crypto core as wasm, so
-# a core-only change alters the shipped extension and must move its version —
-# otherwise two different builds would claim to be the same version.
 if ! git cliff --version >/dev/null 2>&1; then
   echo "component-versions: git-cliff is not installed or not on PATH." >&2
   exit 1
@@ -31,29 +27,75 @@ fi
 
 has_tags=$(git tag --list | head -n1)
 
-# Resolves one component's version, or fails.
-#
-# An empty result is only legitimate in a repo with no tags at all. Anywhere
-# else it means git-cliff failed, and quietly substituting 0.0.0 would stamp
-# that into a release — so this refuses instead.
-resolve() {
-  local version
-  version=$(git cliff --bumped-version "$@" 2>/dev/null || true)
+# The version this release will carry. Anything that changed in this cycle
+# ships inside it, so that is the version those components take.
+next_version=$(git cliff --bumped-version 2>/dev/null || true)
+if [ -z "$next_version" ]; then
+  if [ -n "$has_tags" ]; then
+    echo "component-versions: git-cliff resolved no version for the repository." >&2
+    exit 1
+  fi
+  next_version="v0.0.0"
+fi
 
-  if [ -n "$version" ]; then
-    printf '%s' "$version"
-  elif [ -z "$has_tags" ]; then
-    printf 'v0.0.0'
+# The release before this one, or empty in a repo with no tags yet.
+last_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
+
+# Resolves one component's version from the paths that make up its artifact.
+#
+# Two cases, and only two. A component that changed since the last tag is
+# going out in the release being cut, so it takes that version. One that did
+# not keeps the version of the release that last carried it: the earliest tag
+# containing its most recent change.
+#
+# Deliberately *not* `git cliff --bumped-version --include-path`, which is
+# what this used to be. Filtering the history to one component also filters
+# out the `chore(release)` commits the tags sit on, so every release since
+# that component's last change disappears from the filtered view and the
+# answer comes back a version or more behind. The crypto core and the
+# extension were spared only because the release commit happens to write
+# their manifests; the server, which it did not, resolved to v0.17.0 for code
+# that shipped in v0.18.0. An off-by-one that depends on which files a
+# release commit touches is not something to leave in the machinery that
+# names releases.
+resolve() {
+  local changed last shipped
+
+  if [ -n "$last_tag" ]; then
+    changed=$(git log --format=%H "$last_tag..HEAD" -- "$@" | head -n1)
   else
-    echo "component-versions: no version resolved for $*" >&2
+    changed=$(git log --format=%H -- "$@" | head -n1)
+  fi
+
+  if [ -n "$changed" ]; then
+    printf '%s' "$next_version"
+    return
+  fi
+
+  last=$(git log -1 --format=%H -- "$@")
+  if [ -z "$last" ]; then
+    # Nothing has ever touched these paths: a component added in this very
+    # release, before any of its own commits exist.
+    printf '%s' "$next_version"
+    return
+  fi
+
+  # Sorted by version rather than by date: the earliest *version* containing a
+  # change is the release that shipped it, even if tags were cut out of order.
+  shipped=$(git tag --contains "$last" --sort=version:refname | head -n1)
+  if [ -z "$shipped" ]; then
+    echo "component-versions: no tag contains the last change to $* ($last)." >&2
     return 1
   fi
+  printf '%s' "$shipped"
 }
 
-core_version=$(resolve --include-path 'pw-crypto-core/**')
-extension_version=$(resolve \
-  --include-path 'extension/**' \
-  --include-path 'pw-crypto-core/**')
+# A component's paths cover everything that lands in its artifact, not merely
+# its own directory. The extension bundles the crypto core as wasm, so a
+# core-only change alters the shipped extension and must move its version —
+# otherwise two different builds would claim to be the same version.
+core_version=$(resolve pw-crypto-core)
+extension_version=$(resolve extension pw-crypto-core)
 
 # Manifest versions are plain dotted numbers; the tag stream carries a v.
 core_plain=${core_version#v}
