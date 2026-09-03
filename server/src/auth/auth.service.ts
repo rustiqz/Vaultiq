@@ -19,6 +19,20 @@ export interface Caller {
   deviceId: string;
 }
 
+/**
+ * What an enrolling device needs *before* it can authenticate.
+ *
+ * Deliberately not `VaultBootstrap`: no wrapped vault key. Handing that to a
+ * token holder would give them an offline target for the master password,
+ * which is the one thing the throttle on `enroll` exists to prevent.
+ */
+export interface KdfParams {
+  saltB64: string;
+  memoryKib: number;
+  iterations: number;
+  parallelism: number;
+}
+
 export interface VaultBootstrap {
   saltB64: string;
   memoryKib: number;
@@ -116,6 +130,50 @@ export class AuthService {
     const expiresAt = rows[0]?.expires_at;
     if (!expiresAt) throw new Error("token was not created");
     return { token, expiresAt: expiresAt.toISOString() };
+  }
+
+  /**
+   * The KDF parameters, for a device that holds a token but no credential yet.
+   *
+   * This exists because enrolment is otherwise impossible: `enroll` wants the
+   * auth key, deriving it wants the salt and costs, and those live behind a
+   * credential the device is still trying to obtain.
+   *
+   * A salt is not a secret — it exists so that one stolen hash does not break
+   * every account, and it already sits in the clear on every enrolled device.
+   * The costs are the published defaults. Neither helps an attacker who
+   * cannot also produce the master password.
+   *
+   * The token is *not* consumed: a mistyped password should not cost a walk
+   * back to the first device for a fresh one.
+   */
+  async enrollmentParams(token: string): Promise<KdfParams> {
+    const { rows } = await pool.query<{
+      salt_b64: string;
+      kdf_memory_kib: number;
+      kdf_iterations: number;
+      kdf_parallelism: number;
+    }>(
+      `select v.salt_b64, v.kdf_memory_kib, v.kdf_iterations, v.kdf_parallelism
+         from enrollment_tokens t
+         join vaults v on v.user_id = t.user_id
+        where t.token_hash = $1
+          and t.used_at is null
+          and t.expires_at > now()`,
+      [tokenFingerprint(token)],
+    );
+
+    const vault = rows[0];
+    // The same words `enroll` uses. An unknown token, a spent one and an
+    // expired one must not be distinguishable from each other here either.
+    if (!vault) throw new UnauthorizedException("Enrolment refused.");
+
+    return {
+      saltB64: vault.salt_b64,
+      memoryKib: vault.kdf_memory_kib,
+      iterations: vault.kdf_iterations,
+      parallelism: vault.kdf_parallelism,
+    };
   }
 
   /**

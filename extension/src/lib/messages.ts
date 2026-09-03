@@ -123,6 +123,19 @@ export interface DecryptedItem extends LoginContent {
   strength: PasswordStrength;
 }
 
+import type { RemoteDevice } from "../sync/client.js";
+import type { SyncOutcome } from "../sync/engine.js";
+
+export type { RemoteDevice, SyncOutcome };
+
+/** What the popup shows about this device's server, if it has one. */
+export interface SyncSummary {
+  connected: boolean;
+  server?: string;
+  lastSyncedAt?: number;
+  lastError?: string;
+}
+
 /** Ordering the list offers. */
 export type SortOrder = "recent" | "name";
 
@@ -166,7 +179,24 @@ export type Request =
   // URL: the background uses the sender tab, as everywhere else.
   | { kind: "shouldOfferToSave"; username: string; password: string }
   // Saves it. Only reached after the user says yes in the page banner.
-  | { kind: "saveSubmitted"; username: string; password: string; name?: string; notes?: string };
+  | { kind: "saveSubmitted"; username: string; password: string; name?: string; notes?: string }
+  // Syncing. The master password appears here only for the two connect
+  // flows, which have to derive an auth key; nothing else needs it, and it
+  // is never stored.
+  | { kind: "syncStatus" }
+  | { kind: "connectServer"; server: string; deviceName: string; masterPassword: string }
+  | {
+      kind: "enrollWithServer";
+      server: string;
+      token: string;
+      deviceName: string;
+      masterPassword: string;
+    }
+  | { kind: "syncNow" }
+  | { kind: "disconnectServer" }
+  | { kind: "remoteDevices" }
+  | { kind: "newEnrollmentToken" }
+  | { kind: "revokeRemoteDevice"; deviceId: string };
 
 export type Response =
   | { ok: true; kind: "status"; status: VaultStatus }
@@ -196,6 +226,14 @@ export type Response =
   | { ok: true; kind: "shouldOfferToSave"; offer: true; site: string; existingId: string | null }
   | { ok: true; kind: "saveSubmitted" }
   | { ok: true; kind: "passwordOptions"; options: PasswordOptions }
+  | { ok: true; kind: "syncStatus"; sync: SyncSummary }
+  | { ok: true; kind: "connectServer" }
+  | { ok: true; kind: "enrollWithServer" }
+  | { ok: true; kind: "syncNow"; outcome: SyncOutcome }
+  | { ok: true; kind: "disconnectServer" }
+  | { ok: true; kind: "remoteDevices"; devices: RemoteDevice[] }
+  | { ok: true; kind: "newEnrollmentToken"; token: string; expiresAt: string }
+  | { ok: true; kind: "revokeRemoteDevice" }
   | { ok: false; error: string };
 
 export async function send(request: Request): Promise<Response> {

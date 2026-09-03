@@ -10,6 +10,7 @@ import {
   assertSessionStorage,
   clearStashedVaultKey,
   decryptItem,
+  deriveAuthKey,
   deriveMasterKey,
   encryptItem,
   generateSalt,
@@ -28,6 +29,7 @@ import {
 } from "../lib/crypto.js";
 
 export { assertSessionStorage, loadCrypto };
+export type { SyncSummary };
 import { matchesSite, siteScope } from "../lib/site.js";
 import type {
   AuditEvent,
@@ -38,6 +40,7 @@ import type {
   LoginContent,
   PasswordOptions,
   PasswordStrength,
+  SyncSummary,
   VaultStatus,
 } from "../lib/messages.js";
 import { renameDevice as storeDeviceName, thisDevice } from "../lib/device.js";
@@ -47,6 +50,16 @@ import {
   quickUnlock as openWithPin,
   quickUnlockReady,
 } from "../lib/quick-unlock.js";
+import { assertUsableServer, SyncClient, type RemoteDevice } from "../sync/client.js";
+import { reconcile, type SyncOutcome } from "../sync/engine.js";
+import {
+  clearState,
+  openCredential,
+  readState,
+  sealCredential,
+  writeState,
+  type SyncState,
+} from "../sync/state.js";
 import {
   allItems,
   allUsage,
@@ -144,6 +157,7 @@ export async function unlockWithPin(pin: string): Promise<void> {
   const vaultKey = await openWithPin(pin);
   await stashVaultKey(vaultKey);
   warmVaultKey = vaultKey;
+  syncOnUnlock();
 }
 
 /** Derives the master key and immediately frees it — it is never cached. */
@@ -210,6 +224,17 @@ export async function unlock(masterPassword: string): Promise<void> {
 
   await stashVaultKey(vaultKey);
   warmVaultKey = vaultKey;
+  syncOnUnlock();
+}
+
+/**
+ * Pulls in the background once the vault opens.
+ *
+ * Not awaited: an unreachable server must not hold the vault shut. The
+ * failure is recorded on the sync state and reported by the popup.
+ */
+function syncOnUnlock(): void {
+  void syncNow().catch(() => {});
 }
 
 async function requireUnlocked(): Promise<VaultKeyHandle> {
@@ -264,6 +289,7 @@ async function writeDeviceRecord(
   ) as StoredItem;
 
   await putUsage({ id: `usage:${record.device.id}`, deviceId: record.device.id, item });
+  scheduleSync();
 }
 
 /** Every device's record, decrypted, for merging into one view. */
@@ -380,6 +406,7 @@ export async function addItem(content: LoginContent): Promise<string> {
   ) as StoredItem;
 
   await putItem(encrypted);
+  scheduleSync();
   return id;
 }
 
@@ -420,6 +447,7 @@ async function rewriteItem(
   ) as StoredItem;
 
   await putItem(encrypted);
+  scheduleSync();
 }
 
 export async function updateItem(id: string, content: LoginContent): Promise<void> {
@@ -662,4 +690,213 @@ export async function activeTabUrl(): Promise<string | undefined> {
 /** What the list shows for an item, and therefore what it sorts on. */
 function displayName(item: DecryptedItem): string {
   return item.name?.trim() || item.username;
+}
+
+
+// ---------------------------------------------------------------------------
+// Syncing with a server
+//
+// Everything below is optional: a vault that is never connected behaves
+// exactly as it did before. What crosses the wire is ciphertext plus the
+// fields already bound into each item's authentication tag.
+
+/** How long a burst of changes is allowed to settle before it is pushed. */
+const PUSH_DEBOUNCE_MS = 2_000;
+
+export async function syncStatus(): Promise<SyncSummary> {
+  const state = await readState();
+  if (!state) return { connected: false };
+  return {
+    connected: true,
+    server: state.server,
+    ...(state.lastSyncedAt === undefined ? {} : { lastSyncedAt: state.lastSyncedAt }),
+    ...(state.lastError === undefined ? {} : { lastError: state.lastError }),
+  };
+}
+
+async function connectedClient(): Promise<{ client: SyncClient; state: SyncState }> {
+  const state = await readState();
+  if (!state) throw new Error("This device is not connected to a server.");
+  const vaultKey = await requireUnlocked();
+  return { client: new SyncClient(state.server, openCredential(state, vaultKey)), state };
+}
+
+/**
+ * Registers this vault with a fresh server, as its first device.
+ *
+ * The master password is checked locally first, by unwrapping the vault key
+ * with it. Without that check a typo would be registered as *the* auth key,
+ * and since the server only accepts one account ever, the mistake would not
+ * be recoverable without wiping the server.
+ */
+export async function connectServer(
+  server: string,
+  deviceName: string,
+  masterPassword: string,
+): Promise<void> {
+  if (await readState()) throw new Error("This device is already connected.");
+  const vault = await getVault();
+  if (!vault) throw new Error("No vault on this device yet.");
+
+  const base = assertUsableServer(server).toString();
+  const params = {
+    memory_kib: vault.memoryKib,
+    iterations: vault.iterations,
+    parallelism: vault.parallelism,
+  };
+
+  const authKey = withMasterKey(masterPassword, vault.saltB64, params, (masterKey) => {
+    // Throws on a wrong password, before anything reaches the network.
+    unwrapVaultKey(vault.wrappedVaultKey, masterKey).free();
+    return deriveAuthKey(masterKey);
+  });
+
+  const credential = await new SyncClient(base).register({
+    authKey,
+    vault: {
+      saltB64: vault.saltB64,
+      memoryKib: vault.memoryKib,
+      iterations: vault.iterations,
+      parallelism: vault.parallelism,
+      wrappedVaultKey: vault.wrappedVaultKey,
+    },
+    deviceName,
+  });
+
+  const vaultKey = await requireUnlocked();
+  await writeState({ server: base, cursor: "0", credential: sealCredential(credential, vaultKey) });
+  await syncNow();
+}
+
+/**
+ * Joins a server that already holds a vault, using a token from a device
+ * that is already trusted.
+ *
+ * This is the flow that needs `enrollment-params`: the auth key is derived
+ * from the master password *and* the vault's salt and costs, and those live
+ * behind a credential this device does not have yet.
+ */
+export async function enrollWithServer(
+  server: string,
+  token: string,
+  deviceName: string,
+  masterPassword: string,
+): Promise<void> {
+  if (await readState()) throw new Error("This device is already connected.");
+
+  const base = assertUsableServer(server).toString();
+  const anonymous = new SyncClient(base);
+  const remote = await anonymous.enrollmentParams(token);
+
+  const existing = await getVault();
+  if (existing && existing.saltB64 !== remote.saltB64) {
+    // Two vaults created independently, each with its own key. Merging them
+    // would need both master passwords, and guessing which to keep would
+    // destroy the other. Say so rather than choose.
+    throw new Error(
+      "This device already holds a different vault. Remove it before joining this server.",
+    );
+  }
+
+  const params = {
+    memory_kib: remote.memoryKib,
+    iterations: remote.iterations,
+    parallelism: remote.parallelism,
+  };
+  const authKey = withMasterKey(masterPassword, remote.saltB64, params, deriveAuthKey);
+
+  const credential = await anonymous.enroll({ token, authKey, deviceName });
+  const client = new SyncClient(base, credential);
+  const bootstrap = await client.vault();
+
+  // The password is verified here, by the same unwrap an ordinary unlock
+  // does — a wrong one fails indistinguishably from a tampered record.
+  const vaultKey = withMasterKey(masterPassword, bootstrap.saltB64, params, (masterKey) =>
+    unwrapVaultKey(bootstrap.wrappedVaultKey, masterKey),
+  );
+
+  await putVault({
+    id: "vault",
+    format: VAULT_FORMAT,
+    saltB64: bootstrap.saltB64,
+    memoryKib: bootstrap.memoryKib,
+    iterations: bootstrap.iterations,
+    parallelism: bootstrap.parallelism,
+    wrappedVaultKey: bootstrap.wrappedVaultKey,
+  });
+
+  await stashVaultKey(vaultKey);
+  warmVaultKey = vaultKey;
+
+  await writeState({ server: base, cursor: "0", credential: sealCredential(credential, vaultKey) });
+  await syncNow();
+}
+
+/**
+ * Runs a full reconcile now.
+ *
+ * A failure is recorded, never thrown away and never rolled back: the local
+ * write already happened, and the right answer to an unreachable server is to
+ * say when the last successful sync was, not to lose an edit.
+ */
+export async function syncNow(): Promise<SyncOutcome> {
+  const { client, state } = await connectedClient();
+  const vaultKey = await requireUnlocked();
+
+  try {
+    const outcome = await reconcile(client, vaultKey, state.cursor);
+    const settled = await readState();
+    if (settled) {
+      // `lastError` is dropped rather than set to undefined: a success has to
+      // clear the previous failure, or the popup keeps reporting a stale one.
+      const { lastError: _cleared, ...rest } = settled;
+      await writeState({ ...rest, cursor: outcome.cursor, lastSyncedAt: Date.now() });
+    }
+    return outcome;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Sync failed.";
+    const settled = await readState();
+    if (settled) await writeState({ ...settled, lastError: message });
+    throw error;
+  }
+}
+
+let pushTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Asks for a sync shortly after a change, coalescing a burst into one push.
+ *
+ * Deliberately best-effort. The background page can be suspended before the
+ * timer fires, in which case the item simply stays dirty and goes up on the
+ * next sync — which is why "dirty" is a stored fact and not a queue held in
+ * memory.
+ */
+export function scheduleSync(): void {
+  if (pushTimer !== undefined) clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    pushTimer = undefined;
+    void syncNow().catch(() => {
+      // Already recorded on the sync state; the popup reports it.
+    });
+  }, PUSH_DEBOUNCE_MS);
+}
+
+/** Forgets the server. Leaves the vault, and the server's copy, untouched. */
+export async function disconnectServer(): Promise<void> {
+  await clearState();
+}
+
+export async function remoteDevices(): Promise<RemoteDevice[]> {
+  const { client } = await connectedClient();
+  return await client.devices();
+}
+
+export async function newEnrollmentToken(): Promise<{ token: string; expiresAt: string }> {
+  const { client } = await connectedClient();
+  return await client.enrollmentToken();
+}
+
+export async function revokeRemoteDevice(deviceId: string): Promise<void> {
+  const { client } = await connectedClient();
+  await client.revoke(deviceId);
 }
