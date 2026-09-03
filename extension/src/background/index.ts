@@ -36,6 +36,14 @@ import {
   trashItem,
   unlock,
   updateItem,
+  connectServer,
+  disconnectServer,
+  enrollWithServer,
+  newEnrollmentToken,
+  remoteDevices,
+  revokeRemoteDevice,
+  syncNow,
+  syncStatus,
 } from "./vault.js";
 import type { Request, Response } from "../lib/messages.js";
 
@@ -158,6 +166,45 @@ async function handle(
       await extendAutoLock();
       return { ok: true, kind: "listItems", items };
     }
+
+    case "syncStatus":
+      // Readable while locked: the popup has to be able to say when the last
+      // sync was without opening the vault.
+      return { ok: true, kind: "syncStatus", sync: await syncStatus() };
+    case "connectServer":
+      await connectServer(request.server, request.deviceName, request.masterPassword);
+      await extendAutoLock();
+      return { ok: true, kind: "connectServer" };
+    case "enrollWithServer":
+      await enrollWithServer(
+        request.server,
+        request.token,
+        request.deviceName,
+        request.masterPassword,
+      );
+      return { ok: true, kind: "enrollWithServer" };
+    case "syncNow": {
+      const outcome = await syncNow();
+      await extendAutoLock();
+      return { ok: true, kind: "syncNow", outcome };
+    }
+    case "disconnectServer":
+      await disconnectServer();
+      return { ok: true, kind: "disconnectServer" };
+    case "remoteDevices": {
+      const devices = await remoteDevices();
+      await extendAutoLock();
+      return { ok: true, kind: "remoteDevices", devices };
+    }
+    case "newEnrollmentToken": {
+      const minted = await newEnrollmentToken();
+      await extendAutoLock();
+      return { ok: true, kind: "newEnrollmentToken", ...minted };
+    }
+    case "revokeRemoteDevice":
+      await revokeRemoteDevice(request.deviceId);
+      await extendAutoLock();
+      return { ok: true, kind: "revokeRemoteDevice" };
   }
 }
 

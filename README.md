@@ -1,0 +1,137 @@
+# Vaultiq
+
+A personal, zero-knowledge password manager. Everything is encrypted and
+decrypted on the client; the server stores ciphertext and the few fields
+needed to address it, and holds nothing that could decrypt any of it.
+
+See [PROJECT.md](PROJECT.md) for the design and [CLAUDE.md](CLAUDE.md) for the
+rules the code is held to.
+
+```
+pw-crypto-core/   Rust. Every cryptographic decision lives here. Compiles
+                  natively and to WebAssembly.
+extension/        Firefox extension (Manifest V3). Vault UI and autofill.
+server/           NestJS + PostgreSQL sync server.
+```
+
+## Prerequisites
+
+| | Version used | Notes |
+|---|---|---|
+| Rust | 1.98 | plus the `wasm32-unknown-unknown` target (`rust-wasm` on Arch) |
+| Node | 24 | |
+| pnpm | 11.3 | |
+| wasm-pack | any | builds the browser bundle and runs the browser tests |
+| Docker | any | for Postgres, and for the deployment |
+
+Enable the local git hooks once after cloning — they stand in for branch
+protection, which GitHub gates behind a paid plan for private repositories:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+## The crypto core
+
+```bash
+cargo test                                    # 87 unit tests
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+cargo build --features wasm                   # the wasm feature must compile
+cargo audit
+```
+
+The bindings are tested in a real browser, not on the host: `SysRng` resolves
+to a different backend there, so a host test cannot tell whether
+`Crypto.getRandomValues` is actually reachable.
+
+```bash
+cd pw-crypto-core
+wasm-pack test --headless --firefox -- --features wasm    # 15 tests
+```
+
+Run it from inside the crate rather than passing its path — given a path
+argument, wasm-pack silently drops the trailing cargo arguments and the build
+then fails for want of the `wasm` feature.
+
+## The extension
+
+```bash
+cd extension
+pnpm install
+pnpm run build      # builds the wasm package, then bundles into dist/
+pnpm test           # 205 tests
+pnpm run typecheck
+pnpm run lint
+```
+
+To load it: `pnpm run dev` rebuilds on change and launches Firefox with the
+extension installed. To load it by hand instead, open `about:debugging` →
+**This Firefox** → **Load Temporary Add-on** and pick `extension/dist/manifest.json`.
+
+There is a manual test page at `extension/testbed/index.html` with ten cases
+for exercising autofill without registering anywhere real: sign-in, sign-up
+with confirmation, a change-password form, honeypot and disabled fields, two
+forms on one page, a form rendered late, one that submits by XHR with no form
+event, and one each inside an iframe and a closed shadow root.
+
+## The server
+
+The tests run against a real PostgreSQL, because half of what they cover lives
+in SQL: the single-account constraint, the enrolment token lock, the
+revocation filter. **Without `DATABASE_URL` they skip rather than fail**, so
+check the count if you expect them to run.
+
+```bash
+docker run -d --name vaultiq-test-db \
+  -e POSTGRES_PASSWORD=test -e POSTGRES_USER=vaultiq -e POSTGRES_DB=vaultiq \
+  -p 5433:5432 postgres:17-alpine
+
+cd server
+pnpm install
+export DATABASE_URL="postgres://vaultiq:test@127.0.0.1:5433/vaultiq"
+pnpm run migrate    # migrations are idempotent; they also run at boot
+pnpm test           # 39 tests
+pnpm run dev        # http://localhost:3000
+curl localhost:3000/health
+```
+
+Test files run one at a time, not in parallel: they share one database and
+would otherwise clear each other's rows mid-test.
+
+## Deploying it
+
+```bash
+cp .env.example .env     # set POSTGRES_PASSWORD and VAULTIQ_DOMAIN
+docker compose up -d
+```
+
+Postgres publishes no ports — it exists only on the internal network, so there
+is nothing to reach from outside. Caddy obtains its own certificate for
+`VAULTIQ_DOMAIN`, which must already point at the machine.
+
+## Connecting the two
+
+1. In the extension popup, create a vault and unlock it.
+2. Under **Sync**, enter the server address, name the device, and choose
+   **Set up a new server**. This uploads the vault as it stands, and the
+   server accepts exactly one account for its whole life.
+3. On a second device, use **Add a device** on the first to mint a token,
+   then **Join with a token** on the second. Enrolment needs both the token
+   and the master password — either alone is not enough.
+
+Sync runs on unlock and shortly after any change. There is no periodic
+background sync: it would mean keeping the vault key alive on a timer.
+
+## Before committing
+
+```bash
+cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+cargo build --features wasm && cargo audit
+(cd extension && pnpm run typecheck && pnpm run lint && pnpm test)
+(cd server && pnpm run typecheck && pnpm run lint && pnpm test)
+```
+
+Version numbers are never edited by hand — git-cliff derives them from the
+commit subjects, so a malformed subject produces the wrong release rather than
+a style complaint. The mapping is in [CLAUDE.md §8.2](CLAUDE.md).
