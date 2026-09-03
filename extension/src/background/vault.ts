@@ -33,8 +33,12 @@ export type { SyncSummary };
 import { matchesSite, siteScope } from "../lib/site.js";
 import type {
   AuditEvent,
+  CommonContent,
   DecryptedItem,
+  DecryptedLogin,
   DeviceIdentity,
+  ItemContent,
+  ItemFacts,
   ItemUsage,
   UsageEvent,
   LoginContent,
@@ -77,7 +81,6 @@ import {
 const DEFAULT_AUTO_LOCK_MINUTES = 15;
 const AUTO_LOCK_SETTING = "autoLockMinutes";
 export const AUTO_LOCK_ALARM = "vaultiq-auto-lock";
-const ITEM_TYPE = "login";
 const USAGE_TYPE = "usage";
 
 /** How many recent events one device keeps. Enough to be useful, bounded. */
@@ -475,16 +478,28 @@ function mergeUsage(records: DeviceRecord[]): Map<string, ItemUsage> {
   return merged;
 }
 
-export async function addItem(content: LoginContent): Promise<string> {
+/**
+ * The stored form of an item's content: every field except the discriminator.
+ *
+ * The type is not written into the ciphertext because it is already in the
+ * record header, where it is bound into the authentication tag. Storing it
+ * twice would be two places for one fact to disagree with itself, and only
+ * one of the two would be tamper-evident.
+ */
+function toStoredContent({ type: _type, ...fields }: ItemContent): string {
+  return JSON.stringify(fields);
+}
+
+export async function addItem(content: ItemContent): Promise<string> {
   const vaultKey = await requireUnlocked();
   const id = crypto.randomUUID();
   const updatedAt = Date.now();
 
-  const stamped: LoginContent = { ...content, createdAt: updatedAt, lastModifiedAt: updatedAt };
+  const stamped: ItemContent = { ...content, createdAt: updatedAt, lastModifiedAt: updatedAt };
 
   const encrypted: StoredItem = encryptItem(
-    JSON.stringify(stamped),
-    { id, item_type: ITEM_TYPE, version: 1, updated_at: updatedAt, deleted: false },
+    toStoredContent(stamped),
+    { id, item_type: content.type, version: 1, updated_at: updatedAt, deleted: false },
     vaultKey,
   ) as StoredItem;
 
@@ -507,15 +522,18 @@ export async function addItem(content: LoginContent): Promise<string> {
  */
 async function rewriteItem(
   id: string,
-  change: (current: LoginContent) => { content: string; deleted: boolean },
+  change: (
+    current: Record<string, unknown>,
+    itemType: string,
+  ) => { content: string; deleted: boolean },
 ): Promise<void> {
   const vaultKey = await requireUnlocked();
 
   const stored = await getItem(id);
   if (!stored) throw new Error("No such item.");
 
-  const current = JSON.parse(decryptItem(stored, vaultKey)) as LoginContent;
-  const { content, deleted } = change(current);
+  const current = JSON.parse(decryptItem(stored, vaultKey)) as Record<string, unknown>;
+  const { content, deleted } = change(current, stored.item_type);
 
   const encrypted: StoredItem = encryptItem(
     content,
@@ -533,16 +551,27 @@ async function rewriteItem(
   scheduleSync();
 }
 
-export async function updateItem(id: string, content: LoginContent): Promise<void> {
-  await rewriteItem(id, (current) => ({
-    content: JSON.stringify({
-      ...content,
-      // Preserved across an edit; only a fresh save sets it.
-      ...(current.createdAt === undefined ? {} : { createdAt: current.createdAt }),
-      lastModifiedAt: Date.now(),
-    }),
-    deleted: false,
-  }));
+export async function updateItem(id: string, content: ItemContent): Promise<void> {
+  await rewriteItem(id, (current, itemType) => {
+    // An item does not change what it is. The type is bound into the
+    // authentication tag, so a rewrite under a different one would produce a
+    // record whose header and content disagree — and the header is the half
+    // that is authenticated.
+    if (itemType !== content.type) {
+      throw new Error("An item cannot change its type.");
+    }
+
+    const createdAt = current.createdAt;
+    return {
+      content: toStoredContent({
+        ...content,
+        // Preserved across an edit; only a fresh save sets it.
+        ...(typeof createdAt === "number" ? { createdAt } : {}),
+        lastModifiedAt: Date.now(),
+      }),
+      deleted: false,
+    };
+  });
 }
 
 export async function trashItem(id: string): Promise<void> {
@@ -586,6 +615,37 @@ export function checkStrength(password: string): PasswordStrength {
   return scorePassword(password);
 }
 
+/** A string field, or nothing if the record does not carry one. */
+function text(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+/** Spreads a field only when it has a value, never as an explicit undefined. */
+function optional<K extends string, V>(key: K, value: V | undefined): Record<K, V> | object {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
+}
+
+/**
+ * The fields every item has, read defensively.
+ *
+ * Any of them can be absent: a record written before a field existed simply
+ * does not have it, and nothing is migrated because the AEAD layout and the
+ * associated data never changed.
+ */
+function readCommon(content: Record<string, unknown>): CommonContent {
+  const createdAt = content.createdAt;
+  const lastModifiedAt = content.lastModifiedAt;
+  return {
+    ...optional("name", text(content.name)),
+    notes: text(content.notes) ?? "",
+    ...optional("createdAt", typeof createdAt === "number" ? createdAt : undefined),
+    ...optional(
+      "lastModifiedAt",
+      typeof lastModifiedAt === "number" ? lastModifiedAt : undefined,
+    ),
+  };
+}
+
 export async function listItems(): Promise<DecryptedItem[]> {
   const vaultKey = await requireUnlocked();
   const stored = await allItems();
@@ -596,6 +656,8 @@ export async function listItems(): Promise<DecryptedItem[]> {
   const shared = new Map<string, number>();
   for (const item of stored) {
     if (item.deleted) continue;
+    // Only logins have a password to share with another login.
+    if (item.item_type !== "login") continue;
     try {
       const parsed = JSON.parse(decryptItem(item, vaultKey)) as Partial<LoginContent>;
       const password = parsed.password ?? "";
@@ -606,38 +668,49 @@ export async function listItems(): Promise<DecryptedItem[]> {
     }
   }
 
-  const decrypted = stored.flatMap((item) => {
-    const content = JSON.parse(decryptItem(item, vaultKey)) as Partial<LoginContent> & {
+  const decrypted = stored.flatMap((item): DecryptedItem[] => {
+    const content = JSON.parse(decryptItem(item, vaultKey)) as Record<string, unknown> & {
       purged?: boolean;
     };
     // A purged record is a tombstone with nothing left in it; it exists for
     // sync, not for the user.
     if (content.purged === true) return [];
 
-    return [
-      {
-        // `name` is absent on anything saved before the field existed.
-        ...(content.name === undefined ? {} : { name: content.name }),
-        username: content.username ?? "",
-        password: content.password ?? "",
-        url: content.url ?? "",
-        notes: content.notes ?? "",
-        id: item.id,
-        updatedAt: item.updated_at,
-        deleted: item.deleted,
-        strength: scorePassword(content.password ?? ""),
-        usage: usage.get(item.id) ?? emptyUsage(),
-        reusedBy: item.deleted
-          ? 0
-          : Math.max((shared.get(content.password ?? "") ?? 1) - 1, 0),
-        ...(content.email === undefined ? {} : { email: content.email }),
-        ...(content.mobile === undefined ? {} : { mobile: content.mobile }),
-        ...(content.createdAt === undefined ? {} : { createdAt: content.createdAt }),
-        ...(content.lastModifiedAt === undefined
-          ? {}
-          : { lastModifiedAt: content.lastModifiedAt }),
-      },
-    ];
+    const facts: ItemFacts = {
+      id: item.id,
+      updatedAt: item.updated_at,
+      deleted: item.deleted,
+      usage: usage.get(item.id) ?? emptyUsage(),
+    };
+    const common = readCommon(content);
+
+    switch (item.item_type) {
+      case "login": {
+        const password = text(content.password) ?? "";
+        return [
+          {
+            type: "login",
+            ...common,
+            username: text(content.username) ?? "",
+            password,
+            url: text(content.url) ?? "",
+            ...optional("email", text(content.email)),
+            ...optional("mobile", text(content.mobile)),
+            ...facts,
+            strength: scorePassword(password),
+            reusedBy: item.deleted ? 0 : Math.max((shared.get(password) ?? 1) - 1, 0),
+          },
+        ];
+      }
+      case "note":
+        return [{ type: "note", ...common, ...facts }];
+      default:
+        // An item type this build does not know: written by a newer client
+        // and synced down. The record itself is kept and passed on untouched
+        // — dropping it would delete another device's data — but there is
+        // nothing sensible to render for it here.
+        return [];
+    }
   });
 
   // Storage order is by id, which is a random UUID — effectively shuffled.
@@ -658,14 +731,20 @@ export async function listItems(): Promise<DecryptedItem[]> {
  */
 export async function itemsForUrl(
   url: string | undefined,
-): Promise<{ site: string | null; items: DecryptedItem[] }> {
+): Promise<{ site: string | null; items: DecryptedLogin[] }> {
   if (!url) return { site: null, items: [] };
 
   const all = await listItems();
   return {
     site: siteScope(url),
-    // Trashed items are not offered: deleting one should stop it turning up.
-    items: all.filter((item) => !item.deleted && matchesSite(item.url, url)),
+    // Logins only, and never a trashed one: a secure note has no site to
+    // belong to, and deleting a login should stop it turning up. The
+    // predicate narrows the element type as well as filtering, so everything
+    // downstream — autofill included — is holding a login by construction.
+    items: all.filter(
+      (item): item is DecryptedLogin =>
+        !item.deleted && item.type === "login" && matchesSite(item.url, url),
+    ),
   };
 }
 
@@ -740,6 +819,7 @@ export async function saveSubmitted(
   if (!decision.offer) throw new Error("Nothing to save for this site.");
 
   const content: LoginContent = {
+    type: "login",
     ...(submitted.name?.trim() ? { name: submitted.name.trim() } : {}),
     username: submitted.username,
     password: submitted.password,
@@ -772,7 +852,9 @@ export async function activeTabUrl(): Promise<string | undefined> {
 
 /** What the list shows for an item, and therefore what it sorts on. */
 function displayName(item: DecryptedItem): string {
-  return item.name?.trim() || item.username;
+  const named = item.name?.trim();
+  if (named) return named;
+  return item.type === "login" ? item.username : "";
 }
 
 

@@ -6,6 +6,7 @@
 // rollback protection that the AAD binding exists to provide is quietly gone.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { DecryptedItem, LoginContent, NoteContent } from "../lib/messages.js";
 import { activeTab } from "../test/setup.js";
 import {
   cryptoFake,
@@ -22,7 +23,35 @@ vi.mock("../lib/vault-db.js", () => dbFake);
 
 const vault = await import("./vault.js");
 
-const CONTENT = { username: "ada@example.test", password: "hunter2", url: "https://x.test", notes: "" };
+const CONTENT = {
+  type: "login",
+  username: "ada@example.test",
+  password: "hunter2",
+  url: "https://x.test",
+  notes: "",
+} satisfies LoginContent;
+
+/**
+ * The same content as it is actually stored: everything but the type.
+ *
+ * The discriminator lives in the record header, where it is bound into the
+ * authentication tag. Writing it into the ciphertext as well would be two
+ * places for one fact to disagree, and only one of them tamper-evident.
+ */
+const { type: _type, ...STORED } = CONTENT;
+
+/**
+ * Narrows a listed item to a login.
+ *
+ * Most of these tests are about logins specifically, and the union is what
+ * stops `item.password` from silently being undefined on something that never
+ * had one — so the narrowing is stated rather than asserted away.
+ */
+function asLogin(item: DecryptedItem | undefined): LoginContent & DecryptedItem {
+  if (!item) throw new Error("no item");
+  if (item.type !== "login") throw new Error(`expected a login, got ${item.type}`);
+  return item;
+}
 
 /** Puts the vault in an unlocked state with one item already saved. */
 async function withOneItem(): Promise<string> {
@@ -94,7 +123,7 @@ describe("trash", () => {
     expect(lastHeader().deleted).toBe(true);
     // toMatchObject, not toEqual: the content also carries createdAt and
     // lastModifiedAt, which trashing must leave alone.
-    expect(storedContent(id)).toMatchObject(CONTENT);
+    expect(storedContent(id)).toMatchObject(STORED);
   });
 
   it("restores as a live item with the content intact", async () => {
@@ -103,7 +132,7 @@ describe("trash", () => {
     await vault.restoreItem(id);
 
     expect(lastHeader().deleted).toBe(false);
-    expect(storedContent(id)).toMatchObject(CONTENT);
+    expect(storedContent(id)).toMatchObject(STORED);
   });
 
   it("still lists trashed items, flagged", async () => {
@@ -113,7 +142,7 @@ describe("trash", () => {
     const items = await vault.listItems();
     expect(items).toHaveLength(1);
     expect(items[0]?.deleted).toBe(true);
-    expect(items[0]?.password).toBe(CONTENT.password);
+    expect(asLogin(items[0]).password).toBe(CONTENT.password);
   });
 });
 
@@ -198,7 +227,7 @@ describe("names", () => {
     expect(items).toHaveLength(1);
     expect(items[0]?.id).toBe(id);
     expect(items[0]?.name).toBeUndefined();
-    expect(items[0]?.username).toBe(CONTENT.username);
+    expect(asLogin(items[0]).username).toBe(CONTENT.username);
   });
 
   it("keeps several logins for one site apart", async () => {
@@ -223,7 +252,7 @@ describe("names", () => {
     await vault.addItem({ ...CONTENT, username: "mid@example.test" });
 
     const items = await vault.listItems();
-    expect(items.map((item) => item.name ?? item.username)).toEqual([
+    expect(items.map((item) => item.name ?? asLogin(item).username)).toEqual([
       "Alpha",
       "mid@example.test",
       "zeta",
@@ -371,7 +400,7 @@ describe("offering to save a submitted login", () => {
 
   it("stays quiet when the identical login is already stored", async () => {
     await unlockedVault();
-    await vault.addItem({ ...SUBMITTED, url: SITE, notes: "" });
+    await vault.addItem({ type: "login", ...SUBMITTED, url: SITE, notes: "" });
 
     // Signing in every day must not ask every day.
     expect(await vault.shouldOfferToSave(SUBMITTED, SITE)).toEqual({ offer: false });
@@ -379,7 +408,7 @@ describe("offering to save a submitted login", () => {
 
   it("offers to update when the password changed", async () => {
     await unlockedVault();
-    const id = await vault.addItem({ ...SUBMITTED, password: "old", url: SITE, notes: "" });
+    const id = await vault.addItem({ type: "login", ...SUBMITTED, password: "old", url: SITE, notes: "" });
 
     const decision = await vault.shouldOfferToSave(SUBMITTED, SITE);
     expect(decision).toEqual({ offer: true, site: "example.com", existingId: id });
@@ -387,7 +416,13 @@ describe("offering to save a submitted login", () => {
 
   it("treats a different username on the same site as a new login", async () => {
     await unlockedVault();
-    await vault.addItem({ ...SUBMITTED, username: "other@example.test", url: SITE, notes: "" });
+    await vault.addItem({
+      type: "login",
+      ...SUBMITTED,
+      username: "other@example.test",
+      url: SITE,
+      notes: "",
+    });
 
     const decision = await vault.shouldOfferToSave(SUBMITTED, SITE);
     expect(decision).toMatchObject({ offer: true, existingId: null });
@@ -426,20 +461,20 @@ describe("saving a submitted login", () => {
 
     const items = await vault.listItems();
     expect(items).toHaveLength(1);
-    expect(items[0]?.username).toBe(SUBMITTED.username);
-    expect(items[0]?.url).toBe(SITE);
+    expect(asLogin(items[0]).username).toBe(SUBMITTED.username);
+    expect(asLogin(items[0]).url).toBe(SITE);
   });
 
   it("updates the existing login rather than adding a duplicate", async () => {
     await vault.create("correct horse battery staple");
-    const id = await vault.addItem({ ...SUBMITTED, password: "old", url: SITE, notes: "" });
+    const id = await vault.addItem({ type: "login", ...SUBMITTED, password: "old", url: SITE, notes: "" });
 
     await vault.saveSubmitted(SUBMITTED, SITE);
 
     const items = await vault.listItems();
     expect(items).toHaveLength(1);
     expect(items[0]?.id).toBe(id);
-    expect(items[0]?.password).toBe(SUBMITTED.password);
+    expect(asLogin(items[0]).password).toBe(SUBMITTED.password);
   });
 
   it("refuses when there is nothing worth saving", async () => {
@@ -496,7 +531,7 @@ describe("audit timestamps", () => {
 
     const [item] = await vault.listItems();
     expect(item?.createdAt).toBeUndefined();
-    expect(item?.username).toBe(CONTENT.username);
+    expect(asLogin(item).username).toBe(CONTENT.username);
   });
 });
 
@@ -581,7 +616,7 @@ describe("reused passwords", () => {
     await vault.addItem({ ...CONTENT, password: "one" });
     await vault.addItem({ ...CONTENT, password: "two" });
 
-    expect((await vault.listItems()).map((item) => item.reusedBy)).toEqual([0, 0]);
+    expect((await vault.listItems()).map((item) => asLogin(item).reusedBy)).toEqual([0, 0]);
   });
 
   it("counts the others sharing a password", async () => {
@@ -591,7 +626,7 @@ describe("reused passwords", () => {
     await vault.addItem({ ...CONTENT, name: "c", password: "shared" });
 
     // Each sees the other two.
-    expect((await vault.listItems()).map((item) => item.reusedBy)).toEqual([2, 2, 2]);
+    expect((await vault.listItems()).map((item) => asLogin(item).reusedBy)).toEqual([2, 2, 2]);
   });
 
   it("ignores a password sitting in the trash", async () => {
@@ -602,7 +637,7 @@ describe("reused passwords", () => {
 
     // A password you have deleted is not one you are relying on.
     const live = (await vault.listItems()).find((item) => !item.deleted);
-    expect(live?.reusedBy).toBe(0);
+    expect(asLogin(live).reusedBy).toBe(0);
   });
 
   it("flags reuse even when the password is strong", async () => {
@@ -612,8 +647,8 @@ describe("reused passwords", () => {
 
     const items = await vault.listItems();
     // Strength scoring cannot see this, which is the whole point.
-    expect(items[0]?.strength.level).toBe("excellent");
-    expect(items[0]?.reusedBy).toBe(1);
+    expect(asLogin(items[0]).strength.level).toBe("excellent");
+    expect(asLogin(items[0]).reusedBy).toBe(1);
   });
 });
 
@@ -781,8 +816,8 @@ describe("strength", () => {
   it("rides along on every listed item", async () => {
     await withOneItem();
     const items = await vault.listItems();
-    expect(items[0]?.strength.level).toBe("weak");
-    expect(items[0]?.strength.bits).toBe(CONTENT.password.length * 6);
+    expect(asLogin(items[0]).strength.level).toBe("weak");
+    expect(asLogin(items[0]).strength.bits).toBe(CONTENT.password.length * 6);
   });
 
   it("is scored from the item's own password, not something else", async () => {
@@ -790,7 +825,7 @@ describe("strength", () => {
     await vault.updateItem(id, { ...CONTENT, password: "a-much-longer-password" });
 
     const items = await vault.listItems();
-    expect(items[0]?.strength.level).toBe("excellent");
+    expect(asLogin(items[0]).strength.level).toBe("excellent");
   });
 
   it("works while locked", () => {
@@ -913,5 +948,86 @@ describe("changing the master password", () => {
     // collected; an unfreed handle leaves key material in wasm memory.
     expect(freed.filter((name) => name === "master")).toHaveLength(2);
     expect(freed).toContain("vault");
+  });
+});
+
+describe("item types", () => {
+  const NOTE = {
+    type: "note",
+    name: "Recovery codes",
+    notes: "1111-2222\n3333-4444",
+  } satisfies NoteContent;
+
+  it("carries the type in the header, never in the ciphertext", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(NOTE);
+
+    // The header field is bound into the authentication tag; the content is
+    // not. Keeping the type in only the authenticated half is what stops a
+    // server relabelling a secure note as a login.
+    expect(lastHeader().item_type).toBe("note");
+    expect(storedContent(id)).not.toHaveProperty("type");
+  });
+
+  it("round-trips a secure note", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(NOTE);
+
+    const [item] = await vault.listItems();
+    expect(item).toMatchObject({ type: "note", name: NOTE.name, notes: NOTE.notes });
+  });
+
+  it("refuses to change what an item is", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(NOTE);
+
+    // The type is in the tag of every version this item has ever had. A
+    // rewrite under a different one would leave header and content disagreeing
+    // about what the record is.
+    await expect(vault.updateItem(id, CONTENT)).rejects.toThrow(/cannot change its type/i);
+  });
+
+  it("never offers a note to a page", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...NOTE, notes: "https://example.com is in here" });
+    await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    // Only logins belong to a site. A note that merely mentions one is not a
+    // credential for it.
+    const { items } = await vault.itemsForUrl("https://example.com");
+    expect(items).toHaveLength(1);
+    expect(items.every((item) => item.type === "login")).toBe(true);
+  });
+
+  it("does not count notes towards password reuse", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "a", password: "shared" });
+    await vault.addItem({ ...CONTENT, name: "b", password: "shared" });
+    await vault.addItem({ ...NOTE, notes: "shared" });
+
+    const logins = (await vault.listItems()).filter((item) => item.type === "login");
+    expect(logins.map((item) => asLogin(item).reusedBy)).toEqual([1, 1]);
+  });
+
+  it("keeps an item type it does not understand", async () => {
+    await vault.create("correct horse battery staple");
+    // As a newer client would have written it, arriving here over sync.
+    db.items.set("from-the-future", {
+      id: "from-the-future",
+      item_type: "card",
+      format: 1,
+      ciphertext: [],
+      nonce: [],
+      version: 1,
+      updated_at: Date.now(),
+      deleted: false,
+      plaintext: JSON.stringify({ name: "Visa" }),
+    });
+
+    // Nothing sensible to render, so it is not listed — but the record stays
+    // in the store and keeps syncing. Dropping it would delete another
+    // device's data.
+    expect(await vault.listItems()).toHaveLength(0);
+    expect(db.items.has("from-the-future")).toBe(true);
   });
 });
