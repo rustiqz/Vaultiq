@@ -41,7 +41,9 @@ import type {
   DecryptedItem,
   DecryptedLogin,
   DeviceIdentity,
+  FillSuggestion,
   ItemContent,
+  ItemType,
   ItemFacts,
   ItemUsage,
   TotpAlgorithmName,
@@ -889,10 +891,11 @@ export async function itemsForUrl(
 /**
  * The credential for one item, for filling into a page.
  *
- * The only path by which a password leaves the background. It looks the item
- * up *within the set already filtered by site*, so an id belonging to another
- * site is refused however it was obtained — a compromised page cannot ask for
- * credentials it was not going to be offered anyway.
+ * One of the two paths by which a password leaves the background — see
+ * `fillValues` for the other, which applies the same site check. Both look
+ * the item up *within the set already filtered by site*, so an id belonging
+ * to another site is refused however it was obtained: a compromised page
+ * cannot ask for credentials it was not going to be offered anyway.
  */
 export async function credentialForFill(
   id: string,
@@ -967,6 +970,167 @@ export async function saveSubmitted(
 
   if (decision.existingId) await updateItem(decision.existingId, content);
   else await addItem(content);
+}
+
+// ---------------------------------------------------------------------------
+// Autofill beyond logins
+//
+// A login is offered for the site it belongs to and nowhere else. A card, an
+// address and a one-time code have no site: the same card is used at every
+// shop. That removes the protection site-scoping gives a password, so these
+// are governed by a different rule — nothing is ever offered without the user
+// focusing a field that asks for it, and no value leaves this file until the
+// user has picked one item by hand. There is no path here that fills on load.
+
+/** What the picker shows for one item: names, never values. */
+function suggestionFor(item: DecryptedItem): FillSuggestion {
+  const named = item.name?.trim();
+  switch (item.type) {
+    case "login":
+      return {
+        id: item.id,
+        type: item.type,
+        label: named || item.username || "(untitled)",
+        detail: named ? item.username : item.url,
+      };
+    case "card": {
+      const scheme = item.brand ?? "Card";
+      const tail = item.last4 ? ` ···· ${item.last4}` : "";
+      return {
+        id: item.id,
+        type: item.type,
+        label: named || `${scheme}${tail}`,
+        // The expiry, not the number: enough to tell two cards apart.
+        detail: [item.cardholder, item.expiryMonth && `${item.expiryMonth}/${item.expiryYear}`]
+          .filter(Boolean)
+          .join(" · "),
+      };
+    }
+    case "identity":
+      return {
+        id: item.id,
+        type: item.type,
+        label: named || [item.firstName, item.lastName].filter(Boolean).join(" ") || "(unnamed)",
+        detail: [item.city, item.country].filter(Boolean).join(", "),
+      };
+    case "totp":
+      return {
+        id: item.id,
+        type: item.type,
+        // Never the code: it would be stale before it could be read, and the
+        // picker is a list of names.
+        label: named || [item.issuer, item.account].filter(Boolean).join(" · ") || "(unnamed)",
+        detail: named ? item.issuer : "",
+      };
+    case "note":
+      return { id: item.id, type: item.type, label: named || "(untitled note)", detail: "" };
+  }
+}
+
+/**
+ * What to offer for the field that was just focused.
+ *
+ * `wants` says what the *form* is asking for, worked out from its fields.
+ * Logins are still filtered to the sender's own site; everything else is not
+ * site-scoped, because it is not a credential for a site.
+ *
+ * Secure notes are never offered: there is no field on any page that a note
+ * is the answer to.
+ */
+export async function fillSuggestions(
+  wants: ItemType[],
+  url: string | undefined,
+): Promise<{ site: string | null; suggestions: FillSuggestion[] }> {
+  const vaultKey = await currentVaultKey();
+  // Locked is an empty list, not an error: the page did nothing wrong. Nor is
+  // a page the browser reports no URL for.
+  if (!vaultKey || !url) return { site: null, suggestions: [] };
+
+  const asked = new Set<ItemType>(wants.filter((type) => type !== "note"));
+  const site = siteScope(url);
+
+  const all = await listItems();
+  const offered = all.filter((item) => {
+    if (item.deleted || !asked.has(item.type)) return false;
+    // A login is only ever offered to the site it belongs to.
+    return item.type !== "login" || matchesSite(item.url, url);
+  });
+
+  return { site, suggestions: offered.map(suggestionFor) };
+}
+
+/**
+ * The values for one item, keyed by autocomplete token.
+ *
+ * Reached only after the user picked this item from the picker. A login is
+ * looked up within the set already filtered by site, exactly as
+ * `credentialForFill` does, so an id belonging to another site is refused
+ * however it was obtained.
+ */
+export async function fillValues(
+  id: string,
+  url: string | undefined,
+): Promise<Record<string, string>> {
+  const items = await listItems();
+  const item = items.find((candidate) => candidate.id === id && !candidate.deleted);
+  if (!item) throw new Error("No such item.");
+
+  if (item.type === "login" && (!url || !matchesSite(item.url, url))) {
+    throw new Error("No such item for this site.");
+  }
+
+  const values = valuesFor(item);
+  if (!values) throw new Error("Nothing on this page to fill from that.");
+
+  // The fill is the event worth counting, and this is the only place it is
+  // known to have happened.
+  await recordUse(id, "autofilled");
+  return values;
+}
+
+/** One item's fields, named the way a form names them. */
+function valuesFor(item: DecryptedItem): Record<string, string> | undefined {
+  switch (item.type) {
+    case "card":
+      return withoutEmpty({
+        "cc-name": item.cardholder,
+        "cc-number": item.number,
+        "cc-exp-month": item.expiryMonth,
+        "cc-exp-year": item.expiryYear,
+        "cc-csc": item.securityCode,
+      });
+    case "identity":
+      return withoutEmpty({
+        "given-name": item.firstName,
+        "family-name": item.lastName,
+        organization: item.company ?? "",
+        email: item.email,
+        tel: item.phone,
+        // Both spellings: a form asks for one line or two, never both.
+        "street-address": [item.street, item.street2].filter(Boolean).join("\\n"),
+        "address-line1": item.street,
+        "address-line2": item.street2 ?? "",
+        "address-level2": item.city,
+        "address-level1": item.state,
+        "postal-code": item.postalCode,
+        "country-name": item.country,
+        bday: item.dateOfBirth ?? "",
+      });
+    case "totp": {
+      const { code } = currentCode(item);
+      // An unreadable secret fills nothing rather than an empty box.
+      return code ? { "one-time-code": code } : undefined;
+    }
+    case "login":
+      return withoutEmpty({ username: item.username, password: item.password });
+    case "note":
+      return undefined;
+  }
+}
+
+/** Drops the fields this item does not have, so nothing is filled blank. */
+function withoutEmpty(values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== ""));
 }
 
 /**

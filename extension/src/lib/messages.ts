@@ -289,6 +289,21 @@ export type DecryptedItem =
   | DecryptedIdentity
   | DecryptedTotp;
 
+/**
+ * One line in the autofill picker.
+ *
+ * Names only. The content script runs inside the page — the least trusted
+ * context in the extension — and it is handed enough to draw a list and
+ * nothing that would be worth stealing. Values arrive one item at a time,
+ * after a click, through `fillValues`.
+ */
+export interface FillSuggestion {
+  id: string;
+  type: ItemType;
+  label: string;
+  detail: string;
+}
+
 import type { RemoteDevice } from "../sync/client.js";
 import type { SyncOutcome } from "../sync/engine.js";
 
@@ -348,6 +363,12 @@ export type Request =
   // belongs to the sender's own site, so a compromised page cannot read
   // credentials for anywhere else.
   | { kind: "credentialForFill"; id: string }
+  // What the autofill picker should list for the field just focused. Carries
+  // no URL and no values: the background reads the sender tab's site itself,
+  // and answers with labels only.
+  | { kind: "fillSuggestions"; wants: ItemType[] }
+  // The values for the one item the user picked, keyed by autocomplete token.
+  | { kind: "fillValues"; id: string }
   // Asks whether a just-submitted login is worth offering to save. Carries no
   // URL: the background uses the sender tab, as everywhere else.
   | { kind: "shouldOfferToSave"; username: string; password: string }
@@ -398,6 +419,8 @@ export type Response =
   | { ok: true; kind: "renameDevice" }
   | { ok: true; kind: "auditLog"; events: AuditEvent[]; devices: DeviceIdentity[] }
   | { ok: true; kind: "credentialForFill"; username: string; password: string }
+  | { ok: true; kind: "fillSuggestions"; site: string | null; suggestions: FillSuggestion[] }
+  | { ok: true; kind: "fillValues"; values: Record<string, string> }
   | { ok: true; kind: "shouldOfferToSave"; offer: false }
   | { ok: true; kind: "shouldOfferToSave"; offer: true; site: string; existingId: string | null }
   | { ok: true; kind: "saveSubmitted" }
