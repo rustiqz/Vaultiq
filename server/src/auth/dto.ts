@@ -54,6 +54,13 @@ export class RegisterDto {
   deviceName!: string;
 }
 
+export class EnrollmentParamsDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(512)
+  token!: string;
+}
+
 export class EnrollDto {
   @IsString()
   @IsNotEmpty()
