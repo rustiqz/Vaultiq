@@ -24,6 +24,10 @@ const browserStub = {
         for (const [key, value] of Object.entries(entries)) local.set(key, value);
         return Promise.resolve();
       }),
+      remove: vi.fn((key: string | string[]) => {
+        for (const one of Array.isArray(key) ? key : [key]) local.delete(one);
+        return Promise.resolve();
+      }),
     },
     session: {
       get: vi.fn((key: string | string[]) => {
@@ -69,6 +73,9 @@ Object.assign(globalThis, { browser: browserStub });
 
 /** Lets a test assert what is, and is not, in session storage. */
 export const sessionStore = session;
+
+/** The same, for the storage that survives a restart. */
+export const localStore = local;
 
 beforeEach(() => {
   session.clear();
