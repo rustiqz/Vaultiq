@@ -7,6 +7,7 @@ import { DevicesController } from "./devices/devices.controller.js";
 import { HealthController } from "./health/health.controller.js";
 import { SyncController } from "./sync/sync.controller.js";
 import { SyncService } from "./sync/sync.service.js";
+import { VersionController } from "./version/version.controller.js";
 
 @Module({
   imports: [
@@ -15,7 +16,13 @@ import { SyncService } from "./sync/sync.service.js";
     // online guesses at the auth key, so it is not optional.
     ThrottlerModule.forRoot([{ name: "default", ttl: 60_000, limit: 120 }]),
   ],
-  controllers: [HealthController, AuthController, DevicesController, SyncController],
+  controllers: [
+    HealthController,
+    AuthController,
+    DevicesController,
+    SyncController,
+    VersionController,
+  ],
   providers: [AuthService, SyncService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

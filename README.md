@@ -113,6 +113,17 @@ Postgres publishes no ports — it exists only on the internal network, so there
 is nothing to reach from outside. Caddy obtains its own certificate for
 `VAULTIQ_DOMAIN`, which must already point at the machine.
 
+To see which build is running, read the first line of the server's log:
+
+```bash
+docker compose logs server | head -1    # vaultiq-server 0.19.0 listening on 3000
+```
+
+There is also `GET /version`, but it sits behind the device guard rather than
+beside `/health`. `/health` has to be reachable by a container runtime, and an
+exact build number on an unauthenticated endpoint tells anyone who finds the
+domain which advisories apply to it.
+
 ## Connecting the two
 
 1. In the extension popup, create a vault and unlock it.
