@@ -191,6 +191,74 @@ describeDb("auth", () => {
     });
   });
 
+  describe("the enrolment parameters", () => {
+    async function trusted(): Promise<import("./auth.service.js").Caller> {
+      const { deviceId, credential } = await registered();
+      return (await auth.identify(deviceId, credential))!;
+    }
+
+    it("gives a token holder what it needs to derive the auth key", async () => {
+      const caller = await trusted();
+      const { token } = await auth.createEnrollmentToken(caller);
+
+      // Without this, enrolment cannot happen at all: deriving the auth key
+      // needs the salt, and the salt used to sit behind the credential that
+      // enrolment is trying to obtain.
+      expect(await auth.enrollmentParams(token)).toEqual({
+        saltB64: VAULT.saltB64,
+        memoryKib: VAULT.memoryKib,
+        iterations: VAULT.iterations,
+        parallelism: VAULT.parallelism,
+      });
+    });
+
+    it("never hands over the wrapped vault key", async () => {
+      const caller = await trusted();
+      const { token } = await auth.createEnrollmentToken(caller);
+
+      // The security property of this endpoint. With the wrapped key, a token
+      // holder could attack the master password offline, at their own pace,
+      // with the throttle on enrol no longer in their way.
+      const params = await auth.enrollmentParams(token);
+      expect(Object.keys(params).sort()).toEqual([
+        "iterations",
+        "memoryKib",
+        "parallelism",
+        "saltB64",
+      ]);
+    });
+
+    it("leaves the token usable afterwards", async () => {
+      const caller = await trusted();
+      const { token } = await auth.createEnrollmentToken(caller);
+
+      await auth.enrollmentParams(token);
+
+      // A mistyped password must not cost a walk back to the first device.
+      const enrolled = await auth.enroll({
+        token,
+        authKey: "auth-key",
+        deviceName: "Second",
+      });
+      expect(enrolled.deviceId).toMatch(/^[0-9a-f-]{36}$/);
+    });
+
+    it("refuses an unknown, spent or expired token alike", async () => {
+      const caller = await trusted();
+
+      const { token: unknown_ } = { token: "not-a-real-token" };
+      await expect(auth.enrollmentParams(unknown_)).rejects.toThrow(/refused/i);
+
+      const { token: spent } = await auth.createEnrollmentToken(caller);
+      await auth.enroll({ token: spent, authKey: "auth-key", deviceName: "Second" });
+      await expect(auth.enrollmentParams(spent)).rejects.toThrow(/refused/i);
+
+      const { token: stale } = await auth.createEnrollmentToken(caller);
+      await pool.query("update enrollment_tokens set expires_at = now() - interval '1 minute'");
+      await expect(auth.enrollmentParams(stale)).rejects.toThrow(/refused/i);
+    });
+  });
+
   describe("revoking", () => {
     it("refuses to revoke the device asking", async () => {
       const { deviceId, credential } = await registered();
