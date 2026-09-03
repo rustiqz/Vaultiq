@@ -30,6 +30,7 @@ import {
 
 export { assertSessionStorage, loadCrypto };
 export type { SyncSummary };
+import { cardBrand, lastFour, normalizeCardNumber } from "../lib/card.js";
 import { matchesSite, siteScope } from "../lib/site.js";
 import type {
   AuditEvent,
@@ -486,8 +487,21 @@ function mergeUsage(records: DeviceRecord[]): Map<string, ItemUsage> {
  * twice would be two places for one fact to disagree with itself, and only
  * one of the two would be tamper-evident.
  */
-function toStoredContent({ type: _type, ...fields }: ItemContent): string {
+function toStoredContent(content: ItemContent): string {
+  const { type: _type, ...fields } = normalized(content);
   return JSON.stringify(fields);
+}
+
+/**
+ * Content as it should be stored, rather than exactly as it was typed.
+ *
+ * Only the card number needs this: it is normalized once, on the way in, so
+ * that everything downstream — the last four, and later a fill into a
+ * checkout form — works from one representation instead of re-deriving it.
+ */
+function normalized(content: ItemContent): ItemContent {
+  if (content.type !== "card") return content;
+  return { ...content, number: normalizeCardNumber(content.number) };
 }
 
 export async function addItem(content: ItemContent): Promise<string> {
@@ -704,6 +718,24 @@ export async function listItems(): Promise<DecryptedItem[]> {
       }
       case "note":
         return [{ type: "note", ...common, ...facts }];
+      case "card": {
+        const number = text(content.number) ?? "";
+        return [
+          {
+            type: "card",
+            ...common,
+            cardholder: text(content.cardholder) ?? "",
+            number,
+            expiryMonth: text(content.expiryMonth) ?? "",
+            expiryYear: text(content.expiryYear) ?? "",
+            securityCode: text(content.securityCode) ?? "",
+            ...optional("pin", text(content.pin)),
+            ...facts,
+            brand: cardBrand(number),
+            last4: lastFour(number),
+          },
+        ];
+      }
       default:
         // An item type this build does not know: written by a newer client
         // and synced down. The record itself is kept and passed on untouched

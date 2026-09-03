@@ -6,7 +6,13 @@
 // rollback protection that the AAD binding exists to provide is quietly gone.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DecryptedItem, LoginContent, NoteContent } from "../lib/messages.js";
+import type {
+  CardContent,
+  DecryptedCard,
+  DecryptedItem,
+  LoginContent,
+  NoteContent,
+} from "../lib/messages.js";
 import { activeTab } from "../test/setup.js";
 import {
   cryptoFake,
@@ -1014,14 +1020,16 @@ describe("item types", () => {
     // As a newer client would have written it, arriving here over sync.
     db.items.set("from-the-future", {
       id: "from-the-future",
-      item_type: "card",
+      // Deferred by PROJECT.md, so it stays unknown to this build for as long
+      // as this test is worth having.
+      item_type: "passkey",
       format: 1,
       ciphertext: [],
       nonce: [],
       version: 1,
       updated_at: Date.now(),
       deleted: false,
-      plaintext: JSON.stringify({ name: "Visa" }),
+      plaintext: JSON.stringify({ name: "Front door" }),
     });
 
     // Nothing sensible to render, so it is not listed — but the record stays
@@ -1029,5 +1037,90 @@ describe("item types", () => {
     // device's data.
     expect(await vault.listItems()).toHaveLength(0);
     expect(db.items.has("from-the-future")).toBe(true);
+  });
+});
+
+describe("cards", () => {
+  const CARD = {
+    type: "card",
+    name: "Everyday",
+    cardholder: "A LOVELACE",
+    // The scheme's own published test number — documentation, not a card.
+    number: "4242 4242 4242 4242",
+    expiryMonth: "04",
+    expiryYear: "2030",
+    securityCode: "737",
+    notes: "",
+  } satisfies CardContent;
+
+  function asCard(item: DecryptedItem | undefined): DecryptedCard {
+    if (!item) throw new Error("no item");
+    if (item.type !== "card") throw new Error(`expected a card, got ${item.type}`);
+    return item;
+  }
+
+  it("normalizes the number once, on the way in", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CARD);
+
+    // Stored as digits so the last four, and later a fill into a checkout
+    // form, work from one representation rather than re-deriving it.
+    expect(storedContent(id)).toMatchObject({ number: "4242424242424242" });
+  });
+
+  it("derives the scheme and the last four rather than storing them", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CARD);
+
+    const card = asCard((await vault.listItems())[0]);
+    expect(card.brand).toBe("Visa");
+    expect(card.last4).toBe("4242");
+    // A stored brand would be a copy that could disagree with the number it
+    // describes, and a migration the day the scheme list changes.
+    expect(storedContent(id)).not.toHaveProperty("brand");
+    expect(storedContent(id)).not.toHaveProperty("last4");
+  });
+
+  it("keeps a card it cannot name", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CARD, number: "9999888877776666" });
+
+    // A gift card, a store card, a scheme newer than the list. Storing it is
+    // not conditional on recognising it.
+    const card = asCard((await vault.listItems())[0]);
+    expect(card.brand).toBeNull();
+    expect(card.last4).toBe("6666");
+  });
+
+  it("carries the PIN only when there is one", async () => {
+    await vault.create("correct horse battery staple");
+    const bare = await vault.addItem(CARD);
+    const withPin = await vault.addItem({ ...CARD, name: "Other", pin: "4021" });
+
+    expect(storedContent(bare)).not.toHaveProperty("pin");
+    expect(storedContent(withPin)).toMatchObject({ pin: "4021" });
+  });
+
+  it("never offers a card to a page", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(CARD);
+    await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    // Autofill for cards is its own decision, made per form. Until then a
+    // card is not a credential for any site.
+    const { items } = await vault.itemsForUrl("https://example.com");
+    expect(items).toHaveLength(1);
+    expect(items.every((item) => item.type === "login")).toBe(true);
+  });
+
+  it("does not count a security code towards password reuse", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, password: "737" });
+    await vault.addItem(CARD);
+
+    // Only logins have a password to share with another login.
+    expect(asLogin((await vault.listItems()).find((item) => item.type === "login")).reusedBy).toBe(
+      0,
+    );
   });
 });

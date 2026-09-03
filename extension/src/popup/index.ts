@@ -3,6 +3,7 @@
 // background context.
 
 import "./popup.css";
+import { cardBrand, lastFour } from "../lib/card.js";
 import { CLIPBOARD_SECONDS, copyForAWhile } from "../lib/clipboard.js";
 import { el } from "./dom.js";
 import { ago } from "./format.js";
@@ -10,8 +11,10 @@ import { syncPanel } from "./sync-panel.js";
 import {
   send,
   type DecryptedItem,
+  type DecryptedCard,
   type DecryptedLogin,
   type DecryptedNote,
+  type CardContent,
   type ItemContent,
   type ItemType,
   type LoginContent,
@@ -25,6 +28,7 @@ import {
 const TYPE_LABEL: Record<ItemType, string> = {
   login: "Login",
   note: "Secure note",
+  card: "Card",
 };
 
 const STRENGTH_LABEL: Record<StrengthLevel, string> = {
@@ -494,6 +498,76 @@ function itemForm(
       ...(login?.email === undefined ? {} : { email: login.email }),
       ...(login?.mobile === undefined ? {} : { mobile: login.mobile }),
     });
+  } else if (type === "card") {
+    const card = initial?.type === "card" ? initial : undefined;
+
+    const cardholder = el("input", { type: "text", autocomplete: "off" });
+    const number = el("input", { type: "text", inputMode: "numeric", autocomplete: "off" });
+    const month = el("input", {
+      type: "text",
+      inputMode: "numeric",
+      placeholder: "MM",
+      maxLength: 2,
+    });
+    const year = el("input", {
+      type: "text",
+      inputMode: "numeric",
+      placeholder: "YYYY",
+      maxLength: 4,
+    });
+    const securityCode = el("input", {
+      type: "password",
+      inputMode: "numeric",
+      autocomplete: "off",
+      maxLength: 4,
+    });
+    const pin = el("input", {
+      type: "password",
+      inputMode: "numeric",
+      autocomplete: "off",
+      placeholder: "Optional",
+    });
+
+    if (card) {
+      cardholder.value = card.cardholder;
+      number.value = card.number;
+      month.value = card.expiryMonth;
+      year.value = card.expiryYear;
+      securityCode.value = card.securityCode;
+      pin.value = card.pin ?? "";
+    }
+
+    // Named as the scheme as soon as the number says which, so a mistyped
+    // card is visible before it is saved rather than after.
+    const scheme = el("div", { className: "meter muted" });
+    const relabel = (): void => {
+      const brand = cardBrand(number.value);
+      const tail = lastFour(number.value);
+      scheme.textContent = brand ? `${brand}${tail ? ` · ends ${tail}` : ""}` : "";
+    };
+    number.addEventListener("input", relabel);
+    relabel();
+
+    fields.push(
+      el("label", {}, ["Cardholder", cardholder]),
+      el("label", {}, ["Number", number]),
+      scheme,
+      el("label", {}, ["Expires", el("div", { className: "field" }, [month, year])]),
+      el("label", {}, ["Security code", securityCode]),
+      el("label", {}, ["PIN", pin]),
+    );
+
+    read = (): CardContent => ({
+      type: "card",
+      ...named(),
+      cardholder: cardholder.value,
+      number: number.value,
+      expiryMonth: month.value,
+      expiryYear: year.value,
+      securityCode: securityCode.value,
+      ...(pin.value ? { pin: pin.value } : {}),
+      notes: card?.notes ?? "",
+    });
   } else {
     // A secure note is its name and its text. `notes` is common to every
     // item, so a note needs no field of its own — see NoteContent.
@@ -556,7 +630,48 @@ function stamps(item: DecryptedItem): HTMLElement {
 
 /** One row, dispatched on what the item actually is. */
 function liveRow(item: DecryptedItem): HTMLLIElement {
-  return item.type === "login" ? loginRow(item) : noteRow(item);
+  switch (item.type) {
+    case "login":
+      return loginRow(item);
+    case "card":
+      return cardRow(item);
+    case "note":
+      return noteRow(item);
+  }
+}
+
+/** How a card reads when it has no name of its own. */
+function cardLabel(item: DecryptedCard): string {
+  const scheme = item.brand ?? "Card";
+  return item.last4 ? `${scheme} ···· ${item.last4}` : scheme;
+}
+
+function cardRow(item: DecryptedCard): HTMLLIElement {
+  const noteUse = (): void => {
+    void send({ kind: "recordUse", id: item.id });
+  };
+
+  const expiry =
+    item.expiryMonth && item.expiryYear
+      ? `expires ${item.expiryMonth}/${item.expiryYear.slice(-2)}`
+      : "";
+
+  const row = el("li", {}, [
+    el("div", { className: "name" }, [item.name?.trim() || cardLabel(item)]),
+    el("div", {
+      className: "meta",
+      textContent: [item.cardholder, expiry].filter(Boolean).join(" · ") || cardLabel(item),
+    }),
+    // The number and the code are the secrets; the cardholder name is not,
+    // and having it readable is what makes the row identifiable at a glance.
+    el("div", { className: "row" }, [
+      copyable(item.number, { masked: true, onCopy: noteUse }),
+      copyable(item.securityCode, { masked: true, onCopy: noteUse }),
+    ]),
+    stamps(item),
+  ]);
+  row.append(rowActions(item, row));
+  return row;
 }
 
 /** The buttons every live row ends with, and the edit form they open. */
@@ -644,11 +759,18 @@ function noteRow(item: DecryptedNote): HTMLLIElement {
 
 function trashedRow(item: DecryptedItem): HTMLLIElement {
   const label = item.name?.trim();
-  const fallback = item.type === "login" ? item.username : "(untitled note)";
+  const fallback =
+    item.type === "login"
+      ? item.username
+      : item.type === "card"
+        ? cardLabel(item)
+        : "(untitled note)";
   const detail =
     item.type === "login"
       ? [label ? item.username : "", item.url].filter(Boolean).join(" · ") || "(no site)"
-      : TYPE_LABEL.note;
+      : item.type === "card"
+        ? cardLabel(item)
+        : TYPE_LABEL.note;
 
   return el("li", { className: "trashed" }, [
     el("div", { className: "name" }, [label || fallback || "(untitled)"]),
@@ -666,10 +788,15 @@ function trashedRow(item: DecryptedItem): HTMLLIElement {
 
 /** Everything the search box looks at. Never the password. */
 function haystack(item: DecryptedItem): string {
+  // A card is searched by its last four and its scheme, never by its full
+  // number: those are how a card is asked for, and a search that scanned
+  // whole numbers would match a typed digit against every card at once.
   const fields =
     item.type === "login"
       ? [item.name, item.username, item.email, item.mobile, item.url, item.notes]
-      : [item.name, item.notes];
+      : item.type === "card"
+        ? [item.name, item.cardholder, item.brand, item.last4, item.notes]
+        : [item.name, item.notes];
   return fields.filter(Boolean).join(" ").toLowerCase();
 }
 
@@ -683,7 +810,9 @@ function byRecentUse(a: DecryptedItem, b: DecryptedItem): number {
 
 /** What an item sorts under when nothing has been used recently. */
 function sortName(item: DecryptedItem): string {
-  return item.name ?? (item.type === "login" ? item.username : "");
+  if (item.name) return item.name;
+  if (item.type === "login") return item.username;
+  return item.type === "card" ? cardLabel(item) : "";
 }
 
 /** Kept across a re-render, so typing does not reset the list. */
