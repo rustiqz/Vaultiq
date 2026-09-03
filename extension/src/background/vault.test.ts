@@ -13,6 +13,7 @@ import type {
   IdentityContent,
   LoginContent,
   NoteContent,
+  TotpContent,
 } from "../lib/messages.js";
 import { activeTab } from "../test/setup.js";
 import {
@@ -1184,5 +1185,104 @@ describe("identities", () => {
     // One list, whatever the types: an item is found by its name, not by
     // first choosing a category.
     expect((await vault.listItems()).map((item) => item.name)).toEqual(["Ada at home", "Zebra"]);
+  });
+});
+
+describe("authenticator accounts", () => {
+  // RFC 6238's own published seed in base32 (CLAUDE.md §2.6).
+  const TOTP = {
+    type: "totp",
+    issuer: "Example",
+    account: "ada@example.test",
+    secret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    notes: "",
+  } satisfies TotpContent;
+
+  it("stores the shape of the codes, not just the secret", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({ ...TOTP, algorithm: "SHA256", digits: 8, period: 60 });
+
+    // A record carrying only a secret is one whose codes change the day a
+    // default does.
+    expect(storedContent(id)).toMatchObject({
+      algorithm: "SHA256",
+      digits: 8,
+      period: 60,
+    });
+  });
+
+  it("computes the code where the item is decrypted", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...TOTP, digits: 8 });
+
+    const [item] = await vault.listItems();
+    // Derived, never stored: it is only true for the next few seconds.
+    expect(item).toMatchObject({ type: "totp", code: "11111111" });
+    expect(storedContent((await vault.listItems())[0]?.id ?? "")).not.toHaveProperty("code");
+  });
+
+  it("answers for one account without decrypting the vault", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(TOTP);
+    await vault.addItem(CONTENT);
+
+    cryptoFake.decryptItem.mockClear();
+    const facts = await vault.totpCodeFor(id);
+
+    expect(facts.code).toBe("111111");
+    // One item read, not the whole list: this runs once a second while the
+    // popup is open.
+    expect(cryptoFake.decryptItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to compute a code for something that is not one", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CONTENT);
+    await expect(vault.totpCodeFor(id)).rejects.toThrow(/no such authenticator/i);
+  });
+
+  it("says nothing is showing rather than emptying the list", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...TOTP, secret: "bad-secret" });
+    await vault.addItem(CONTENT);
+
+    // One mistyped secret must not take the rest of the vault with it.
+    const items = await vault.listItems();
+    expect(items).toHaveLength(2);
+    expect(items.find((item) => item.type === "totp")).toMatchObject({ code: "" });
+  });
+
+  it("falls back to the RFC defaults for a record that lacks them", async () => {
+    await vault.create("correct horse battery staple");
+    db.items.set("older", {
+      id: "older",
+      item_type: "totp",
+      format: 1,
+      ciphertext: [],
+      nonce: [],
+      version: 1,
+      updated_at: Date.now(),
+      deleted: false,
+      plaintext: JSON.stringify({ issuer: "Old", account: "a", secret: "GEZDGNBVGY3TQOJQ" }),
+    });
+
+    expect((await vault.listItems())[0]).toMatchObject({
+      algorithm: "SHA1",
+      digits: 6,
+      period: 30,
+    });
+  });
+
+  it("never offers an authenticator account to a page", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(TOTP);
+    await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    const { items } = await vault.itemsForUrl("https://example.com");
+    expect(items).toHaveLength(1);
+    expect(items.every((item) => item.type === "login")).toBe(true);
   });
 });

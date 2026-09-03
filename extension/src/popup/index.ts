@@ -4,6 +4,7 @@
 
 import "./popup.css";
 import { cardBrand, lastFour } from "../lib/card.js";
+import { parseOtpauth, TOTP_DEFAULTS } from "../lib/otpauth.js";
 import { CLIPBOARD_SECONDS, copyForAWhile } from "../lib/clipboard.js";
 import { el } from "./dom.js";
 import { ago } from "./format.js";
@@ -15,9 +16,11 @@ import {
   type DecryptedIdentity,
   type DecryptedLogin,
   type DecryptedNote,
+  type DecryptedTotp,
   type CardContent,
   type IdentityContent,
   type ItemContent,
+  type TotpContent,
   type ItemType,
   type LoginContent,
   type Request,
@@ -32,6 +35,7 @@ const TYPE_LABEL: Record<ItemType, string> = {
   note: "Secure note",
   card: "Card",
   identity: "Identity",
+  totp: "Authenticator",
 };
 
 const STRENGTH_LABEL: Record<StrengthLevel, string> = {
@@ -634,6 +638,71 @@ function itemForm(
       ...(nationalId.value ? { nationalId: nationalId.value } : {}),
       notes: identity?.notes ?? "",
     });
+  } else if (type === "totp") {
+    const account = initial?.type === "totp" ? initial : undefined;
+
+    const issuer = el("input", { type: "text", autocomplete: "off", placeholder: "e.g. GitHub" });
+    const holder = el("input", { type: "text", autocomplete: "off", placeholder: "you@example.com" });
+    const secret = el("input", {
+      type: "password",
+      autocomplete: "off",
+      placeholder: "Secret, or paste the otpauth:// link",
+    });
+
+    let shape = account
+      ? { algorithm: account.algorithm, digits: account.digits, period: account.period }
+      : { ...TOTP_DEFAULTS };
+
+    if (account) {
+      issuer.value = account.issuer;
+      holder.value = account.account;
+      secret.value = account.secret;
+    }
+
+    const shapeNote = el("div", { className: "meter muted" });
+    const describe = (): void => {
+      shapeNote.textContent =
+        shape.algorithm === TOTP_DEFAULTS.algorithm &&
+        shape.digits === TOTP_DEFAULTS.digits &&
+        shape.period === TOTP_DEFAULTS.period
+          ? ""
+          : `${shape.algorithm} · ${String(shape.digits)} digits · ${String(shape.period)}s`;
+    };
+    describe();
+
+    // The whole point of accepting the link: an authenticator's setup page
+    // offers it beside the QR code, and it carries the parameters that a
+    // hand-typed secret leaves to guesswork.
+    secret.addEventListener("input", () => {
+      const parsed = parseOtpauth(secret.value);
+      if (!parsed) return;
+      secret.value = parsed.secret;
+      if (parsed.issuer) issuer.value = parsed.issuer;
+      if (parsed.account) holder.value = parsed.account;
+      shape = { algorithm: parsed.algorithm, digits: parsed.digits, period: parsed.period };
+      describe();
+    });
+
+    fields.push(
+      el("label", {}, ["Issuer", issuer]),
+      el("label", {}, ["Account", holder]),
+      el("label", {}, ["Secret", secret]),
+      shapeNote,
+    );
+
+    read = (): TotpContent => ({
+      type: "totp",
+      ...named(),
+      issuer: issuer.value.trim(),
+      account: holder.value.trim(),
+      secret: secret.value.trim(),
+      // Stored even when they are the defaults: a record carrying only a
+      // secret is one whose codes change the day a default does.
+      algorithm: shape.algorithm,
+      digits: shape.digits,
+      period: shape.period,
+      notes: account?.notes ?? "",
+    });
   } else {
     // A secure note is its name and its text. `notes` is common to every
     // item, so a note needs no field of its own — see NoteContent.
@@ -703,6 +772,8 @@ function liveRow(item: DecryptedItem): HTMLLIElement {
       return cardRow(item);
     case "identity":
       return identityRow(item);
+    case "totp":
+      return totpRow(item);
     case "note":
       return noteRow(item);
   }
@@ -867,6 +938,67 @@ function noteRow(item: DecryptedNote): HTMLLIElement {
   return row;
 }
 
+/** How an authenticator account reads when it has no name of its own. */
+function totpLabel(item: DecryptedTotp): string {
+  return [item.issuer, item.account].filter(Boolean).join(" · ") || TYPE_LABEL.totp;
+}
+
+/**
+ * A row that counts down.
+ *
+ * The code is asked for again when its window runs out rather than on a
+ * fixed timer, and the request is for this one account — re-listing the vault
+ * once a second would decrypt every item to refresh six digits. The interval
+ * is cleared when the row leaves the document, which a re-render does.
+ */
+function totpRow(item: DecryptedTotp): HTMLLIElement {
+  const noteUse = (): void => {
+    void send({ kind: "recordUse", id: item.id });
+  };
+
+  const code = el("div", { className: "row" });
+  const countdown = el("div", { className: "meter muted" });
+
+  let showing = { code: item.code, secondsRemaining: item.secondsRemaining };
+
+  const paint = (): void => {
+    code.replaceChildren(
+      showing.code
+        ? copyable(showing.code, { onCopy: noteUse })
+        : el("span", { className: "error", textContent: "Secret cannot be read" }),
+    );
+    countdown.textContent = showing.code ? `${String(showing.secondsRemaining)}s` : "";
+  };
+  paint();
+
+  const timer = setInterval(() => {
+    if (!row.isConnected) {
+      clearInterval(timer);
+      return;
+    }
+    if (showing.secondsRemaining > 1) {
+      showing = { ...showing, secondsRemaining: showing.secondsRemaining - 1 };
+      paint();
+      return;
+    }
+    void send({ kind: "totpCode", id: item.id }).then((response) => {
+      if (!response.ok || response.kind !== "totpCode") return;
+      showing = { code: response.code, secondsRemaining: response.secondsRemaining };
+      paint();
+    });
+  }, 1000);
+
+  const row = el("li", {}, [
+    el("div", { className: "name" }, [item.name?.trim() || totpLabel(item)]),
+    el("div", { className: "meta", textContent: item.name ? totpLabel(item) : TYPE_LABEL.totp }),
+    code,
+    countdown,
+    stamps(item),
+  ]);
+  row.append(rowActions(item, row));
+  return row;
+}
+
 function trashedRow(item: DecryptedItem): HTMLLIElement {
   const label = item.name?.trim();
   const fallback = untitled(item);
@@ -877,7 +1009,9 @@ function trashedRow(item: DecryptedItem): HTMLLIElement {
         ? cardLabel(item)
         : item.type === "identity"
           ? oneLineAddress(item) || TYPE_LABEL.identity
-          : TYPE_LABEL.note;
+          : item.type === "totp"
+            ? totpLabel(item)
+            : TYPE_LABEL.note;
 
   return el("li", { className: "trashed" }, [
     el("div", { className: "name" }, [label || fallback || "(untitled)"]),
@@ -916,7 +1050,11 @@ function haystack(item: DecryptedItem): string {
               item.country,
               item.notes,
             ]
-          : [item.name, item.notes];
+          : item.type === "totp"
+            ? // Never the secret, and never the code: one is the credential
+              // and the other is stale by the time anyone types it.
+              [item.name, item.issuer, item.account, item.notes]
+            : [item.name, item.notes];
   return fields.filter(Boolean).join(" ").toLowerCase();
 }
 
@@ -942,6 +1080,8 @@ function untitled(item: DecryptedItem): string {
       return cardLabel(item);
     case "identity":
       return identityLabel(item);
+    case "totp":
+      return totpLabel(item);
     case "note":
       return "(untitled note)";
   }
