@@ -318,4 +318,92 @@ export class AuthService {
       wrappedVaultKey: vault.wrapped_vault_key,
     };
   }
+
+  /**
+   * Re-wraps the vault under a new master password.
+   *
+   * The vault key itself does not change — only the salt, the costs and the
+   * wrapping around it — so not one item is re-encrypted and every device
+   * keeps syncing uninterrupted. What the other devices must do is notice the
+   * new record and adopt it, which they do on their next sync.
+   *
+   * Needs the current auth key as well as an enrolled device. A device
+   * credential alone must not be able to change the password: a stolen laptop
+   * would otherwise lock its owner out of their own vault, and the whole
+   * point of the auth key is that only the master password produces it.
+   *
+   * The server learns nothing from any of this. It sees two opaque 256-bit
+   * values and a blob it cannot open, exactly as it did at registration.
+   */
+  async changeMasterPassword(
+    caller: Caller,
+    input: { currentAuthKey: string; newAuthKey: string; vault: VaultBootstrap },
+  ): Promise<void> {
+    const { rows } = await pool.query<{ auth_key_hash: string }>(
+      "select auth_key_hash from users where id = $1",
+      [caller.userId],
+    );
+
+    const stored = rows[0]?.auth_key_hash;
+    // One message whether the user row is missing or the key is wrong. There
+    // is nothing to tell apart here for a caller who is already authenticated,
+    // and keeping the wording uniform costs nothing.
+    const refuse = (): never => {
+      throw new UnauthorizedException("Password change refused.");
+    };
+
+    if (!stored) refuse();
+    if (!(await secretMatches(input.currentAuthKey, stored!))) refuse();
+
+    // Both Argon2 calls happen before the transaction opens, so no row lock is
+    // held across them. The update is then a compare-and-swap on the hash we
+    // verified: if anything changed the password in between, this writes
+    // nothing rather than overwriting a newer change with an older one.
+    const nextHash = await hashSecret(input.newAuthKey);
+
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+
+      const updated = await client.query(
+        "update users set auth_key_hash = $1 where id = $2 and auth_key_hash = $3",
+        [nextHash, caller.userId, stored],
+      );
+      if (updated.rowCount !== 1) refuse();
+
+      await client.query(
+        `update vaults
+            set salt_b64 = $1,
+                kdf_memory_kib = $2,
+                kdf_iterations = $3,
+                kdf_parallelism = $4,
+                wrapped_vault_key = $5
+          where id = $6`,
+        [
+          input.vault.saltB64,
+          input.vault.memoryKib,
+          input.vault.iterations,
+          input.vault.parallelism,
+          JSON.stringify(input.vault.wrappedVaultKey),
+          caller.vaultId,
+        ],
+      );
+
+      // Outstanding invitations were minted under the old password, and a
+      // password change is exactly the moment someone wants no loose ends. A
+      // token is useless without the password in any case; spending them here
+      // means an interrupted enrolment fails visibly rather than half-working.
+      await client.query(
+        "update enrollment_tokens set used_at = now() where user_id = $1 and used_at is null",
+        [caller.userId],
+      );
+
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 }
