@@ -24,9 +24,21 @@ export interface PasswordOptions {
   symbols: boolean;
 }
 
-export interface LoginContent {
+/**
+ * The kinds of thing a vault can hold.
+ *
+ * This lives in the *record header*, not in the encrypted content: it is
+ * bound into each item's authentication tag, so a server cannot relabel a
+ * secure note as a login and have it decrypt. The union below carries a
+ * matching `type` for the popup's benefit, and it is stripped again before
+ * anything is stored — one fact, one place.
+ */
+export type ItemType = "login" | "note";
+
+/** What every item carries, whatever its type. */
+export interface CommonContent {
   /**
-   * What to call this login.
+   * What to call this item.
    *
    * Optional, and it lives inside the encrypted content rather than beside
    * it — a server that could read "Work email" would learn a great deal
@@ -35,17 +47,10 @@ export interface LoginContent {
    * because the AEAD layout and the associated data are unchanged.
    */
   name?: string;
-  username: string;
-  password: string;
-  url: string;
   notes: string;
 
-  /** Optional, for forms that ask for one of these specifically. */
-  email?: string;
-  mobile?: string;
-
   /**
-   * When this login was first saved, and when its content last changed.
+   * When this item was first saved, and when its content last changed.
    *
    * Inside the encrypted content, and only ever written when the content
    * itself does — so they cost nothing in version churn. Absent on anything
@@ -54,6 +59,28 @@ export interface LoginContent {
   createdAt?: number;
   lastModifiedAt?: number;
 }
+
+export interface LoginContent extends CommonContent {
+  type: "login";
+  username: string;
+  password: string;
+  url: string;
+
+  /** Optional, for forms that ask for one of these specifically. */
+  email?: string;
+  mobile?: string;
+}
+
+/**
+ * A secure note: a name and free text, and deliberately nothing else.
+ *
+ * It adds no field of its own — `notes` is already common to every item, and
+ * a note whose body lived in a second field would mean two text areas on one
+ * form and two places for the same sentence to hide in.
+ */
+export type NoteContent = CommonContent & { type: "note" };
+
+export type ItemContent = LoginContent | NoteContent;
 
 /** What someone did with a login. */
 export type UsageEvent = "created" | "edited" | "autofilled" | "copied" | "revealed";
@@ -100,14 +127,18 @@ export interface DeviceIdentity {
   name: string;
 }
 
-/** An item as the popup sees it: plaintext, and only while unlocked. */
-export interface DecryptedItem extends LoginContent {
+/** What is true of every item once decrypted, whatever its type. */
+export interface ItemFacts {
   id: string;
   updatedAt: number;
   /** In the trash. The content is still here and can be restored. */
   deleted: boolean;
-  /** Zeroed for a login that has never been reached for. */
+  /** Zeroed for an item that has never been reached for. */
   usage: ItemUsage;
+}
+
+/** What only a login has: a password, and therefore something to say about it. */
+export interface PasswordFacts {
   /**
    * How many *other* live logins share this password.
    *
@@ -122,6 +153,19 @@ export interface DecryptedItem extends LoginContent {
    */
   strength: PasswordStrength;
 }
+
+/**
+ * An item as the popup sees it: plaintext, and only while unlocked.
+ *
+ * A union rather than one wide shape with optional fields. The popup has to
+ * branch on the type anyway to render it, and a union makes the compiler
+ * insist on that instead of letting `item.password` be quietly undefined on
+ * something that never had one.
+ */
+export type DecryptedLogin = LoginContent & ItemFacts & PasswordFacts;
+export type DecryptedNote = NoteContent & ItemFacts;
+
+export type DecryptedItem = DecryptedLogin | DecryptedNote;
 
 import type { RemoteDevice } from "../sync/client.js";
 import type { SyncOutcome } from "../sync/engine.js";
@@ -152,8 +196,8 @@ export type Request =
   | { kind: "unlockWithPin"; pin: string }
   | { kind: "autoLock" }
   | { kind: "setAutoLock"; minutes: number }
-  | { kind: "addItem"; content: LoginContent }
-  | { kind: "updateItem"; id: string; content: LoginContent }
+  | { kind: "addItem"; content: ItemContent }
+  | { kind: "updateItem"; id: string; content: ItemContent }
   // Moves to the trash: the content is kept and can be restored.
   | { kind: "trashItem"; id: string }
   | { kind: "restoreItem"; id: string }
@@ -220,7 +264,8 @@ export type Response =
   | { ok: true; kind: "listItems"; items: DecryptedItem[] }
   | { ok: true; kind: "generatePassword"; password: string }
   | { ok: true; kind: "checkStrength"; strength: PasswordStrength }
-  | { ok: true; kind: "itemsForSite"; site: string | null; items: DecryptedItem[] }
+  // Logins only: a note has no site to belong to, so nothing else can be here.
+  | { ok: true; kind: "itemsForSite"; site: string | null; items: DecryptedLogin[] }
   | { ok: true; kind: "recordUse" }
   | { ok: true; kind: "device"; device: DeviceIdentity }
   | { ok: true; kind: "renameDevice" }

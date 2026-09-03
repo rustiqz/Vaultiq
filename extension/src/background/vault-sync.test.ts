@@ -186,7 +186,7 @@ describe("after a failure", () => {
       "fetch",
       vi.fn(() => Promise.reject(new Error("network unreachable"))),
     );
-    const id = await vault.addItem({ username: "a", password: "b", url: "", notes: "" });
+    const id = await vault.addItem({ type: "login", username: "a", password: "b", url: "", notes: "" });
 
     await expect(vault.syncNow()).rejects.toThrow(/unreachable/);
 
