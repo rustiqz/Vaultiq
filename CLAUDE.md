@@ -18,7 +18,8 @@ fast and clever, every time.
     the wasm bindings, pinned by known-answer vectors cross-computed with
     OpenSSL and libsodium.
   - `extension/` — Firefox Manifest V3: vault UI, autofill, capture, quick
-    unlock by PIN, per-device audit trail, sync, and master password change.
+    unlock by PIN, per-device audit trail, sync, master password change, and
+    all five item types (login, card, identity, authenticator, secure note).
   - `server/` — NestJS + PostgreSQL: device authentication, enrolment tokens,
     revocation, item sync with version-based optimistic concurrency, and the
     Docker/Caddy deployment.
@@ -52,9 +53,11 @@ Update this section when it stops being true.
    the vault-key indirection, or the data model. If something is genuinely
    unworkable, stop and explain why *before* deviating — never silently
    substitute an approach.
-3. **Deferred means deferred.** Sharing, recovery flows, passkeys, TOTP,
-   non-login item types, import, breach checking — not now, not partially,
-   not "just the types for later".
+3. **Deferred means deferred.** Sharing, recovery flows, passkeys, import,
+   breach checking — not now, not partially, not "just the types for later".
+   Item types beyond login and TOTP were on this list until phases 1–3 were
+   done end to end, which was the condition PROJECT.md set for them; they
+   have since been built. Nothing else has moved.
 4. **No shortcuts justified by "it's only me".** Single-user today does not
    license plaintext metadata, skipped auth separation, or hardcoded paths.
 

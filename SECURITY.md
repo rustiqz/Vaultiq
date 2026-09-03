@@ -102,13 +102,27 @@ invalidated when the master password changes.
 limited, and every route sits under a global floor. The auth key is verified
 with Argon2id, so even a leaked hash is not cheaply searchable.
 
-**A page trying to read the vault.** A content script can ask only for
-credentials belonging to the tab's own site, as the *browser* reports it —
+**A page trying to read the vault.** The content script is handed names, not
+values: a list to draw a picker from, with no password, card number or
+authenticator secret in it. Values cross into the page one item at a time,
+after a click, and never on page load.
+
+A login can be asked for only by the tab's own site, as the *browser* reports
+it —
 never a site the page names for itself. The site is the registrable domain,
 computed with the Public Suffix List including private suffixes: so
 `google.com.attacker.test` does not match `google.com`, and `foo.github.io`
 does not match `bar.github.io`. Subdomains of one registrable domain *do* share
 a scope — `www.example.com` and `account.example.com` are one site.
+
+**Cards, identities and codes on a hostile page.** These have no site to be
+scoped to — the same card is used at every shop — so site matching cannot
+protect them, and this is stated plainly rather than implied. What protects
+them instead is that nothing is offered unless the user focuses a field
+declaring itself as that kind, nothing is filled without a click on a named
+item, and a fill writes only into the section of the form the focused field
+belongs to. A page can therefore ask to be *shown* a picker; it cannot obtain
+anything from one without the person at the keyboard choosing an item.
 
 **A short PIN.** Quick unlock wraps the vault key under a PIN-derived key and
 keeps it in `storage.session` only. Thirteen bits of PIN would fall to an
