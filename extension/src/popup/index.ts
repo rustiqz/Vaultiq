@@ -4,7 +4,9 @@
 
 import "./popup.css";
 import { CLIPBOARD_SECONDS, copyForAWhile } from "../lib/clipboard.js";
+import { el } from "./dom.js";
 import { ago } from "./format.js";
+import { syncPanel } from "./sync-panel.js";
 import {
   send,
   type DecryptedItem,
@@ -31,16 +33,6 @@ function isWeak(level: StrengthLevel): boolean {
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("popup root missing");
 const root = app;
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Partial<HTMLElementTagNameMap[K]> = {},
-  children: (Node | string)[] = [],
-): HTMLElementTagNameMap[K] {
-  const node = Object.assign(document.createElement(tag), props);
-  node.append(...children);
-  return node;
-}
 
 /**
  * A value that copies itself when clicked.
@@ -660,7 +652,7 @@ async function renderUnlocked(): Promise<void> {
     if (showTrash) body.append(el("ul", {}, trashed.map(trashedRow)));
   }
 
-  body.append(el("hr"), generatorPanel(), el("hr"), settingsPanel());
+  body.append(el("hr"), generatorPanel(), el("hr"), syncPanel(showError), el("hr"), settingsPanel());
 
   add.addEventListener("click", () => {
     body.replaceChildren(
