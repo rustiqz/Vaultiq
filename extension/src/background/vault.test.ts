@@ -1286,3 +1286,170 @@ describe("authenticator accounts", () => {
     expect(items.every((item) => item.type === "login")).toBe(true);
   });
 });
+
+describe("what the autofill picker is told", () => {
+  const CARD = {
+    type: "card",
+    name: "Everyday",
+    cardholder: "A LOVELACE",
+    number: "4242424242424242",
+    expiryMonth: "04",
+    expiryYear: "2030",
+    securityCode: "737",
+    notes: "",
+  } satisfies CardContent;
+
+  const IDENTITY = {
+    type: "identity",
+    name: "Home",
+    firstName: "Ada",
+    lastName: "Lovelace",
+    email: "ada@example.test",
+    phone: "+44 20 7946 0000",
+    street: "12 Analytical Way",
+    city: "London",
+    state: "Greater London",
+    postalCode: "N1 9AA",
+    country: "United Kingdom",
+    notes: "",
+  } satisfies IdentityContent;
+
+  async function stocked(): Promise<void> {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, url: "https://example.com" });
+    await vault.addItem({ ...CONTENT, name: "Elsewhere", url: "https://other.test" });
+    await vault.addItem(CARD);
+    await vault.addItem(IDENTITY);
+    await vault.addItem({ type: "note", name: "Recovery codes", notes: "1111-2222" });
+  }
+
+  it("sends names, never values", async () => {
+    await stocked();
+
+    const { suggestions } = await vault.fillSuggestions(
+      ["login", "card", "identity"],
+      "https://example.com",
+    );
+
+    // The content script runs inside the page. It is handed enough to draw a
+    // list and nothing that would be worth stealing from it.
+    const payload = JSON.stringify(suggestions);
+    expect(payload).not.toContain(CONTENT.password);
+    expect(payload).not.toContain(CARD.number);
+    expect(payload).not.toContain(CARD.securityCode);
+    expect(suggestions.every((entry) => Object.keys(entry).length === 4)).toBe(true);
+  });
+
+  it("offers a login only to its own site", async () => {
+    await stocked();
+
+    const here = await vault.fillSuggestions(["login"], "https://example.com");
+    expect(here.suggestions.map((entry) => entry.label)).toEqual([CONTENT.username]);
+  });
+
+  it("offers a card anywhere, because a card belongs to no site", async () => {
+    await stocked();
+
+    const anywhere = await vault.fillSuggestions(["card"], "https://somewhere-else.test");
+    expect(anywhere.suggestions.map((entry) => entry.label)).toEqual(["Everyday"]);
+  });
+
+  it("never offers a note", async () => {
+    await stocked();
+
+    // There is no field on any page that a secure note is the answer to.
+    const asked = await vault.fillSuggestions(
+      ["login", "card", "identity", "note", "totp"],
+      "https://example.com",
+    );
+    expect(asked.suggestions.some((entry) => entry.type === "note")).toBe(false);
+  });
+
+  it("offers nothing at all while locked", async () => {
+    await stocked();
+    await vault.lock();
+
+    // A decline, not an error: the page did nothing wrong.
+    expect(await vault.fillSuggestions(["card"], "https://example.com")).toEqual({
+      site: null,
+      suggestions: [],
+    });
+  });
+});
+
+describe("filling a card or an identity", () => {
+  const CARD = {
+    type: "card",
+    cardholder: "A LOVELACE",
+    number: "4242424242424242",
+    expiryMonth: "04",
+    expiryYear: "2030",
+    securityCode: "737",
+    notes: "",
+  } satisfies CardContent;
+
+  it("names each value the way a form names it", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CARD);
+
+    expect(await vault.fillValues(id, "https://shop.test")).toEqual({
+      "cc-name": "A LOVELACE",
+      "cc-number": "4242424242424242",
+      "cc-exp-month": "04",
+      "cc-exp-year": "2030",
+      "cc-csc": "737",
+    });
+  });
+
+  it("leaves out what the item does not have", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({
+      type: "identity",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ada@example.test",
+      phone: "",
+      street: "12 Analytical Way",
+      city: "London",
+      state: "",
+      postalCode: "N1 9AA",
+      country: "United Kingdom",
+      notes: "",
+    });
+
+    // A blank field must not blank the page's box.
+    const values = await vault.fillValues(id, "https://shop.test");
+    expect(values).not.toHaveProperty("tel");
+    expect(values).not.toHaveProperty("address-level1");
+    expect(values["address-line1"]).toBe("12 Analytical Way");
+  });
+
+  it("still refuses a login belonging to another site", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    // The site scoping a password has always had is not loosened by having
+    // grown a second way to fill.
+    await expect(vault.fillValues(id, "https://phishing.test")).rejects.toThrow(/no such item/i);
+    await expect(vault.fillValues(id, "https://example.com")).resolves.toMatchObject({
+      password: CONTENT.password,
+    });
+  });
+
+  it("counts the fill", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(CARD);
+
+    await vault.fillValues(id, "https://shop.test");
+
+    const [item] = await vault.listItems();
+    expect(item?.usage.counts.autofilled).toBe(1);
+  });
+
+  it("refuses an item there is nothing to fill from", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem({ type: "note", name: "Recovery codes", notes: "1111" });
+
+    await expect(vault.fillValues(id, "https://shop.test")).rejects.toThrow(/nothing on this page/i);
+  });
+});

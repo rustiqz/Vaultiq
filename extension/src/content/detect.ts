@@ -130,3 +130,160 @@ export function fillField(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
+
+/**
+ * The fields a saved item can be filled into, named by their HTML
+ * autocomplete token.
+ *
+ * The token vocabulary is the spec's, not ours, for the same reason the
+ * identity schema borrows it: the browser, the site and the vault then all
+ * agree what a field is without a translation table in the middle.
+ */
+export type FillToken =
+  | "cc-name"
+  | "cc-number"
+  | "cc-exp-month"
+  | "cc-exp-year"
+  | "cc-csc"
+  | "given-name"
+  | "family-name"
+  | "organization"
+  | "email"
+  | "tel"
+  | "street-address"
+  | "address-line1"
+  | "address-line2"
+  | "address-level1"
+  | "address-level2"
+  | "postal-code"
+  | "country-name"
+  | "bday"
+  | "one-time-code";
+
+const TOKENS: FillToken[] = [
+  "cc-name",
+  "cc-number",
+  "cc-exp-month",
+  "cc-exp-year",
+  "cc-csc",
+  "given-name",
+  "family-name",
+  "organization",
+  "email",
+  "tel",
+  "street-address",
+  "address-line1",
+  "address-line2",
+  "address-level1",
+  "address-level2",
+  "postal-code",
+  "country-name",
+  "bday",
+  "one-time-code",
+];
+
+/**
+ * Names a field when the page did not.
+ *
+ * Second best, always. `autocomplete` is a declaration by the site and is
+ * checked first; these patterns are guesses from the words developers reach
+ * for, and they are deliberately narrow. A wrong guess here types a card
+ * number into the wrong box, so anything ambiguous — "code", "number",
+ * "name" on their own — is left unmatched rather than filled.
+ */
+const GUESSES: { token: FillToken; pattern: RegExp }[] = [
+  { token: "cc-number", pattern: /card.?number|cardnum|ccnum|creditcard/ },
+  { token: "cc-csc", pattern: /\bcvv\b|\bcvc\b|\bcsc\b|security.?code|card.?code/ },
+  { token: "cc-exp-month", pattern: /exp.*month|month.*exp|\bexpmonth\b/ },
+  { token: "cc-exp-year", pattern: /exp.*year|year.*exp|\bexpyear\b/ },
+  { token: "cc-name", pattern: /card.?holder|name.?on.?card|cc.?name/ },
+  { token: "one-time-code", pattern: /one.?time.?code|\botp\b|2fa.?code|auth.?code|totp/ },
+  { token: "postal-code", pattern: /post.?code|postal.?code|\bzip\b|zipcode|pincode/ },
+  { token: "address-line1", pattern: /address.?line.?1|addr1|street.?address/ },
+  { token: "address-line2", pattern: /address.?line.?2|addr2/ },
+  { token: "address-level2", pattern: /\bcity\b|town|locality/ },
+  { token: "address-level1", pattern: /\bstate\b|province|region|county/ },
+  { token: "country-name", pattern: /\bcountry\b/ },
+  { token: "given-name", pattern: /first.?name|given.?name|forename/ },
+  { token: "family-name", pattern: /last.?name|family.?name|surname/ },
+  { token: "organization", pattern: /company|organi[sz]ation|business.?name/ },
+];
+
+/**
+ * What one input is for, or nothing.
+ *
+ * The `autocomplete` attribute may carry section and billing/shipping
+ * prefixes — `section-blue billing cc-number` is valid — so the field name is
+ * the last word, which is where the spec puts it.
+ */
+export function tokenFor(input: HTMLInputElement): FillToken | undefined {
+  const declared = input.autocomplete.toLowerCase().trim().split(/\s+/).at(-1);
+  const named = TOKENS.find((token) => token === declared);
+  if (named) return named;
+
+  // `autocomplete="off"` is a request not to fill, and it is honoured for
+  // these fields: unlike a password manager filling a login, there is no
+  // long-standing convention of overriding it for an address or a card.
+  if (declared === "off") return undefined;
+
+  const described = [input.name, input.id, input.placeholder, input.getAttribute("aria-label")]
+    .filter((value): value is string => typeof value === "string" && value !== "")
+    .join(" ")
+    .toLowerCase();
+  if (!described) return undefined;
+
+  return GUESSES.find((guess) => guess.pattern.test(described))?.token;
+}
+
+/**
+ * Every fillable field in scope, by what it is for.
+ *
+ * A token can appear more than once — a page may show billing and shipping
+ * side by side — and all of them are returned. Choosing which to fill is the
+ * caller's decision, made from a click, not this function's.
+ */
+export function tokenFields(scope: ParentNode): Map<FillToken, HTMLInputElement[]> {
+  const found = new Map<FillToken, HTMLInputElement[]>();
+
+  for (const input of scope.querySelectorAll("input")) {
+    if (!isFillable(input)) continue;
+    // A password field is never one of these, whatever it claims: filling a
+    // card number into something the browser will not display is how a
+    // number ends up somewhere nobody can check.
+    if (input.type.toLowerCase() === "password") continue;
+
+    const token = tokenFor(input);
+    if (!token) continue;
+
+    const existing = found.get(token);
+    if (existing) existing.push(input);
+    else found.set(token, [input]);
+  }
+
+  return found;
+}
+
+/** The tokens a form is asking for, from any field inside its scope. */
+export function fillScopeFor(target: Element): {
+  scope: ParentNode;
+  fields: Map<FillToken, HTMLInputElement[]>;
+} {
+  const scope = target.closest("form") ?? target.ownerDocument;
+  return { scope, fields: tokenFields(scope) };
+}
+
+/**
+ * The section an input belongs to, from the words before its field name.
+ *
+ * `autocomplete="billing cc-number"` is in the billing section;
+ * `shipping address-line1` is in shipping. A page that shows both at once
+ * puts them in one form, so without this a single pick would fill an address
+ * into somewhere the user was not looking.
+ *
+ * Empty is a real answer, and the common one: most fields declare no section,
+ * and neither do any matched by name.
+ */
+export function sectionOf(input: HTMLInputElement): string {
+  const parts = input.autocomplete.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return parts.slice(0, -1).join(" ");
+}
