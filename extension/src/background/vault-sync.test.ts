@@ -7,7 +7,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { localStore } from "../test/setup.js";
-import { cryptoFake, dbFake, resetFakes } from "../test/fakes.js";
+import { cryptoFake, db, dbFake, resetFakes } from "../test/fakes.js";
 
 vi.mock("../lib/crypto.js", () => cryptoFake);
 vi.mock("../lib/vault-db.js", () => dbFake);
@@ -19,14 +19,31 @@ const PASSWORD = "correct horse battery staple";
 /** Answers each call in order, so a whole flow can be scripted. */
 function server(...bodies: unknown[]) {
   const calls: string[] = [];
-  const fetched = vi.fn((url: URL | string) => {
+  const sent: unknown[] = [];
+  const fetched = vi.fn((url: URL | string, init?: RequestInit) => {
     calls.push(String(url));
+    sent.push(typeof init?.body === "string" ? JSON.parse(init.body) : undefined);
     const body = bodies.shift() ?? {};
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) } as Response);
   });
   vi.stubGlobal("fetch", fetched);
-  return { calls, fetched };
+  return { calls, sent, fetched };
 }
+
+/**
+ * The record `create` leaves behind, as the server would hand it back.
+ *
+ * Every sync re-reads the server's vault record, so a scripted flow has to
+ * answer that call — and answering it with anything else is a *changed*
+ * record, which the device would then adopt.
+ */
+const LOCAL_VAULT = {
+  saltB64: "salt-b64",
+  memoryKib: 65536,
+  iterations: 3,
+  parallelism: 4,
+  wrappedVaultKey: { version: 1, ciphertext: [], nonce: [] },
+};
 
 beforeEach(() => {
   resetFakes();
@@ -72,6 +89,7 @@ describe("registering the first device", () => {
     await vault.create(PASSWORD);
     server(
       { deviceId: "dev-1", credential: "secret-value" },
+      LOCAL_VAULT,
       { items: [], cursor: "0", more: false },
       { accepted: [], conflicts: [], cursor: "0" },
     );
@@ -92,6 +110,7 @@ describe("registering the first device", () => {
     await vault.create(PASSWORD);
     server(
       { deviceId: "dev-1", credential: "secret-value" },
+      LOCAL_VAULT,
       { items: [], cursor: "0", more: false },
       { accepted: [], conflicts: [], cursor: "0" },
     );
@@ -111,6 +130,7 @@ describe("joining an existing server", () => {
       REMOTE,
       { deviceId: "dev-2", credential: "secret-value" },
       { ...REMOTE, wrappedVaultKey: { version: 1 } },
+      { ...REMOTE, wrappedVaultKey: { version: 1 } },
       { items: [], cursor: "0", more: false },
       { accepted: [], conflicts: [], cursor: "0" },
     );
@@ -127,6 +147,7 @@ describe("joining an existing server", () => {
     server(
       REMOTE,
       { deviceId: "dev-2", credential: "secret-value" },
+      { ...REMOTE, wrappedVaultKey: { version: 1 } },
       { ...REMOTE, wrappedVaultKey: { version: 1 } },
       { items: [], cursor: "0", more: false },
       { accepted: [], conflicts: [], cursor: "0" },
@@ -155,6 +176,7 @@ describe("after a failure", () => {
     await vault.create(PASSWORD);
     server(
       { deviceId: "dev-1", credential: "secret-value" },
+      LOCAL_VAULT,
       { items: [], cursor: "0", more: false },
       { accepted: [], conflicts: [], cursor: "0" },
     );
@@ -178,6 +200,7 @@ describe("after a failure", () => {
     await vault.create(PASSWORD);
     server(
       { deviceId: "dev-1", credential: "secret-value" },
+      LOCAL_VAULT,
       { items: [], cursor: "0", more: false },
       { accepted: [], conflicts: [], cursor: "0" },
     );
@@ -188,5 +211,109 @@ describe("after a failure", () => {
     expect(await vault.syncStatus()).toEqual({ connected: false });
     expect(localStore.has("sync")).toBe(false);
     expect(await vault.status()).toBe("unlocked");
+  });
+});
+
+describe("changing the master password", () => {
+  const NEXT = "a completely different long phrase";
+
+  /** A vault that has already registered with a server. */
+  async function connected(): Promise<void> {
+    await vault.create(PASSWORD);
+    server(
+      { deviceId: "dev-1", credential: "secret-value" },
+      LOCAL_VAULT,
+      { items: [], cursor: "0", more: false },
+      { accepted: [], conflicts: [], cursor: "0" },
+    );
+    await vault.connectServer("https://v.test", "Desktop", PASSWORD);
+  }
+
+  it("proves the current password and uploads the new record", async () => {
+    await connected();
+    const { calls, sent } = server({ changed: true });
+    // Registering derived one of each already; only the rotation's own calls
+    // are of interest here.
+    cryptoFake.deriveAuthKey.mockClear();
+    cryptoFake.generateSalt.mockReturnValueOnce("rotated-salt");
+
+    await vault.changeMasterPassword(PASSWORD, NEXT);
+
+    expect(calls[0]).toContain("vault/master-password");
+    expect(sent[0]).toMatchObject({
+      vault: { saltB64: "rotated-salt", memoryKib: 65536, iterations: 3, parallelism: 4 },
+    });
+
+    // One auth key from each password: the current one is what the server
+    // checks, and without it a stolen device credential could rotate the
+    // password on its own.
+    expect(cryptoFake.deriveAuthKey).toHaveBeenCalledTimes(2);
+    expect(cryptoFake.deriveMasterKey.mock.calls.at(-2)).toEqual([PASSWORD, "salt-b64", 65536, 3, 4]);
+    expect(cryptoFake.deriveMasterKey.mock.calls.at(-1)).toEqual([NEXT, "rotated-salt", 65536, 3, 4]);
+  });
+
+  it("keeps the old record when the server refuses", async () => {
+    await connected();
+    const before = db.vault;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ message: "Password change refused." }),
+        } as Response),
+      ),
+    );
+
+    await expect(vault.changeMasterPassword(PASSWORD, NEXT)).rejects.toThrow(/refused/i);
+
+    // Writing locally first would leave this device on a password the server
+    // has never heard of — and the next sync would hand back the old record.
+    expect(db.vault).toBe(before);
+  });
+
+  it("is adopted by the other devices on their next sync", async () => {
+    await connected();
+    const elsewhere = {
+      ...LOCAL_VAULT,
+      saltB64: "rotated-elsewhere",
+      wrappedVaultKey: { version: 1, ciphertext: [7], nonce: [8] },
+    };
+    server(elsewhere, { items: [], cursor: "0", more: false }, { accepted: [], conflicts: [], cursor: "0" });
+
+    await vault.syncNow();
+
+    // Nothing else changes: the vault key is the same key, so this device
+    // keeps syncing and simply needs the new password at its next unlock.
+    expect(db.vault).toMatchObject({ saltB64: "rotated-elsewhere" });
+  });
+
+  it("refuses a record whose costs came back weakened", async () => {
+    await connected();
+    server({ ...LOCAL_VAULT, saltB64: "rotated-elsewhere", memoryKib: 8 });
+
+    // A server cannot forge a record that opens, but it could serve one that
+    // opens cheaply. This record replaces the only thing on the device that
+    // can open the vault, so it is checked before it is stored.
+    await expect(vault.syncNow()).rejects.toThrow(/will not accept/i);
+    expect(db.vault).toMatchObject({ saltB64: "salt-b64", memoryKib: 65536 });
+  });
+
+  it("leaves an unchanged record alone, whatever order its fields arrive in", async () => {
+    await connected();
+    const before = db.vault;
+    server(
+      // The same record, out of a jsonb column, which does not preserve field
+      // order. Treating this as a change would rewrite the record on every
+      // single sync.
+      { ...LOCAL_VAULT, wrappedVaultKey: { nonce: [], version: 1, ciphertext: [] } },
+      { items: [], cursor: "0", more: false },
+      { accepted: [], conflicts: [], cursor: "0" },
+    );
+
+    await vault.syncNow();
+
+    expect(db.vault).toBe(before);
   });
 });

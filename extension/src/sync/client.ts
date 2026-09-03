@@ -133,6 +133,24 @@ export class SyncClient {
     return await this.request("vault");
   }
 
+  /**
+   * Re-wraps the vault on the server under a new master password.
+   *
+   * Carries the current auth key as well as the new one: the server checks it
+   * before accepting the change, so a stolen device credential cannot rotate
+   * the password on its own.
+   */
+  async changeMasterPassword(input: {
+    currentAuthKey: string;
+    newAuthKey: string;
+    vault: ServerVault;
+  }): Promise<void> {
+    await this.request("vault/master-password", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
   async pull(since: string): Promise<PullResult> {
     return await this.request(`sync?since=${encodeURIComponent(since)}`);
   }

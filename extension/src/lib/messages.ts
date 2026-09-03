@@ -143,6 +143,9 @@ export type Request =
   | { kind: "status" }
   | { kind: "create"; masterPassword: string }
   | { kind: "unlock"; masterPassword: string }
+  // Re-wraps the vault key under a new password. The vault key does not
+  // change, so nothing is re-encrypted and no item has to move.
+  | { kind: "changeMasterPassword"; currentPassword: string; newPassword: string }
   | { kind: "lock"; forget?: boolean }
   | { kind: "setPin"; pin: string }
   | { kind: "forgetPin" }
@@ -202,6 +205,7 @@ export type Response =
   | { ok: true; kind: "status"; status: VaultStatus }
   | { ok: true; kind: "create" }
   | { ok: true; kind: "unlock" }
+  | { ok: true; kind: "changeMasterPassword" }
   | { ok: true; kind: "lock" }
   | { ok: true; kind: "setPin" }
   | { ok: true; kind: "forgetPin" }
