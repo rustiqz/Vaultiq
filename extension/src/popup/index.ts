@@ -10,12 +10,22 @@ import { syncPanel } from "./sync-panel.js";
 import {
   send,
   type DecryptedItem,
+  type DecryptedLogin,
+  type DecryptedNote,
+  type ItemContent,
+  type ItemType,
   type LoginContent,
   type Request,
   type Response,
   type StrengthLevel,
   type VaultStatus,
 } from "../lib/messages.js";
+
+/** What each item type is called on screen. */
+const TYPE_LABEL: Record<ItemType, string> = {
+  login: "Login",
+  note: "Secure note",
+};
 
 const STRENGTH_LABEL: Record<StrengthLevel, string> = {
   "very-weak": "Very weak",
@@ -367,11 +377,18 @@ function renderLocked(): void {
   );
 }
 
-/** A form for one item, used for both adding and editing. */
+/**
+ * A form for one item, used for both adding and editing.
+ *
+ * The type is fixed when the form opens and never offered as a control: an
+ * item does not change what it is, because its type is bound into the
+ * authentication tag of every version it has ever had.
+ */
 function itemForm(
   submitLabel: string,
-  initial: LoginContent | undefined,
-  submit: (content: LoginContent) => Promise<void>,
+  type: ItemType,
+  initial: ItemContent | undefined,
+  submit: (content: ItemContent) => Promise<void>,
   cancel?: () => void,
 ): HTMLFormElement {
   const name = el("input", {
@@ -379,77 +396,113 @@ function itemForm(
     autocomplete: "off",
     placeholder: "Optional, e.g. Work",
   });
-  const username = el("input", { type: "text", required: true, autocomplete: "off" });
-  const password = el("input", { type: "password", required: true, autocomplete: "off" });
-  const url = el("input", { type: "text", autocomplete: "off", placeholder: "https://" });
-  const email = el("input", { type: "email", autocomplete: "off" });
-  const mobile = el("input", { type: "tel", autocomplete: "off" });
-  const notes = el("textarea", { autocomplete: "off" });
+  if (initial) name.value = initial.name ?? "";
 
-  if (initial) {
-    name.value = initial.name ?? "";
-    username.value = initial.username;
-    password.value = initial.password;
-    url.value = initial.url;
-    email.value = initial.email ?? "";
-    mobile.value = initial.mobile ?? "";
-    notes.value = initial.notes;
-  } else {
-    // A new login is almost always for the page you are looking at, so the
-    // site is filled in rather than typed. Still editable.
-    void send({ kind: "itemsForSite" }).then((response) => {
-      if (response.ok && response.kind === "itemsForSite" && response.site && !url.value) {
-        url.value = response.site;
-      }
-    });
-  }
-
-  // Generation happens in the background; the popup never loads the crypto
-  // module. Revealing the field on generate is deliberate — a password you
-  // cannot see is one you cannot check against the site's own rules.
-  const generate = el("button", {
-    type: "button",
-    className: "inline",
-    textContent: "Generate",
-  });
-  generate.addEventListener("click", () => {
-    generate.disabled = true;
-    void send({ kind: "generatePassword" })
-      .then(unwrap)
-      .then((response) => {
-        if (response.kind !== "generatePassword") throw new Error("unexpected reply");
-        password.value = response.password;
-        password.type = "text";
-        rescore();
-      })
-      .catch((error: unknown) => {
-        showError(error instanceof Error ? error.message : "Failed.");
-      })
-      .finally(() => {
-        generate.disabled = false;
-      });
-  });
-
-  // Scored in the background as you type, so the popup never loads the
-  // crypto module and every client agrees on the number.
-  const meter = el("div", { className: "meter muted" });
-  let pending = 0;
-  const rescore = (): void => {
-    const value = password.value;
-    const token = ++pending;
-    if (!value) {
-      meter.textContent = "";
-      meter.className = "meter muted";
-      return;
-    }
-    void send({ kind: "checkStrength", password: value }).then((response) => {
-      if (token !== pending || !response.ok || response.kind !== "checkStrength") return;
-      const { level, bits } = response.strength;
-      meter.textContent = `${STRENGTH_LABEL[level]} · ~${String(bits)} bits`;
-      meter.className = `meter level-${level}`;
-    });
+  /** The name, omitted rather than stored empty — as it was before it existed. */
+  const named = (): { name?: string } => {
+    const trimmed = name.value.trim();
+    return trimmed ? { name: trimmed } : {};
   };
-  password.addEventListener("input", rescore);
+
+  const fields: HTMLElement[] = [el("label", {}, ["Name", name])];
+  let read: () => ItemContent;
+
+  if (type === "login") {
+    const login = initial?.type === "login" ? initial : undefined;
+
+    const username = el("input", { type: "text", required: true, autocomplete: "off" });
+    const password = el("input", { type: "password", required: true, autocomplete: "off" });
+    const url = el("input", { type: "text", autocomplete: "off", placeholder: "https://" });
+
+    if (login) {
+      username.value = login.username;
+      password.value = login.password;
+      url.value = login.url;
+    } else {
+      // A new login is almost always for the page you are looking at, so the
+      // site is filled in rather than typed. Still editable.
+      void send({ kind: "itemsForSite" }).then((response) => {
+        if (response.ok && response.kind === "itemsForSite" && response.site && !url.value) {
+          url.value = response.site;
+        }
+      });
+    }
+
+    // Generation happens in the background; the popup never loads the crypto
+    // module. Revealing the field on generate is deliberate — a password you
+    // cannot see is one you cannot check against the site's own rules.
+    const generate = el("button", {
+      type: "button",
+      className: "inline",
+      textContent: "Generate",
+    });
+    generate.addEventListener("click", () => {
+      generate.disabled = true;
+      void send({ kind: "generatePassword" })
+        .then(unwrap)
+        .then((response) => {
+          if (response.kind !== "generatePassword") throw new Error("unexpected reply");
+          password.value = response.password;
+          password.type = "text";
+          rescore();
+        })
+        .catch((error: unknown) => {
+          showError(error instanceof Error ? error.message : "Failed.");
+        })
+        .finally(() => {
+          generate.disabled = false;
+        });
+    });
+
+    // Scored in the background as you type, so the popup never loads the
+    // crypto module and every client agrees on the number.
+    const meter = el("div", { className: "meter muted" });
+    let pending = 0;
+    const rescore = (): void => {
+      const value = password.value;
+      const token = ++pending;
+      if (!value) {
+        meter.textContent = "";
+        meter.className = "meter muted";
+        return;
+      }
+      void send({ kind: "checkStrength", password: value }).then((response) => {
+        if (token !== pending || !response.ok || response.kind !== "checkStrength") return;
+        const { level, bits } = response.strength;
+        meter.textContent = `${STRENGTH_LABEL[level]} · ~${String(bits)} bits`;
+        meter.className = `meter level-${level}`;
+      });
+    };
+    password.addEventListener("input", rescore);
+
+    fields.push(
+      el("label", {}, ["Username", username]),
+      el("label", {}, ["Password", el("div", { className: "field" }, [password, generate])]),
+      meter,
+      el("label", {}, ["Site", url]),
+    );
+
+    read = (): LoginContent => ({
+      type: "login",
+      ...named(),
+      username: username.value,
+      password: password.value,
+      url: url.value,
+      // Fields this form does not show are carried through rather than
+      // dropped: an edit must not quietly delete what it cannot display.
+      notes: login?.notes ?? "",
+      ...(login?.email === undefined ? {} : { email: login.email }),
+      ...(login?.mobile === undefined ? {} : { mobile: login.mobile }),
+    });
+  } else {
+    // A secure note is its name and its text. `notes` is common to every
+    // item, so a note needs no field of its own — see NoteContent.
+    const body = el("textarea", { autocomplete: "off", rows: 8 });
+    if (initial) body.value = initial.notes;
+
+    fields.push(el("label", {}, ["Note", body]));
+    read = () => ({ type: "note", ...named(), notes: body.value });
+  }
 
   const save = el("button", { className: "primary", type: "submit", textContent: submitLabel });
   const actions = el("div", { className: "row" }, [save]);
@@ -460,27 +513,12 @@ function itemForm(
     actions.append(back);
   }
 
-  const form = el("form", {}, [
-    el("label", {}, ["Name", name]),
-    el("label", {}, ["Username", username]),
-    el("label", {}, ["Password", el("div", { className: "field" }, [password, generate])]),
-    el("label", {}, ["Site", url]),
-    actions,
-  ]);
+  const form = el("form", {}, [...fields, actions]);
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     save.disabled = true;
-    const trimmed = name.value.trim();
-    void submit({
-      // Omit rather than store an empty string, so an unnamed item looks the
-      // same as one saved before this field existed.
-      ...(trimmed ? { name: trimmed } : {}),
-      username: username.value,
-      password: password.value,
-      url: url.value,
-      notes: initial?.notes ?? "",
-    })
+    void submit(read())
       .then(refresh)
       .catch((error: unknown) => {
         save.disabled = false;
@@ -516,9 +554,35 @@ function stamps(item: DecryptedItem): HTMLElement {
   return el("div", { className: "stamps", textContent: parts.join(" · ") });
 }
 
+/** One row, dispatched on what the item actually is. */
 function liveRow(item: DecryptedItem): HTMLLIElement {
-  const edit = el("button", { className: "inline", type: "button", textContent: "Edit" });
+  return item.type === "login" ? loginRow(item) : noteRow(item);
+}
 
+/** The buttons every live row ends with, and the edit form they open. */
+function rowActions(item: DecryptedItem, row: HTMLLIElement): HTMLElement {
+  const edit = el("button", { className: "inline", type: "button", textContent: "Edit" });
+  edit.addEventListener("click", () => {
+    row.replaceChildren(
+      itemForm(
+        "Save",
+        item.type,
+        item,
+        async (content) => {
+          unwrap(await send({ kind: "updateItem", id: item.id, content }));
+        },
+        () => void refresh(),
+      ),
+    );
+  });
+
+  return el("div", { className: "row" }, [
+    edit,
+    action("Delete", { kind: "trashItem", id: item.id }),
+  ]);
+}
+
+function loginRow(item: DecryptedLogin): HTMLLIElement {
   const label = item.name?.trim();
   const heading = el("div", { className: "name" }, [label || item.username || "(untitled)"]);
   if (isWeak(item.strength.level)) {
@@ -554,42 +618,47 @@ function liveRow(item: DecryptedItem): HTMLLIElement {
       copyable(item.password, { masked: true, onCopy: noteUse }),
     ]),
     stamps(item),
-    el("div", { className: "row" }, [
-      edit,
-      action("Delete", { kind: "trashItem", id: item.id }),
-    ]),
   ]);
+  row.append(rowActions(item, row));
+  return row;
+}
 
-  edit.addEventListener("click", () => {
-    row.replaceChildren(
-      itemForm(
-        "Save",
-        item,
-        async (content) => {
-          unwrap(await send({ kind: "updateItem", id: item.id, content }));
-        },
-        () => void refresh(),
-      ),
-    );
-  });
+function noteRow(item: DecryptedNote): HTMLLIElement {
+  const noteUse = (): void => {
+    void send({ kind: "recordUse", id: item.id });
+  };
 
+  const row = el("li", {}, [
+    el("div", { className: "name" }, [item.name?.trim() || "(untitled note)"]),
+    el("div", { className: "meta", textContent: TYPE_LABEL.note }),
+    // Masked like a password. The body of a secure note is the secret — it
+    // has no username half that is safe to show at a glance.
+    el("div", { className: "row" }, [
+      copyable(item.notes, { masked: true, onCopy: noteUse }),
+    ]),
+    stamps(item),
+  ]);
+  row.append(rowActions(item, row));
   return row;
 }
 
 function trashedRow(item: DecryptedItem): HTMLLIElement {
   const label = item.name?.trim();
+  const fallback = item.type === "login" ? item.username : "(untitled note)";
+  const detail =
+    item.type === "login"
+      ? [label ? item.username : "", item.url].filter(Boolean).join(" · ") || "(no site)"
+      : TYPE_LABEL.note;
+
   return el("li", { className: "trashed" }, [
-    el("div", { className: "name" }, [label || item.username || "(untitled)"]),
-    el("div", {
-      className: "meta",
-      textContent: [label ? item.username : "", item.url].filter(Boolean).join(" · ") || "(no site)",
-    }),
+    el("div", { className: "name" }, [label || fallback || "(untitled)"]),
+    el("div", { className: "meta", textContent: detail }),
     el("div", { className: "row" }, [
       action("Restore", { kind: "restoreItem", id: item.id }),
       action(
         "Delete for good",
         { kind: "purgeItem", id: item.id },
-        "Erase this password permanently? It cannot be recovered.",
+        "Erase this item permanently? It cannot be recovered.",
       ),
     ]),
   ]);
@@ -597,10 +666,11 @@ function trashedRow(item: DecryptedItem): HTMLLIElement {
 
 /** Everything the search box looks at. Never the password. */
 function haystack(item: DecryptedItem): string {
-  return [item.name, item.username, item.email, item.mobile, item.url, item.notes]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+  const fields =
+    item.type === "login"
+      ? [item.name, item.username, item.email, item.mobile, item.url, item.notes]
+      : [item.name, item.notes];
+  return fields.filter(Boolean).join(" ").toLowerCase();
 }
 
 /** Most recently used first; anything never used falls back to its name. */
@@ -608,9 +678,12 @@ function byRecentUse(a: DecryptedItem, b: DecryptedItem): number {
   const left = a.usage.lastUsedAt ?? 0;
   const right = b.usage.lastUsedAt ?? 0;
   if (left !== right) return right - left;
-  return (a.name ?? a.username).localeCompare(b.name ?? b.username, undefined, {
-    sensitivity: "base",
-  });
+  return sortName(a).localeCompare(sortName(b), undefined, { sensitivity: "base" });
+}
+
+/** What an item sorts under when nothing has been used recently. */
+function sortName(item: DecryptedItem): string {
+  return item.name ?? (item.type === "login" ? item.username : "");
 }
 
 /** Kept across a re-render, so typing does not reset the list. */
@@ -639,7 +712,7 @@ async function renderUnlocked(): Promise<void> {
 
   const search = el("input", {
     type: "search",
-    placeholder: "Search logins",
+    placeholder: "Search the vault",
     value: query,
     autocomplete: "off",
   });
@@ -679,7 +752,7 @@ async function renderUnlocked(): Promise<void> {
   body.append(
     live.length
       ? el("div", { className: "group" }, [
-          el("h2", { textContent: site.length ? "Everything else" : "All logins" }),
+          el("h2", { textContent: site.length ? "Everything else" : "All items" }),
           el("ul", {}, live.map(liveRow)),
         ])
       : el("p", {
@@ -709,17 +782,40 @@ async function renderUnlocked(): Promise<void> {
 
   body.append(el("hr"), generatorPanel(), el("hr"), syncPanel(showError), el("hr"), settingsPanel());
 
-  add.addEventListener("click", () => {
+  /** Opens an empty form for one type. */
+  const startNew = (type: ItemType): void => {
     body.replaceChildren(
-      el("h2", { textContent: "New login" }),
+      el("h2", { textContent: `New ${TYPE_LABEL[type].toLowerCase()}` }),
       itemForm(
         "Save item",
+        type,
         undefined,
         async (content) => {
           unwrap(await send({ kind: "addItem", content }));
         },
         () => void refresh(),
       ),
+    );
+  };
+
+  // Asked before the form rather than switched on it: the type is fixed for
+  // the life of an item, so it is a choice, not a field.
+  add.addEventListener("click", () => {
+    const choices = (Object.keys(TYPE_LABEL) as ItemType[]).map((type, index) => {
+      const button = el("button", {
+        ...(index === 0 ? { className: "primary" } : {}),
+        type: "button",
+        textContent: TYPE_LABEL[type],
+      });
+      button.addEventListener("click", () => {
+        startNew(type);
+      });
+      return button;
+    });
+
+    body.replaceChildren(
+      el("h2", { textContent: "What are you saving?" }),
+      el("div", { className: "row" }, choices),
     );
   });
 
