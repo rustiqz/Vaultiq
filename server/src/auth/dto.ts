@@ -77,3 +77,26 @@ export class EnrollDto {
   @MaxLength(120)
   deviceName!: string;
 }
+
+/**
+ * Re-wrapping the vault under a new master password.
+ *
+ * Carries the *current* auth key as well as the new one. Proving the current
+ * password is what stops a stolen device credential from locking the owner
+ * out of their own vault.
+ */
+export class ChangeMasterPasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(512)
+  currentAuthKey!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(512)
+  newAuthKey!: string;
+
+  @ValidateNested()
+  @Type(() => VaultBootstrapDto)
+  vault!: VaultBootstrapDto;
+}

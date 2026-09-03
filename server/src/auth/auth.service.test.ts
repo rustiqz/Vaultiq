@@ -295,4 +295,125 @@ describeDb("auth", () => {
       ]);
     });
   });
+
+  describe("changing the master password", () => {
+    // A different salt and a different wrapping of the *same* vault key —
+    // which is the whole point of the indirection: no item is re-encrypted.
+    const REWRAPPED = {
+      saltB64: "bmV3c2FsdA==",
+      memoryKib: 65536,
+      iterations: 3,
+      parallelism: 4,
+      wrappedVaultKey: { version: 1, ciphertext: [9, 9, 9], nonce: [8, 8, 8] },
+    };
+
+    async function trusted(): Promise<import("./auth.service.js").Caller> {
+      const { deviceId, credential } = await registered();
+      return (await auth.identify(deviceId, credential))!;
+    }
+
+    it("re-wraps the vault and moves the auth key with it", async () => {
+      const caller = await trusted();
+
+      await auth.changeMasterPassword(caller, {
+        currentAuthKey: "auth-key",
+        newAuthKey: "new-auth-key",
+        vault: REWRAPPED,
+      });
+
+      // What the other devices will read on their next sync.
+      expect(await auth.vaultBootstrap(caller)).toEqual(REWRAPPED);
+
+      // And the new password is the one that enrols from now on.
+      const { token } = await auth.createEnrollmentToken(caller);
+      await expect(
+        auth.enroll({ token, authKey: "auth-key", deviceName: "Stale" }),
+      ).rejects.toThrow(/refused/i);
+      await expect(
+        auth.enroll({ token, authKey: "new-auth-key", deviceName: "Second" }),
+      ).resolves.toMatchObject({ deviceId: expect.stringMatching(/^[0-9a-f-]{36}$/) as string });
+    });
+
+    it("keeps the device credential working", async () => {
+      const { deviceId, credential } = await registered();
+      const caller = (await auth.identify(deviceId, credential))!;
+
+      await auth.changeMasterPassword(caller, {
+        currentAuthKey: "auth-key",
+        newAuthKey: "new-auth-key",
+        vault: REWRAPPED,
+      });
+
+      // Device credentials are unrelated to the password on purpose: a
+      // rotation must not silently sign every device out.
+      await expect(auth.identify(deviceId, credential)).resolves.toMatchObject({ deviceId });
+    });
+
+    it("refuses without the current auth key", async () => {
+      const caller = await trusted();
+
+      // The credential alone is not enough. A stolen laptop must not be able
+      // to lock its owner out of their own vault.
+      await expect(
+        auth.changeMasterPassword(caller, {
+          currentAuthKey: "wrong",
+          newAuthKey: "new-auth-key",
+          vault: REWRAPPED,
+        }),
+      ).rejects.toThrow(/refused/i);
+    });
+
+    it("changes nothing when it refuses", async () => {
+      const caller = await trusted();
+
+      await auth
+        .changeMasterPassword(caller, {
+          currentAuthKey: "wrong",
+          newAuthKey: "new-auth-key",
+          vault: REWRAPPED,
+        })
+        .catch(() => undefined);
+
+      // A half-applied change is the worst outcome available here: the vault
+      // re-wrapped but the auth key not moved would leave a vault nobody can
+      // enrol against.
+      expect(await auth.vaultBootstrap(caller)).toEqual(VAULT);
+      const { token } = await auth.createEnrollmentToken(caller);
+      await expect(
+        auth.enroll({ token, authKey: "auth-key", deviceName: "Second" }),
+      ).resolves.toMatchObject({ deviceId: expect.stringMatching(/^[0-9a-f-]{36}$/) as string });
+    });
+
+    it("spends outstanding enrolment tokens", async () => {
+      const caller = await trusted();
+      const { token } = await auth.createEnrollmentToken(caller);
+
+      await auth.changeMasterPassword(caller, {
+        currentAuthKey: "auth-key",
+        newAuthKey: "new-auth-key",
+        vault: REWRAPPED,
+      });
+
+      // An invitation minted under the old password should not outlive it.
+      await expect(
+        auth.enroll({ token, authKey: "new-auth-key", deviceName: "Second" }),
+      ).rejects.toThrow(/refused/i);
+    });
+
+    it("stores no auth key, only a hash of one", async () => {
+      const caller = await trusted();
+
+      await auth.changeMasterPassword(caller, {
+        currentAuthKey: "auth-key",
+        newAuthKey: "new-auth-key",
+        vault: REWRAPPED,
+      });
+
+      const { rows } = await pool.query<{ auth_key_hash: string }>(
+        "select auth_key_hash from users",
+      );
+      expect(rows[0]?.auth_key_hash).not.toContain("new-auth-key");
+      expect(rows[0]?.auth_key_hash.startsWith("$argon2")).toBe(true);
+    });
+  });
 });
