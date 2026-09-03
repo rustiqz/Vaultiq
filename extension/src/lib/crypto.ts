@@ -11,6 +11,7 @@ import init, {
   defaultPasswordOptions,
   estimateStrength,
   generatePassword,
+  deriveAuthKey,
   deriveMasterKey,
   encryptItem,
   decryptItem,
@@ -24,6 +25,7 @@ export type { MasterKeyHandle, VaultKeyHandle };
 export {
   generatePassword,
   decryptItem,
+  deriveAuthKey,
   deriveMasterKey,
   encryptItem,
   generateSalt,
