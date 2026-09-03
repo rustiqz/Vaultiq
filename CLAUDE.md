@@ -12,20 +12,32 @@ fast and clever, every time.
 
 ## 0. Current state (keep this section accurate)
 
-- **Phase: 1 — Rust crypto core.**
-- PROJECT.md says `pw-crypto-core/` was already scaffolded. It was not — the
+- **Phases 1–3 are complete.** The crypto core, the browser extension and the
+  sync server all build, test and lint clean.
+  - `pw-crypto-core/` — key derivation, vault key wrapping, item encryption and
+    the wasm bindings, pinned by known-answer vectors cross-computed with
+    OpenSSL and libsodium.
+  - `extension/` — Firefox Manifest V3: vault UI, autofill, capture, quick
+    unlock by PIN, per-device audit trail, sync, and master password change.
+  - `server/` — NestJS + PostgreSQL: device authentication, enrolment tokens,
+    revocation, item sync with version-based optimistic concurrency, and the
+    Docker/Caddy deployment.
+- **Next is phase 4**, native mobile over the same Rust core via FFI. That
+  brings the first `unsafe` in the repo — it lives in its own module, never in
+  `kdf`/`keys`/`vault_item` (§4.2).
+- [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
+  what is defended against belongs in that file in the same commit.
+- PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
   crate was created from scratch, with dependency versions looked up fresh
   against crates.io rather than taken from the doc.
-- **Phase 1 is complete.** `pw-crypto-core/` implements key derivation,
-  vault key wrapping and item encryption, pinned by known-answer vectors
-  cross-computed with OpenSSL and libsodium. `src/wasm.rs` is empty and
-  belongs to phase 2.
-- Cargo workspace at the repo root; one `Cargo.lock` for every crate.
+- Cargo workspace at the repo root; one `Cargo.lock` for every crate. The
+  extension and the server each have their own pnpm workspace and lockfile.
 - Git repository initialized; `main` is the trunk; `origin` is
   `git@github.com:rustiqz/Vaultiq.git`. CI and release automation live in
   `.github/workflows/` — see §8.
-- Toolchain present: cargo/rustc 1.98.0, git 2.55.0. The `wasm32-unknown-unknown`
-  target is required for the `wasm` feature (Arch: `rust-wasm`).
+- Toolchain: cargo/rustc 1.98.0, node 24, pnpm 11.3, git 2.55.0. The
+  `wasm32-unknown-unknown` target is required for the `wasm` feature (Arch:
+  `rust-wasm`), and `wasm-pack` for the extension's bundle and browser tests.
 
 Update this section when it stops being true.
 
