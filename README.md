@@ -4,8 +4,9 @@ A personal, zero-knowledge password manager. Everything is encrypted and
 decrypted on the client; the server stores ciphertext and the few fields
 needed to address it, and holds nothing that could decrypt any of it.
 
-See [PROJECT.md](PROJECT.md) for the design and [CLAUDE.md](CLAUDE.md) for the
-rules the code is held to.
+See [PROJECT.md](PROJECT.md) for the design, [SECURITY.md](SECURITY.md) for what
+it does and does not defend against, and [CLAUDE.md](CLAUDE.md) for the rules
+the code is held to.
 
 ```
 pw-crypto-core/   Rust. Every cryptographic decision lives here. Compiles
@@ -34,7 +35,7 @@ git config core.hooksPath .githooks
 ## The crypto core
 
 ```bash
-cargo test                                    # 87 unit tests
+cargo test                                    # 88 unit tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 cargo build --features wasm                   # the wasm feature must compile
@@ -60,7 +61,7 @@ then fails for want of the `wasm` feature.
 cd extension
 pnpm install
 pnpm run build      # builds the wasm package, then bundles into dist/
-pnpm test           # 205 tests
+pnpm test           # 216 tests
 pnpm run typecheck
 pnpm run lint
 ```
@@ -91,7 +92,7 @@ cd server
 pnpm install
 export DATABASE_URL="postgres://vaultiq:test@127.0.0.1:5433/vaultiq"
 pnpm run migrate    # migrations are idempotent; they also run at boot
-pnpm test           # 39 tests
+pnpm test           # 45 tests
 pnpm run dev        # http://localhost:3000
 curl localhost:3000/health
 ```
@@ -122,6 +123,27 @@ is nothing to reach from outside. Caddy obtains its own certificate for
 
 Sync runs on unlock and shortly after any change. There is no periodic
 background sync: it would mean keeping the vault key alive on a timer.
+
+## Changing the master password
+
+Under **Settings → Master password**. The vault key is unwrapped with the old
+password and wrapped again with the new one, so no item is re-encrypted and
+nothing has to re-sync — a rotation rewrites one record whatever the vault
+holds. It also moves to a fresh salt and to today's Argon2 costs, which is how
+a vault created years ago stops using that year's parameters.
+
+Connected to a server, the server is written first and the local record second.
+That order is deliberate: the server holds the record every other device reads,
+so a half-applied change leaves this device still opening with the old password
+and adopting the new record on its next sync. The other order would leave this
+device on a password the server had never heard of.
+
+Other devices pick the change up when they next sync — the vault key is
+unchanged, so they keep syncing throughout and simply need the new password at
+their next unlock. Outstanding enrolment tokens are spent by the change.
+
+There is no way back and no recovery: the old password then opens nothing,
+anywhere.
 
 ## Before committing
 
