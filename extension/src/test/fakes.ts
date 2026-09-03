@@ -52,6 +52,15 @@ export const cryptoFake = {
     level: password.length >= 16 ? "excellent" : "weak",
   })),
   generateSalt: vi.fn(() => "salt-b64"),
+  // Enough to tell the vault's plumbing apart from the real generator: the
+  // algorithm itself is pinned against RFC 6238 in Rust.
+  totpCode: vi.fn(
+    (secret: string, _algorithm: string, digits: number, _period: number, _at: number) => {
+      if (secret === "bad-secret") throw new Error("invalid argument: TOTP secret");
+      return "1".repeat(digits);
+    },
+  ),
+  totpSecondsRemaining: vi.fn((period: number, at: number) => period - (at % period)),
   generateVaultKey: vi.fn(() => handle("vault")),
   // Takes the real arguments so a test can assert what it was called with. A
   // zero-argument fake records empty tuples and verifies nothing.
