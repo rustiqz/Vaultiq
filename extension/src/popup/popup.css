@@ -210,3 +210,32 @@ li .row { margin-top: 8px; flex-wrap: wrap; }
 .level-fair { color: var(--warn); }
 .level-strong { color: var(--good); }
 .level-excellent { color: var(--accent); font-weight: 600; }
+
+/* --- Sync ------------------------------------------------------------- */
+
+h3 {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+/* Name on the left, Revoke on the right, wrapping rather than overflowing
+   in a popup this narrow. */
+.devices li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.devices li > span:first-child { flex: 1; min-width: 0; }
+
+/* The enrolment token is read off this screen and typed into another, so it
+   has to wrap and be selectable rather than trail off the edge. */
+.token {
+  user-select: all;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
