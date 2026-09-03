@@ -833,3 +833,85 @@ describe("mutating an item that does not exist", () => {
     expect(db.items.size).toBe(0);
   });
 });
+
+describe("changing the master password", () => {
+  const NEXT = "a completely different long phrase";
+
+  it("re-wraps the vault key rather than re-encrypting anything", async () => {
+    const id = await withOneItem();
+    const written = encryptedHeaders.length;
+
+    await vault.changeMasterPassword("correct horse battery staple", NEXT);
+
+    // The whole reason the vault key is indirected: a rotation touches one
+    // record, not every item. If this ever starts failing, a password change
+    // has quietly become an O(vault) rewrite — and a resync of everything.
+    expect(encryptedHeaders.length).toBe(written);
+    expect(storedContent(id)).toMatchObject({ username: CONTENT.username });
+  });
+
+  it("derives the new wrapping key from a fresh salt", async () => {
+    await vault.create("correct horse battery staple");
+    cryptoFake.generateSalt.mockReturnValueOnce("rotated-salt");
+
+    await vault.changeMasterPassword("correct horse battery staple", NEXT);
+
+    expect(db.vault?.saltB64).toBe("rotated-salt");
+    // Reusing the old salt would leave the two wrappings related for no
+    // reason; the new password must be stretched under a salt of its own.
+    expect(cryptoFake.deriveMasterKey).toHaveBeenLastCalledWith(
+      NEXT,
+      "rotated-salt",
+      65536,
+      3,
+      4,
+    );
+  });
+
+  it("adopts today's Argon2 costs", async () => {
+    await vault.create("correct horse battery staple");
+    // A vault created years ago should not stay on the costs of that year.
+    cryptoFake.recommendedParams.mockReturnValueOnce({
+      memory_kib: 131072,
+      iterations: 4,
+      parallelism: 4,
+    });
+
+    await vault.changeMasterPassword("correct horse battery staple", NEXT);
+
+    expect(db.vault).toMatchObject({ memoryKib: 131072, iterations: 4, parallelism: 4 });
+  });
+
+  it("leaves the record untouched when the current password is wrong", async () => {
+    await vault.create("correct horse battery staple");
+    const before = db.vault;
+    cryptoFake.unwrapVaultKey.mockImplementation(() => {
+      throw new Error("decryption failed");
+    });
+
+    await expect(vault.changeMasterPassword("wrong", NEXT)).rejects.toThrow(/decryption failed/);
+
+    // A half-done rotation would be a vault nobody can open.
+    expect(db.vault).toBe(before);
+  });
+
+  it("refuses an empty new password", async () => {
+    await vault.create("correct horse battery staple");
+    await expect(
+      vault.changeMasterPassword("correct horse battery staple", ""),
+    ).rejects.toThrow(/new master password/i);
+  });
+
+  it("frees the keys it derived", async () => {
+    await vault.create("correct horse battery staple");
+    freed.length = 0;
+
+    await vault.changeMasterPassword("correct horse battery staple", NEXT);
+
+    // Two master keys — the old one to open with, the new one to wrap with —
+    // and the vault key handle this opened for itself. None is garbage
+    // collected; an unfreed handle leaves key material in wasm memory.
+    expect(freed.filter((name) => name === "master")).toHaveLength(2);
+    expect(freed).toContain("vault");
+  });
+});
