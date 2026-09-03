@@ -1,8 +1,13 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { AuthService, type DeviceCredential, type VaultBootstrap } from "./auth.service.js";
+import {
+  AuthService,
+  type DeviceCredential,
+  type KdfParams,
+  type VaultBootstrap,
+} from "./auth.service.js";
 import { DeviceGuard, type AuthedRequest } from "./device.guard.js";
-import { EnrollDto, RegisterDto } from "./dto.js";
+import { EnrollDto, EnrollmentParamsDto, RegisterDto } from "./dto.js";
 
 @Controller()
 export class AuthController {
@@ -22,6 +27,22 @@ export class AuthController {
       vault: body.vault,
       deviceName: body.deviceName,
     });
+  }
+
+  /**
+   * The salt and costs an enrolling device needs to derive its auth key.
+   *
+   * POST rather than GET because the token travels in the body: a query
+   * string ends up in proxy logs and browser history, and this one is a
+   * bearer secret for the next fifteen minutes.
+   *
+   * Throttled like `enroll`, since it takes the same token and is the
+   * cheaper of the two to hammer.
+   */
+  @Post("auth/enrollment-params")
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  async enrollmentParams(@Body() body: EnrollmentParamsDto): Promise<KdfParams> {
+    return await this.auth.enrollmentParams(body.token);
   }
 
   /**
