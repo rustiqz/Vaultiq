@@ -356,7 +356,8 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pw-crypto-core/Cargo.toml Cargo.lock extension/package.json
+          git add pw-crypto-core/Cargo.toml Cargo.lock extension/package.json \
+            server/package.json
 
           if git diff --staged --quiet; then
             echo "Component versions already current."
