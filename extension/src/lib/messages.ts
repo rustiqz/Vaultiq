@@ -33,7 +33,7 @@ export interface PasswordOptions {
  * matching `type` for the popup's benefit, and it is stripped again before
  * anything is stored — one fact, one place.
  */
-export type ItemType = "login" | "note" | "card";
+export type ItemType = "login" | "note" | "card" | "identity";
 
 /** What every item carries, whatever its type. */
 export interface CommonContent {
@@ -100,7 +100,45 @@ export interface CardContent extends CommonContent {
   pin?: string;
 }
 
-export type ItemContent = LoginContent | NoteContent | CardContent;
+/**
+ * A person, as forms ask about one.
+ *
+ * The field names follow the HTML autocomplete tokens rather than any one
+ * country's postal vocabulary — `state` is `address-level1`, `city` is
+ * `address-level2` — because a form is what this will eventually be filled
+ * into, and a schema that has to be translated at fill time is a schema that
+ * will be translated differently by each client.
+ *
+ * Everything is a plain string, including the postcode: leading zeros are
+ * real, and half the world's postcodes contain letters.
+ */
+export interface IdentityContent extends CommonContent {
+  type: "identity";
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+
+  street: string;
+  street2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+
+  company?: string;
+  /** ISO `YYYY-MM-DD`, which is what a date input reads and writes. */
+  dateOfBirth?: string;
+  /**
+   * Passport number, national insurance number, Aadhaar, SSN.
+   *
+   * Masked wherever it is shown and kept out of the search index. It is the
+   * one field here that opens accounts on its own.
+   */
+  nationalId?: string;
+}
+
+export type ItemContent = LoginContent | NoteContent | CardContent | IdentityContent;
 
 /** What someone did with a login. */
 export type UsageEvent = "created" | "edited" | "autofilled" | "copied" | "revealed";
@@ -199,8 +237,13 @@ export interface CardFacts {
 export type DecryptedLogin = LoginContent & ItemFacts & PasswordFacts;
 export type DecryptedNote = NoteContent & ItemFacts;
 export type DecryptedCard = CardContent & ItemFacts & CardFacts;
+export type DecryptedIdentity = IdentityContent & ItemFacts;
 
-export type DecryptedItem = DecryptedLogin | DecryptedNote | DecryptedCard;
+export type DecryptedItem =
+  | DecryptedLogin
+  | DecryptedNote
+  | DecryptedCard
+  | DecryptedIdentity;
 
 import type { RemoteDevice } from "../sync/client.js";
 import type { SyncOutcome } from "../sync/engine.js";
