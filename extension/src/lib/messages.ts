@@ -33,7 +33,7 @@ export interface PasswordOptions {
  * matching `type` for the popup's benefit, and it is stripped again before
  * anything is stored — one fact, one place.
  */
-export type ItemType = "login" | "note";
+export type ItemType = "login" | "note" | "card";
 
 /** What every item carries, whatever its type. */
 export interface CommonContent {
@@ -80,7 +80,27 @@ export interface LoginContent extends CommonContent {
  */
 export type NoteContent = CommonContent & { type: "note" };
 
-export type ItemContent = LoginContent | NoteContent;
+/**
+ * A payment card.
+ *
+ * The expiry is two fields rather than one "MM/YY" string because that is the
+ * shape a checkout form asks for — `cc-exp-month` and `cc-exp-year` are
+ * separate inputs on most of them — and splitting a stored string at fill
+ * time would only move the parsing somewhere less testable.
+ */
+export interface CardContent extends CommonContent {
+  type: "card";
+  cardholder: string;
+  /** Digits only: spaces and dashes are normalized away as it is saved. */
+  number: string;
+  expiryMonth: string;
+  expiryYear: string;
+  securityCode: string;
+  /** Some cards have one, most vaults never fill it in. */
+  pin?: string;
+}
+
+export type ItemContent = LoginContent | NoteContent | CardContent;
 
 /** What someone did with a login. */
 export type UsageEvent = "created" | "edited" | "autofilled" | "copied" | "revealed";
@@ -162,10 +182,25 @@ export interface PasswordFacts {
  * insist on that instead of letting `item.password` be quietly undefined on
  * something that never had one.
  */
+/**
+ * What a card's number says about it, worked out where the item is decrypted.
+ *
+ * Derived rather than stored, like a password's strength: a stored brand
+ * would be a copy that could disagree with the number it describes, and it
+ * would have to be migrated the day the scheme list changes.
+ */
+export interface CardFacts {
+  /** The scheme, or null for a number no list recognises. */
+  brand: string | null;
+  /** How a card is identified out loud. Empty if the number is too short. */
+  last4: string;
+}
+
 export type DecryptedLogin = LoginContent & ItemFacts & PasswordFacts;
 export type DecryptedNote = NoteContent & ItemFacts;
+export type DecryptedCard = CardContent & ItemFacts & CardFacts;
 
-export type DecryptedItem = DecryptedLogin | DecryptedNote;
+export type DecryptedItem = DecryptedLogin | DecryptedNote | DecryptedCard;
 
 import type { RemoteDevice } from "../sync/client.js";
 import type { SyncOutcome } from "../sync/engine.js";
