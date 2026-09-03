@@ -8,6 +8,7 @@
 import {
   AUTO_LOCK_ALARM,
   addItem,
+  changeMasterPassword,
   assertSessionStorage,
   create,
   extendAutoLock,
@@ -82,6 +83,10 @@ async function handle(
       await unlock(request.masterPassword);
       await extendAutoLock();
       return { ok: true, kind: "unlock" };
+    case "changeMasterPassword":
+      await changeMasterPassword(request.currentPassword, request.newPassword);
+      await extendAutoLock();
+      return { ok: true, kind: "changeMasterPassword" };
     case "lock":
       await lock(request.forget ?? true);
       return { ok: true, kind: "lock" };
