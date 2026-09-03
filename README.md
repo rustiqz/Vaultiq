@@ -35,7 +35,7 @@ git config core.hooksPath .githooks
 ## The crypto core
 
 ```bash
-cargo test                                    # 88 unit tests
+cargo test                                    # 102 unit tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 cargo build --features wasm                   # the wasm feature must compile
@@ -48,7 +48,7 @@ to a different backend there, so a host test cannot tell whether
 
 ```bash
 cd pw-crypto-core
-wasm-pack test --headless --firefox -- --features wasm    # 15 tests
+wasm-pack test --headless --firefox -- --features wasm    # 18 tests
 ```
 
 Run it from inside the crate rather than passing its path — given a path
@@ -61,7 +61,7 @@ then fails for want of the `wasm` feature.
 cd extension
 pnpm install
 pnpm run build      # builds the wasm package, then bundles into dist/
-pnpm test           # 216 tests
+pnpm test           # 273 tests
 pnpm run typecheck
 pnpm run lint
 ```
@@ -70,11 +70,13 @@ To load it: `pnpm run dev` rebuilds on change and launches Firefox with the
 extension installed. To load it by hand instead, open `about:debugging` →
 **This Firefox** → **Load Temporary Add-on** and pick `extension/dist/manifest.json`.
 
-There is a manual test page at `extension/testbed/index.html` with ten cases
-for exercising autofill without registering anywhere real: sign-in, sign-up
-with confirmation, a change-password form, honeypot and disabled fields, two
-forms on one page, a form rendered late, one that submits by XHR with no form
-event, and one each inside an iframe and a closed shadow root.
+There is a manual test page at `extension/testbed/index.html` with fourteen
+cases for exercising autofill without registering anywhere real: sign-in,
+sign-up with confirmation, a change-password form, honeypot and disabled
+fields, two forms on one page, a form rendered late, one that submits by XHR
+with no form event, one each inside an iframe and a closed shadow root, a
+checkout form that declares its fields and one that does not, billing and
+shipping in a single form, and a one-time code box.
 
 ## The server
 
@@ -123,6 +125,31 @@ is nothing to reach from outside. Caddy obtains its own certificate for
 
 Sync runs on unlock and shortly after any change. There is no periodic
 background sync: it would mean keeping the vault key alive on a timer.
+
+## What a vault holds
+
+Five item types, all encrypted the same way and told apart by a field in the
+record header — which is bound into each item's authentication tag, so a
+server cannot relabel one:
+
+| Type | What it is | Autofills |
+|---|---|---|
+| Login | Username, password, site | Yes, on its own site only |
+| Card | Cardholder, number, expiry, security code, optional PIN | Yes, anywhere |
+| Identity | Name, company, email, phone, address, date of birth, national ID | Yes, anywhere |
+| Authenticator | A TOTP secret and the shape of its codes | Yes, into a one-time-code field |
+| Secure note | A name and free text | No — no field on any page is a note |
+
+A login is offered only to the site it belongs to. The other types have no
+site — the same card is used at every shop — so what protects them is that
+nothing is ever offered without the user focusing a field that asks for it,
+and no value leaves the background until they pick one item by hand. The
+content script is handed names only, never values.
+
+Authenticator accounts accept the `otpauth://` link an issuer prints beside
+its QR code, which carries the algorithm, digit count and period that a
+hand-typed secret leaves to guesswork. Codes are computed in the Rust core
+against RFC 6238's own published vectors, so every client agrees.
 
 ## Changing the master password
 
