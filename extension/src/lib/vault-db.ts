@@ -36,6 +36,23 @@ export interface StoredItem {
   version: number;
   updated_at: number;
   deleted: boolean;
+
+  /**
+   * The version the server last confirmed it holds. Local bookkeeping only:
+   * it is never sent, and it sits outside the fields bound into the
+   * authentication tag, so it cannot affect whether this item decrypts.
+   *
+   * Absent means "not known to be on the server", which is deliberately the
+   * value a freshly written item has. The bias matters — a spurious push is
+   * deduplicated by the server, a skipped one loses data silently.
+   */
+  synced_version?: number;
+
+  /**
+   * Set on a copy kept because two devices edited the same item at the same
+   * version. Holds the id of the item this one lost to.
+   */
+  conflict_of?: string;
 }
 
 function open(): Promise<IDBDatabase> {
