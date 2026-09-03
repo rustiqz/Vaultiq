@@ -85,6 +85,35 @@ fn item_encrypts_and_decrypts() {
 }
 
 #[wasm_bindgen_test]
+fn extra_fields_on_a_stored_item_are_ignored() {
+    // The extension keeps its own bookkeeping on each stored row — how far
+    // the server has confirmed it, whether it is a conflicted copy. Those
+    // fields ride along on the object handed back here, and decryption has to
+    // ignore them.
+    //
+    // Pinned as a test because the failure would be total and delayed: adding
+    // `deny_unknown_fields` to `EncryptedItem` still compiles, still passes
+    // every host test, and makes every vault on disk unreadable.
+    let vault_key = generate_vault_key().unwrap();
+    let item = encrypt_item_js(TEST_JSON, header("a"), &vault_key).unwrap();
+
+    js_sys::Reflect::set(
+        &item,
+        &JsValue::from_str("synced_version"),
+        &JsValue::from_f64(3.0),
+    )
+    .unwrap();
+    js_sys::Reflect::set(
+        &item,
+        &JsValue::from_str("conflict_of"),
+        &JsValue::from_str("some-other-id"),
+    )
+    .unwrap();
+
+    assert_eq!(decrypt_item_js(item, &vault_key).unwrap(), TEST_JSON);
+}
+
+#[wasm_bindgen_test]
 fn derivation_is_deterministic_across_the_boundary() {
     let salt = generate_salt().unwrap();
     let auth_a = derive_auth_key(&master_key(&salt)).unwrap();
