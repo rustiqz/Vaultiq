@@ -22,6 +22,8 @@ import {
   scorePassword,
   stashVaultKey,
   takeStashedVaultKey,
+  totpCode,
+  totpSecondsRemaining,
   unwrapVaultKey,
   wrapVaultKey,
   type MasterKeyHandle,
@@ -31,6 +33,7 @@ import {
 export { assertSessionStorage, loadCrypto };
 export type { SyncSummary };
 import { cardBrand, lastFour, normalizeCardNumber } from "../lib/card.js";
+import { TOTP_DEFAULTS } from "../lib/otpauth.js";
 import { matchesSite, siteScope } from "../lib/site.js";
 import type {
   AuditEvent,
@@ -41,6 +44,8 @@ import type {
   ItemContent,
   ItemFacts,
   ItemUsage,
+  TotpAlgorithmName,
+  TotpFacts,
   UsageEvent,
   LoginContent,
   PasswordOptions,
@@ -639,6 +644,41 @@ function optional<K extends string, V>(key: K, value: V | undefined): Record<K, 
   return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
 }
 
+/** A positive whole number, or nothing if the record does not carry one. */
+function whole(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/** The stored algorithm, or the RFC default for anything unrecognised. */
+function algorithmName(value: unknown): TotpAlgorithmName {
+  const named = text(value)?.toUpperCase();
+  return named === "SHA256" || named === "SHA512" ? named : "SHA1";
+}
+
+/**
+ * The code showing right now, and how long it lasts.
+ *
+ * A secret that will not decode yields an empty code rather than an
+ * exception: one mistyped account must not empty the whole list, and a row
+ * that says nothing is showing is something the user can act on.
+ */
+function currentCode(account: {
+  secret: string;
+  algorithm: TotpAlgorithmName;
+  digits: number;
+  period: number;
+}): TotpFacts {
+  const now = Date.now() / 1000;
+  try {
+    return {
+      code: totpCode(account.secret, account.algorithm, account.digits, account.period, now),
+      secondsRemaining: totpSecondsRemaining(account.period, now),
+    };
+  } catch {
+    return { code: "", secondsRemaining: 0 };
+  }
+}
+
 /**
  * The fields every item has, read defensively.
  *
@@ -718,6 +758,29 @@ export async function listItems(): Promise<DecryptedItem[]> {
       }
       case "note":
         return [{ type: "note", ...common, ...facts }];
+      case "totp": {
+        const digits = whole(content.digits) ?? TOTP_DEFAULTS.digits;
+        const period = whole(content.period) ?? TOTP_DEFAULTS.period;
+        return [
+          {
+            type: "totp",
+            ...common,
+            issuer: text(content.issuer) ?? "",
+            account: text(content.account) ?? "",
+            secret: text(content.secret) ?? "",
+            algorithm: algorithmName(content.algorithm),
+            digits,
+            period,
+            ...facts,
+            ...currentCode({
+              secret: text(content.secret) ?? "",
+              algorithm: algorithmName(content.algorithm),
+              digits,
+              period,
+            }),
+          },
+        ];
+      }
       case "identity":
         return [
           {
@@ -772,6 +835,28 @@ export async function listItems(): Promise<DecryptedItem[]> {
   return decrypted.sort((a, b) =>
     displayName(a).localeCompare(displayName(b), undefined, { sensitivity: "base" }),
   );
+}
+
+/**
+ * The code for one authenticator account.
+ *
+ * Its own request rather than a re-list: the popup refreshes a countdown once
+ * a second, and re-listing would decrypt every item in the vault to produce
+ * six digits.
+ */
+export async function totpCodeFor(id: string): Promise<TotpFacts> {
+  const vaultKey = await requireUnlocked();
+
+  const stored = await getItem(id);
+  if (!stored || stored.item_type !== "totp") throw new Error("No such authenticator account.");
+
+  const content = JSON.parse(decryptItem(stored, vaultKey)) as Record<string, unknown>;
+  return currentCode({
+    secret: text(content.secret) ?? "",
+    algorithm: algorithmName(content.algorithm),
+    digits: whole(content.digits) ?? TOTP_DEFAULTS.digits,
+    period: whole(content.period) ?? TOTP_DEFAULTS.period,
+  });
 }
 
 /**

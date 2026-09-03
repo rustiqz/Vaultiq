@@ -33,7 +33,7 @@ export interface PasswordOptions {
  * matching `type` for the popup's benefit, and it is stripped again before
  * anything is stored — one fact, one place.
  */
-export type ItemType = "login" | "note" | "card" | "identity";
+export type ItemType = "login" | "note" | "card" | "identity" | "totp";
 
 /** What every item carries, whatever its type. */
 export interface CommonContent {
@@ -138,7 +138,34 @@ export interface IdentityContent extends CommonContent {
   nationalId?: string;
 }
 
-export type ItemContent = LoginContent | NoteContent | CardContent | IdentityContent;
+/** The HMACs RFC 6238 allows an issuer to choose. */
+export type TotpAlgorithmName = "SHA1" | "SHA256" | "SHA512";
+
+/**
+ * An authenticator account: a shared secret and the shape of the codes it
+ * produces.
+ *
+ * The algorithm, digits and period are stored rather than assumed, even when
+ * they are the defaults. A record that carried only a secret would be one
+ * whose codes silently changed the day a default did.
+ */
+export interface TotpContent extends CommonContent {
+  type: "totp";
+  issuer: string;
+  account: string;
+  /** Base32, as the issuer printed it. */
+  secret: string;
+  algorithm: TotpAlgorithmName;
+  digits: number;
+  period: number;
+}
+
+export type ItemContent =
+  | LoginContent
+  | NoteContent
+  | CardContent
+  | IdentityContent
+  | TotpContent;
 
 /** What someone did with a login. */
 export type UsageEvent = "created" | "edited" | "autofilled" | "copied" | "revealed";
@@ -239,11 +266,28 @@ export type DecryptedNote = NoteContent & ItemFacts;
 export type DecryptedCard = CardContent & ItemFacts & CardFacts;
 export type DecryptedIdentity = IdentityContent & ItemFacts;
 
+/**
+ * The current code, worked out where the item is decrypted.
+ *
+ * Computed rather than stored — it is only true for the next few seconds —
+ * and computed in the background, because the popup does not load the crypto
+ * module. `code` is empty when the stored secret will not decode, which is
+ * how a mistyped secret becomes something the row can say rather than an
+ * exception that empties the list.
+ */
+export interface TotpFacts {
+  code: string;
+  secondsRemaining: number;
+}
+
+export type DecryptedTotp = TotpContent & ItemFacts & TotpFacts;
+
 export type DecryptedItem =
   | DecryptedLogin
   | DecryptedNote
   | DecryptedCard
-  | DecryptedIdentity;
+  | DecryptedIdentity
+  | DecryptedTotp;
 
 import type { RemoteDevice } from "../sync/client.js";
 import type { SyncOutcome } from "../sync/engine.js";
@@ -283,6 +327,10 @@ export type Request =
   // has to be able to propagate to other devices later.
   | { kind: "purgeItem"; id: string }
   | { kind: "listItems" }
+  // Just the code for one authenticator account, for the popup's countdown:
+  // re-listing the whole vault once a second would decrypt every item to
+  // refresh six digits.
+  | { kind: "totpCode"; id: string }
   // Generation happens in the background like everything else, so the popup
   // never loads the crypto module itself.
   | { kind: "generatePassword"; options?: PasswordOptions }
@@ -340,6 +388,7 @@ export type Response =
   | { ok: true; kind: "restoreItem" }
   | { ok: true; kind: "purgeItem" }
   | { ok: true; kind: "listItems"; items: DecryptedItem[] }
+  | { ok: true; kind: "totpCode"; code: string; secondsRemaining: number }
   | { ok: true; kind: "generatePassword"; password: string }
   | { ok: true; kind: "checkStrength"; strength: PasswordStrength }
   // Logins only: a note has no site to belong to, so nothing else can be here.

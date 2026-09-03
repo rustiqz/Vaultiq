@@ -45,6 +45,7 @@ import {
   revokeRemoteDevice,
   syncNow,
   syncStatus,
+  totpCodeFor,
 } from "./vault.js";
 import type { Request, Response } from "../lib/messages.js";
 
@@ -165,6 +166,11 @@ async function handle(
       const log = await auditLog();
       await extendAutoLock();
       return { ok: true, kind: "auditLog", ...log };
+    }
+    case "totpCode": {
+      const facts = await totpCodeFor(request.id);
+      await extendAutoLock();
+      return { ok: true, kind: "totpCode", ...facts };
     }
     case "listItems": {
       const items = await listItems();
