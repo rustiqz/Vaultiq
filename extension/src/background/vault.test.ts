@@ -10,6 +10,7 @@ import type {
   CardContent,
   DecryptedCard,
   DecryptedItem,
+  IdentityContent,
   LoginContent,
   NoteContent,
 } from "../lib/messages.js";
@@ -1122,5 +1123,66 @@ describe("cards", () => {
     expect(asLogin((await vault.listItems()).find((item) => item.type === "login")).reusedBy).toBe(
       0,
     );
+  });
+});
+
+describe("identities", () => {
+  // Entirely invented, like every other fixture here (CLAUDE.md §2.6).
+  const IDENTITY = {
+    type: "identity",
+    firstName: "Ada",
+    lastName: "Lovelace",
+    email: "ada@example.test",
+    phone: "+44 20 7946 0000",
+    street: "12 Analytical Way",
+    city: "London",
+    state: "Greater London",
+    postalCode: "N1 9AA",
+    country: "United Kingdom",
+    notes: "",
+  } satisfies IdentityContent;
+
+  it("round-trips every field it was given", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(IDENTITY);
+
+    expect((await vault.listItems())[0]).toMatchObject(IDENTITY);
+  });
+
+  it("omits the optional fields rather than storing them empty", async () => {
+    await vault.create("correct horse battery staple");
+    const id = await vault.addItem(IDENTITY);
+
+    for (const field of ["street2", "company", "dateOfBirth", "nationalId"]) {
+      expect(storedContent(id)).not.toHaveProperty(field);
+    }
+  });
+
+  it("keeps a national ID when there is one", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...IDENTITY, nationalId: "X1234567" });
+
+    const [item] = await vault.listItems();
+    expect(item).toMatchObject({ type: "identity", nationalId: "X1234567" });
+  });
+
+  it("never offers an identity to a page", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem(IDENTITY);
+    await vault.addItem({ ...CONTENT, url: "https://example.com" });
+
+    const { items } = await vault.itemsForUrl("https://example.com");
+    expect(items).toHaveLength(1);
+    expect(items.every((item) => item.type === "login")).toBe(true);
+  });
+
+  it("sorts among everything else by what it is called", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.addItem({ ...CONTENT, name: "Zebra" });
+    await vault.addItem({ ...IDENTITY, name: "Ada at home" });
+
+    // One list, whatever the types: an item is found by its name, not by
+    // first choosing a category.
+    expect((await vault.listItems()).map((item) => item.name)).toEqual(["Ada at home", "Zebra"]);
   });
 });
