@@ -93,19 +93,23 @@ resolve() {
 # A component's paths cover everything that lands in its artifact, not merely
 # its own directory. The extension bundles the crypto core as wasm, so a
 # core-only change alters the shipped extension and must move its version —
-# otherwise two different builds would claim to be the same version.
+# otherwise two different builds would claim to be the same version. The
+# server is the opposite case: it stores ciphertext and never opens it, so it
+# bundles no crypto core.
 core_version=$(resolve pw-crypto-core)
 extension_version=$(resolve extension pw-crypto-core)
+server_version=$(resolve server)
 
 # Manifest versions are plain dotted numbers; the tag stream carries a v.
 core_plain=${core_version#v}
 extension_plain=${extension_version#v}
+server_plain=${server_version#v}
 
 if $write; then
-  python3 - "$core_plain" "$extension_plain" <<'PY'
+  python3 - "$core_plain" "$extension_plain" "$server_plain" <<'PY'
 import json, re, sys
 
-core, extension = sys.argv[1], sys.argv[2]
+core, extension, server = sys.argv[1], sys.argv[2], sys.argv[3]
 
 # Only the version inside [package] — a blind substitution would rewrite every
 # pinned dependency in the file.
@@ -125,12 +129,15 @@ if replaced == 0:
     raise SystemExit(f"no version key in the [package] section of {path}")
 open(path, "w").write(text.replace(block, updated, 1))
 
-path = "extension/package.json"
-manifest = json.load(open(path))
-manifest["version"] = extension
-open(path, "w").write(json.dumps(manifest, indent=2) + "\n")
+for path, version in (
+    ("extension/package.json", extension),
+    ("server/package.json", server),
+):
+    manifest = json.load(open(path))
+    manifest["version"] = version
+    open(path, "w").write(json.dumps(manifest, indent=2) + "\n")
 PY
-  echo "wrote pw-crypto-core=$core_plain extension=$extension_plain" >&2
+  echo "wrote pw-crypto-core=$core_plain extension=$extension_plain server=$server_plain" >&2
 fi
 
 cat <<TABLE
@@ -138,4 +145,5 @@ cat <<TABLE
 | --- | --- |
 | \`pw-crypto-core\` | $core_version |
 | \`extension\` | $extension_version |
+| \`server\` | $server_version |
 TABLE
