@@ -5,6 +5,7 @@ import { NestFactory } from "@nestjs/core";
 import helmet from "helmet";
 import { AppModule } from "./app.module.js";
 import { migrate } from "./db/migrate.js";
+import { VERSION } from "./version.js";
 
 async function bootstrap(): Promise<void> {
   // Before the first request rather than as a deploy step: the server and its
@@ -32,7 +33,9 @@ async function bootstrap(): Promise<void> {
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, "0.0.0.0");
-  console.log(`vaultiq-server listening on ${String(port)}`);
+  // Logged at boot so a running container can be identified from its logs
+  // alone, without a request and without shelling in.
+  console.log(`vaultiq-server ${VERSION} listening on ${String(port)}`);
 }
 
 bootstrap().catch((error: unknown) => {
