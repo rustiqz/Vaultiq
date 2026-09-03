@@ -466,6 +466,40 @@ mod tests {
     }
 
     #[test]
+    fn rotating_the_master_password_re_wraps_the_same_vault_key() {
+        // The property the vault-key indirection exists for: a new master
+        // password re-wraps one key. Not a single item is re-encrypted, and
+        // the key that encrypted them is unchanged.
+        let vault_key = VaultKey::generate().unwrap();
+        let old = test_stretched_key();
+        let wrapped = wrap_vault_key(&vault_key, &old).unwrap();
+
+        let new_salt = Salt::from_bytes(&hex::<16>("0f0e0d0c0b0a09080706050403020100")).unwrap();
+        // Test-only password, as fake as the one above (CLAUDE.md §2.6).
+        let new_master = MasterKey::derive(
+            "a totally different test phrase",
+            &new_salt,
+            &Argon2Params::default(),
+        )
+        .unwrap();
+        let new_stretched = derive_stretched_encryption_key(&new_master).unwrap();
+
+        let opened = unwrap_vault_key(&wrapped, &old).unwrap();
+        let rewrapped = wrap_vault_key(&opened, &new_stretched).unwrap();
+
+        assert!(
+            unwrap_vault_key(&rewrapped, &new_stretched)
+                .unwrap()
+                .ct_eq(&vault_key),
+            "the vault key must survive a rotation unchanged"
+        );
+
+        // And the old password opens nothing afterwards. A rotation that left
+        // the previous wrapping usable would not be a rotation.
+        assert_unwrap_fails(&rewrapped, &old);
+    }
+
+    #[test]
     fn wrapped_key_does_not_contain_the_plaintext_key() {
         let stretched = test_stretched_key();
         let vault_key = VaultKey::generate().unwrap();
