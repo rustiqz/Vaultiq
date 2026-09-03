@@ -47,6 +47,7 @@ pub mod kdf;
 pub mod keys;
 pub mod password;
 mod secret;
+pub mod totp;
 pub mod vault_item;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -62,4 +63,5 @@ pub use keys::{
     derive_stretched_encryption_key, unwrap_vault_key, wrap_vault_key,
 };
 pub use password::{PasswordOptions, generate_password};
+pub use totp::{TotpAlgorithm, TotpParams, TotpSecret, seconds_remaining, totp_code};
 pub use vault_item::{EncryptedItem, ItemHeader, decrypt_item, encrypt_item};

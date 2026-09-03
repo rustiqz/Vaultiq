@@ -17,6 +17,8 @@ import {
   activeTabUrl,
   checkStrength,
   credentialForFill,
+  fillSuggestions,
+  fillValues,
   saveSubmitted,
   shouldOfferToSave,
   auditLog,
@@ -45,6 +47,7 @@ import {
   revokeRemoteDevice,
   syncNow,
   syncStatus,
+  totpCodeFor,
 } from "./vault.js";
 import type { Request, Response } from "../lib/messages.js";
 
@@ -141,6 +144,15 @@ async function handle(
       await extendAutoLock();
       return { ok: true, kind: "credentialForFill", ...credential };
     }
+    case "fillSuggestions": {
+      const offered = await fillSuggestions(request.wants, await requestOrigin(sender));
+      return { ok: true, kind: "fillSuggestions", ...offered };
+    }
+    case "fillValues": {
+      const values = await fillValues(request.id, await requestOrigin(sender));
+      await extendAutoLock();
+      return { ok: true, kind: "fillValues", values };
+    }
     case "shouldOfferToSave": {
       const decision = await shouldOfferToSave(request, await requestOrigin(sender));
       return decision.offer
@@ -165,6 +177,11 @@ async function handle(
       const log = await auditLog();
       await extendAutoLock();
       return { ok: true, kind: "auditLog", ...log };
+    }
+    case "totpCode": {
+      const facts = await totpCodeFor(request.id);
+      await extendAutoLock();
+      return { ok: true, kind: "totpCode", ...facts };
     }
     case "listItems": {
       const items = await listItems();

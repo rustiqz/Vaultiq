@@ -1,19 +1,28 @@
 // The content script. Runs inside every page, which is the least trustworthy
 // context in the extension, so it is deliberately dull:
 //
-//   * It holds no key and no password. It asks the background for a list of
-//     names, and asks again for one password only after a real click.
+//   * It holds no key and no secret. It asks the background for a list of
+//     names — no password, no card number, nothing worth stealing — and asks
+//     again for one item's values only after a real click.
 //   * It never names its own site. The background reads the sender tab's URL,
 //     so a compromised page cannot ask for credentials belonging to another.
 //   * It fills only on a genuine user gesture. Filling on page load would let
-//     a page read the password straight back out of the input.
+//     a page read the value straight back out of the input.
+//
+// That last rule carries more weight since cards and identities arrived. A
+// login is offered only to the site it belongs to; a card has no site, so the
+// click *is* the protection. Nothing here may ever fill one without it.
 
 import { readSubmission, submittedFields } from "./capture.js";
 import {
   fieldsFor,
   fillField,
+  fillScopeFor,
   isNewPasswordForm,
   newPasswordFields,
+  sectionOf,
+  tokenFor,
+  type FillToken,
   type LoginFields,
 } from "./detect.js";
 import {
@@ -23,7 +32,7 @@ import {
   type DropdownEntry,
 } from "./dropdown.js";
 import { showPrompt } from "./prompt.js";
-import type { Request, Response } from "../lib/messages.js";
+import type { ItemType, Request, Response } from "../lib/messages.js";
 
 async function ask(request: Request): Promise<Response> {
   return (await browser.runtime.sendMessage(request)) as Response;
@@ -38,6 +47,80 @@ const SUGGESTION_ID = "\u0000suggested-password";
 
 /** The fields the picker is currently attached to. */
 let active: LoginFields | undefined;
+
+/** Which item each row in the current picker came from. */
+let offered = new Map<string, ItemType>();
+
+/**
+ * The tokens an identity can answer.
+ *
+ * A card and a one-time code are recognised by their own prefixes; these are
+ * the rest, listed rather than pattern-matched so that adding a field to the
+ * identity schema does not silently start offering identities somewhere new.
+ */
+const IDENTITY_TOKENS = new Set<FillToken>([
+  "given-name",
+  "family-name",
+  "organization",
+  "email",
+  "tel",
+  "street-address",
+  "address-line1",
+  "address-line2",
+  "address-level1",
+  "address-level2",
+  "postal-code",
+  "country-name",
+  "bday",
+]);
+
+/**
+ * What the field under the cursor is asking for.
+ *
+ * Driven by the focused field, not by everything the page happens to
+ * contain: a form with a card section further down should not offer cards
+ * while the user is typing their email into it.
+ *
+ * Identities are offered only where there is no password field in scope. A
+ * sign-in form with an email box is asking for a login, and putting a list of
+ * addresses under it would be noise on the page people visit most.
+ */
+function wantsFor(target: HTMLInputElement, login: LoginFields | undefined): ItemType[] {
+  const wants: ItemType[] = [];
+  if (login && (target === login.password || target === login.username)) wants.push("login");
+
+  const token = tokenFor(target);
+  if (token?.startsWith("cc-")) wants.push("card");
+  if (token === "one-time-code") wants.push("totp");
+  if (token && !login && IDENTITY_TOKENS.has(token)) wants.push("identity");
+
+  return wants;
+}
+
+/**
+ * Writes one item's values into the fields that asked for them.
+ *
+ * Only fields in the focused field's own section, and only tokens the item
+ * actually has: a card with no PIN leaves the PIN box alone rather than
+ * blanking it.
+ */
+async function fillFrom(id: string, target: HTMLInputElement): Promise<void> {
+  const { fields } = fillScopeFor(target);
+  const section = sectionOf(target);
+
+  // Values cross into the page only here, only for the item just clicked.
+  const response = await ask({ kind: "fillValues", id });
+  if (!response.ok || response.kind !== "fillValues") return;
+
+  for (const [token, inputs] of fields) {
+    const value = response.values[token];
+    if (value === undefined) continue;
+    for (const input of inputs) {
+      if (sectionOf(input) === section) fillField(input, value);
+    }
+  }
+  target.focus();
+}
 
 /** The password offered in the current picker, if one was. */
 let suggested: string | undefined;
@@ -62,20 +145,24 @@ function useSuggestion(target: HTMLInputElement, password: string): void {
 
 async function offer(target: HTMLInputElement): Promise<void> {
   const fields = fieldsFor(target);
-  if (!fields) return;
+  const wants = wantsFor(target, fields);
+  if (wants.length === 0) return;
 
   const scope = target.closest("form") ?? document;
-  const choosing = isNewPasswordForm(fields.password, scope);
+  const choosing = Boolean(fields) && isNewPasswordForm(fields!.password, scope);
 
-  // No URL is sent. The background reads it from the sender tab.
-  const response = await ask({ kind: "itemsForSite" });
+  // No URL is sent. The background reads it from the sender tab, and answers
+  // with names only — no password, no card number, nothing worth stealing
+  // from a page that has not been clicked in.
+  const response = await ask({ kind: "fillSuggestions", wants });
   const stored =
-    response.ok && response.kind === "itemsForSite" ? response.items : [];
+    response.ok && response.kind === "fillSuggestions" ? response.suggestions : [];
 
+  offered = new Map(stored.map((item) => [item.id, item.type]));
   const entries: DropdownEntry[] = stored.map((item) => ({
     id: item.id,
-    label: item.name?.trim() || item.username || "(untitled)",
-    detail: item.name?.trim() ? item.username : (item.url ?? ""),
+    label: item.label,
+    detail: item.detail,
   }));
 
   suggested = undefined;
@@ -98,12 +185,18 @@ async function offer(target: HTMLInputElement): Promise<void> {
 
   active = fields;
   showDropdown(target, entries, (id) => {
-    if (!active) return;
     if (id === SUGGESTION_ID) {
       if (suggested) useSuggestion(target, suggested);
       return;
     }
-    void fill(id, active);
+    // A login goes through the site-scoped credential path it always has.
+    // Everything else has no site to be scoped to, so it is filled by token
+    // — and either way, only for the row the user just clicked.
+    if (offered.get(id) === "login") {
+      if (active) void fill(id, active);
+      return;
+    }
+    void fillFrom(id, target);
   });
 }
 
@@ -157,7 +250,15 @@ document.addEventListener(
   (event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
-    if (!["password", "text", "email"].includes(target.type.toLowerCase())) return;
+    // `tel`, `number` and `date` are here for cards and addresses; a checkout
+    // form's expiry and postcode boxes are routinely one of those.
+    if (
+      !["password", "text", "email", "tel", "number", "date", "search", ""].includes(
+        target.type.toLowerCase(),
+      )
+    ) {
+      return;
+    }
     if (!event.isTrusted) return;
     void offer(target);
   },

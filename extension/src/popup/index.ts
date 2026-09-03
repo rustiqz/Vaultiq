@@ -3,6 +3,8 @@
 // background context.
 
 import "./popup.css";
+import { cardBrand, lastFour } from "../lib/card.js";
+import { parseOtpauth, TOTP_DEFAULTS } from "../lib/otpauth.js";
 import { CLIPBOARD_SECONDS, copyForAWhile } from "../lib/clipboard.js";
 import { el } from "./dom.js";
 import { ago } from "./format.js";
@@ -10,12 +12,31 @@ import { syncPanel } from "./sync-panel.js";
 import {
   send,
   type DecryptedItem,
+  type DecryptedCard,
+  type DecryptedIdentity,
+  type DecryptedLogin,
+  type DecryptedNote,
+  type DecryptedTotp,
+  type CardContent,
+  type IdentityContent,
+  type ItemContent,
+  type TotpContent,
+  type ItemType,
   type LoginContent,
   type Request,
   type Response,
   type StrengthLevel,
   type VaultStatus,
 } from "../lib/messages.js";
+
+/** What each item type is called on screen. */
+const TYPE_LABEL: Record<ItemType, string> = {
+  login: "Login",
+  note: "Secure note",
+  card: "Card",
+  identity: "Identity",
+  totp: "Authenticator",
+};
 
 const STRENGTH_LABEL: Record<StrengthLevel, string> = {
   "very-weak": "Very weak",
@@ -367,11 +388,18 @@ function renderLocked(): void {
   );
 }
 
-/** A form for one item, used for both adding and editing. */
+/**
+ * A form for one item, used for both adding and editing.
+ *
+ * The type is fixed when the form opens and never offered as a control: an
+ * item does not change what it is, because its type is bound into the
+ * authentication tag of every version it has ever had.
+ */
 function itemForm(
   submitLabel: string,
-  initial: LoginContent | undefined,
-  submit: (content: LoginContent) => Promise<void>,
+  type: ItemType,
+  initial: ItemContent | undefined,
+  submit: (content: ItemContent) => Promise<void>,
   cancel?: () => void,
 ): HTMLFormElement {
   const name = el("input", {
@@ -379,77 +407,311 @@ function itemForm(
     autocomplete: "off",
     placeholder: "Optional, e.g. Work",
   });
-  const username = el("input", { type: "text", required: true, autocomplete: "off" });
-  const password = el("input", { type: "password", required: true, autocomplete: "off" });
-  const url = el("input", { type: "text", autocomplete: "off", placeholder: "https://" });
-  const email = el("input", { type: "email", autocomplete: "off" });
-  const mobile = el("input", { type: "tel", autocomplete: "off" });
-  const notes = el("textarea", { autocomplete: "off" });
+  if (initial) name.value = initial.name ?? "";
 
-  if (initial) {
-    name.value = initial.name ?? "";
-    username.value = initial.username;
-    password.value = initial.password;
-    url.value = initial.url;
-    email.value = initial.email ?? "";
-    mobile.value = initial.mobile ?? "";
-    notes.value = initial.notes;
-  } else {
-    // A new login is almost always for the page you are looking at, so the
-    // site is filled in rather than typed. Still editable.
-    void send({ kind: "itemsForSite" }).then((response) => {
-      if (response.ok && response.kind === "itemsForSite" && response.site && !url.value) {
-        url.value = response.site;
-      }
-    });
-  }
-
-  // Generation happens in the background; the popup never loads the crypto
-  // module. Revealing the field on generate is deliberate — a password you
-  // cannot see is one you cannot check against the site's own rules.
-  const generate = el("button", {
-    type: "button",
-    className: "inline",
-    textContent: "Generate",
-  });
-  generate.addEventListener("click", () => {
-    generate.disabled = true;
-    void send({ kind: "generatePassword" })
-      .then(unwrap)
-      .then((response) => {
-        if (response.kind !== "generatePassword") throw new Error("unexpected reply");
-        password.value = response.password;
-        password.type = "text";
-        rescore();
-      })
-      .catch((error: unknown) => {
-        showError(error instanceof Error ? error.message : "Failed.");
-      })
-      .finally(() => {
-        generate.disabled = false;
-      });
-  });
-
-  // Scored in the background as you type, so the popup never loads the
-  // crypto module and every client agrees on the number.
-  const meter = el("div", { className: "meter muted" });
-  let pending = 0;
-  const rescore = (): void => {
-    const value = password.value;
-    const token = ++pending;
-    if (!value) {
-      meter.textContent = "";
-      meter.className = "meter muted";
-      return;
-    }
-    void send({ kind: "checkStrength", password: value }).then((response) => {
-      if (token !== pending || !response.ok || response.kind !== "checkStrength") return;
-      const { level, bits } = response.strength;
-      meter.textContent = `${STRENGTH_LABEL[level]} · ~${String(bits)} bits`;
-      meter.className = `meter level-${level}`;
-    });
+  /** The name, omitted rather than stored empty — as it was before it existed. */
+  const named = (): { name?: string } => {
+    const trimmed = name.value.trim();
+    return trimmed ? { name: trimmed } : {};
   };
-  password.addEventListener("input", rescore);
+
+  const fields: HTMLElement[] = [el("label", {}, ["Name", name])];
+  let read: () => ItemContent;
+
+  if (type === "login") {
+    const login = initial?.type === "login" ? initial : undefined;
+
+    const username = el("input", { type: "text", required: true, autocomplete: "off" });
+    const password = el("input", { type: "password", required: true, autocomplete: "off" });
+    const url = el("input", { type: "text", autocomplete: "off", placeholder: "https://" });
+
+    if (login) {
+      username.value = login.username;
+      password.value = login.password;
+      url.value = login.url;
+    } else {
+      // A new login is almost always for the page you are looking at, so the
+      // site is filled in rather than typed. Still editable.
+      void send({ kind: "itemsForSite" }).then((response) => {
+        if (response.ok && response.kind === "itemsForSite" && response.site && !url.value) {
+          url.value = response.site;
+        }
+      });
+    }
+
+    // Generation happens in the background; the popup never loads the crypto
+    // module. Revealing the field on generate is deliberate — a password you
+    // cannot see is one you cannot check against the site's own rules.
+    const generate = el("button", {
+      type: "button",
+      className: "inline",
+      textContent: "Generate",
+    });
+    generate.addEventListener("click", () => {
+      generate.disabled = true;
+      void send({ kind: "generatePassword" })
+        .then(unwrap)
+        .then((response) => {
+          if (response.kind !== "generatePassword") throw new Error("unexpected reply");
+          password.value = response.password;
+          password.type = "text";
+          rescore();
+        })
+        .catch((error: unknown) => {
+          showError(error instanceof Error ? error.message : "Failed.");
+        })
+        .finally(() => {
+          generate.disabled = false;
+        });
+    });
+
+    // Scored in the background as you type, so the popup never loads the
+    // crypto module and every client agrees on the number.
+    const meter = el("div", { className: "meter muted" });
+    let pending = 0;
+    const rescore = (): void => {
+      const value = password.value;
+      const token = ++pending;
+      if (!value) {
+        meter.textContent = "";
+        meter.className = "meter muted";
+        return;
+      }
+      void send({ kind: "checkStrength", password: value }).then((response) => {
+        if (token !== pending || !response.ok || response.kind !== "checkStrength") return;
+        const { level, bits } = response.strength;
+        meter.textContent = `${STRENGTH_LABEL[level]} · ~${String(bits)} bits`;
+        meter.className = `meter level-${level}`;
+      });
+    };
+    password.addEventListener("input", rescore);
+
+    fields.push(
+      el("label", {}, ["Username", username]),
+      el("label", {}, ["Password", el("div", { className: "field" }, [password, generate])]),
+      meter,
+      el("label", {}, ["Site", url]),
+    );
+
+    read = (): LoginContent => ({
+      type: "login",
+      ...named(),
+      username: username.value,
+      password: password.value,
+      url: url.value,
+      // Fields this form does not show are carried through rather than
+      // dropped: an edit must not quietly delete what it cannot display.
+      notes: login?.notes ?? "",
+      ...(login?.email === undefined ? {} : { email: login.email }),
+      ...(login?.mobile === undefined ? {} : { mobile: login.mobile }),
+    });
+  } else if (type === "card") {
+    const card = initial?.type === "card" ? initial : undefined;
+
+    const cardholder = el("input", { type: "text", autocomplete: "off" });
+    const number = el("input", { type: "text", inputMode: "numeric", autocomplete: "off" });
+    const month = el("input", {
+      type: "text",
+      inputMode: "numeric",
+      placeholder: "MM",
+      maxLength: 2,
+    });
+    const year = el("input", {
+      type: "text",
+      inputMode: "numeric",
+      placeholder: "YYYY",
+      maxLength: 4,
+    });
+    const securityCode = el("input", {
+      type: "password",
+      inputMode: "numeric",
+      autocomplete: "off",
+      maxLength: 4,
+    });
+    const pin = el("input", {
+      type: "password",
+      inputMode: "numeric",
+      autocomplete: "off",
+      placeholder: "Optional",
+    });
+
+    if (card) {
+      cardholder.value = card.cardholder;
+      number.value = card.number;
+      month.value = card.expiryMonth;
+      year.value = card.expiryYear;
+      securityCode.value = card.securityCode;
+      pin.value = card.pin ?? "";
+    }
+
+    // Named as the scheme as soon as the number says which, so a mistyped
+    // card is visible before it is saved rather than after.
+    const scheme = el("div", { className: "meter muted" });
+    const relabel = (): void => {
+      const brand = cardBrand(number.value);
+      const tail = lastFour(number.value);
+      scheme.textContent = brand ? `${brand}${tail ? ` · ends ${tail}` : ""}` : "";
+    };
+    number.addEventListener("input", relabel);
+    relabel();
+
+    fields.push(
+      el("label", {}, ["Cardholder", cardholder]),
+      el("label", {}, ["Number", number]),
+      scheme,
+      el("label", {}, ["Expires", el("div", { className: "field" }, [month, year])]),
+      el("label", {}, ["Security code", securityCode]),
+      el("label", {}, ["PIN", pin]),
+    );
+
+    read = (): CardContent => ({
+      type: "card",
+      ...named(),
+      cardholder: cardholder.value,
+      number: number.value,
+      expiryMonth: month.value,
+      expiryYear: year.value,
+      securityCode: securityCode.value,
+      ...(pin.value ? { pin: pin.value } : {}),
+      notes: card?.notes ?? "",
+    });
+  } else if (type === "identity") {
+    const identity = initial?.type === "identity" ? initial : undefined;
+
+    /** One text input, prefilled from the item being edited. */
+    const line = (
+      key: keyof IdentityContent,
+      options: Partial<HTMLInputElement> = {},
+    ): HTMLInputElement => {
+      const input = el("input", { type: "text", autocomplete: "off", ...options });
+      const value = identity?.[key];
+      if (typeof value === "string") input.value = value;
+      return input;
+    };
+
+    const firstName = line("firstName");
+    const lastName = line("lastName");
+    const company = line("company");
+    const email = line("email", { type: "email" });
+    const phone = line("phone", { type: "tel" });
+    const street = line("street");
+    const street2 = line("street2", { placeholder: "Optional" });
+    const city = line("city");
+    const state = line("state");
+    const postalCode = line("postalCode");
+    const country = line("country");
+    const dateOfBirth = line("dateOfBirth", { type: "date" });
+    // Masked like a password: this is the field that opens accounts on its own.
+    const nationalId = line("nationalId", { type: "password", placeholder: "Optional" });
+
+    fields.push(
+      el("label", {}, ["First name", firstName]),
+      el("label", {}, ["Last name", lastName]),
+      el("label", {}, ["Company", company]),
+      el("label", {}, ["Email", email]),
+      el("label", {}, ["Phone", phone]),
+      el("label", {}, ["Address", street]),
+      el("label", {}, ["Address line 2", street2]),
+      el("label", {}, ["City", city]),
+      el("label", {}, ["State or region", state]),
+      el("label", {}, ["Postcode", postalCode]),
+      el("label", {}, ["Country", country]),
+      el("label", {}, ["Date of birth", dateOfBirth]),
+      el("label", {}, ["Passport or national ID", nationalId]),
+    );
+
+    read = (): IdentityContent => ({
+      type: "identity",
+      ...named(),
+      firstName: firstName.value,
+      lastName: lastName.value,
+      email: email.value,
+      phone: phone.value,
+      street: street.value,
+      ...(street2.value ? { street2: street2.value } : {}),
+      city: city.value,
+      state: state.value,
+      postalCode: postalCode.value,
+      country: country.value,
+      ...(company.value ? { company: company.value } : {}),
+      ...(dateOfBirth.value ? { dateOfBirth: dateOfBirth.value } : {}),
+      ...(nationalId.value ? { nationalId: nationalId.value } : {}),
+      notes: identity?.notes ?? "",
+    });
+  } else if (type === "totp") {
+    const account = initial?.type === "totp" ? initial : undefined;
+
+    const issuer = el("input", { type: "text", autocomplete: "off", placeholder: "e.g. GitHub" });
+    const holder = el("input", { type: "text", autocomplete: "off", placeholder: "you@example.com" });
+    const secret = el("input", {
+      type: "password",
+      autocomplete: "off",
+      placeholder: "Secret, or paste the otpauth:// link",
+    });
+
+    let shape = account
+      ? { algorithm: account.algorithm, digits: account.digits, period: account.period }
+      : { ...TOTP_DEFAULTS };
+
+    if (account) {
+      issuer.value = account.issuer;
+      holder.value = account.account;
+      secret.value = account.secret;
+    }
+
+    const shapeNote = el("div", { className: "meter muted" });
+    const describe = (): void => {
+      shapeNote.textContent =
+        shape.algorithm === TOTP_DEFAULTS.algorithm &&
+        shape.digits === TOTP_DEFAULTS.digits &&
+        shape.period === TOTP_DEFAULTS.period
+          ? ""
+          : `${shape.algorithm} · ${String(shape.digits)} digits · ${String(shape.period)}s`;
+    };
+    describe();
+
+    // The whole point of accepting the link: an authenticator's setup page
+    // offers it beside the QR code, and it carries the parameters that a
+    // hand-typed secret leaves to guesswork.
+    secret.addEventListener("input", () => {
+      const parsed = parseOtpauth(secret.value);
+      if (!parsed) return;
+      secret.value = parsed.secret;
+      if (parsed.issuer) issuer.value = parsed.issuer;
+      if (parsed.account) holder.value = parsed.account;
+      shape = { algorithm: parsed.algorithm, digits: parsed.digits, period: parsed.period };
+      describe();
+    });
+
+    fields.push(
+      el("label", {}, ["Issuer", issuer]),
+      el("label", {}, ["Account", holder]),
+      el("label", {}, ["Secret", secret]),
+      shapeNote,
+    );
+
+    read = (): TotpContent => ({
+      type: "totp",
+      ...named(),
+      issuer: issuer.value.trim(),
+      account: holder.value.trim(),
+      secret: secret.value.trim(),
+      // Stored even when they are the defaults: a record carrying only a
+      // secret is one whose codes change the day a default does.
+      algorithm: shape.algorithm,
+      digits: shape.digits,
+      period: shape.period,
+      notes: account?.notes ?? "",
+    });
+  } else {
+    // A secure note is its name and its text. `notes` is common to every
+    // item, so a note needs no field of its own — see NoteContent.
+    const body = el("textarea", { autocomplete: "off", rows: 8 });
+    if (initial) body.value = initial.notes;
+
+    fields.push(el("label", {}, ["Note", body]));
+    read = () => ({ type: "note", ...named(), notes: body.value });
+  }
 
   const save = el("button", { className: "primary", type: "submit", textContent: submitLabel });
   const actions = el("div", { className: "row" }, [save]);
@@ -460,27 +722,12 @@ function itemForm(
     actions.append(back);
   }
 
-  const form = el("form", {}, [
-    el("label", {}, ["Name", name]),
-    el("label", {}, ["Username", username]),
-    el("label", {}, ["Password", el("div", { className: "field" }, [password, generate])]),
-    el("label", {}, ["Site", url]),
-    actions,
-  ]);
+  const form = el("form", {}, [...fields, actions]);
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     save.disabled = true;
-    const trimmed = name.value.trim();
-    void submit({
-      // Omit rather than store an empty string, so an unnamed item looks the
-      // same as one saved before this field existed.
-      ...(trimmed ? { name: trimmed } : {}),
-      username: username.value,
-      password: password.value,
-      url: url.value,
-      notes: initial?.notes ?? "",
-    })
+    void submit(read())
       .then(refresh)
       .catch((error: unknown) => {
         save.disabled = false;
@@ -516,9 +763,122 @@ function stamps(item: DecryptedItem): HTMLElement {
   return el("div", { className: "stamps", textContent: parts.join(" · ") });
 }
 
+/** One row, dispatched on what the item actually is. */
 function liveRow(item: DecryptedItem): HTMLLIElement {
-  const edit = el("button", { className: "inline", type: "button", textContent: "Edit" });
+  switch (item.type) {
+    case "login":
+      return loginRow(item);
+    case "card":
+      return cardRow(item);
+    case "identity":
+      return identityRow(item);
+    case "totp":
+      return totpRow(item);
+    case "note":
+      return noteRow(item);
+  }
+}
 
+/** How an identity reads when it has no name of its own. */
+function identityLabel(item: DecryptedIdentity): string {
+  return [item.firstName, item.lastName].filter(Boolean).join(" ");
+}
+
+/** The address as one line, for copying into a single field. */
+function oneLineAddress(item: DecryptedIdentity): string {
+  return [item.street, item.street2, item.city, item.state, item.postalCode, item.country]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function identityRow(item: DecryptedIdentity): HTMLLIElement {
+  const noteUse = (): void => {
+    void send({ kind: "recordUse", id: item.id });
+  };
+
+  const address = oneLineAddress(item);
+  const copies = [
+    copyable(item.email, { onCopy: noteUse }),
+    copyable(item.phone, { onCopy: noteUse }),
+  ];
+  if (address) copies.push(copyable(address, { onCopy: noteUse }));
+  // Only shown when there is one, and never in the clear: a passport or
+  // national ID number opens accounts by itself.
+  if (item.nationalId) {
+    copies.push(copyable(item.nationalId, { masked: true, onCopy: noteUse }));
+  }
+
+  const row = el("li", {}, [
+    el("div", { className: "name" }, [item.name?.trim() || identityLabel(item) || "(unnamed)"]),
+    el("div", {
+      className: "meta",
+      textContent: [item.company, address].filter(Boolean).join(" · ") || TYPE_LABEL.identity,
+    }),
+    el("div", { className: "row" }, copies),
+    stamps(item),
+  ]);
+  row.append(rowActions(item, row));
+  return row;
+}
+
+/** How a card reads when it has no name of its own. */
+function cardLabel(item: DecryptedCard): string {
+  const scheme = item.brand ?? "Card";
+  return item.last4 ? `${scheme} ···· ${item.last4}` : scheme;
+}
+
+function cardRow(item: DecryptedCard): HTMLLIElement {
+  const noteUse = (): void => {
+    void send({ kind: "recordUse", id: item.id });
+  };
+
+  const expiry =
+    item.expiryMonth && item.expiryYear
+      ? `expires ${item.expiryMonth}/${item.expiryYear.slice(-2)}`
+      : "";
+
+  const row = el("li", {}, [
+    el("div", { className: "name" }, [item.name?.trim() || cardLabel(item)]),
+    el("div", {
+      className: "meta",
+      textContent: [item.cardholder, expiry].filter(Boolean).join(" · ") || cardLabel(item),
+    }),
+    // The number and the code are the secrets; the cardholder name is not,
+    // and having it readable is what makes the row identifiable at a glance.
+    el("div", { className: "row" }, [
+      copyable(item.number, { masked: true, onCopy: noteUse }),
+      copyable(item.securityCode, { masked: true, onCopy: noteUse }),
+    ]),
+    stamps(item),
+  ]);
+  row.append(rowActions(item, row));
+  return row;
+}
+
+/** The buttons every live row ends with, and the edit form they open. */
+function rowActions(item: DecryptedItem, row: HTMLLIElement): HTMLElement {
+  const edit = el("button", { className: "inline", type: "button", textContent: "Edit" });
+  edit.addEventListener("click", () => {
+    row.replaceChildren(
+      itemForm(
+        "Save",
+        item.type,
+        item,
+        async (content) => {
+          unwrap(await send({ kind: "updateItem", id: item.id, content }));
+        },
+        () => void refresh(),
+      ),
+    );
+  });
+
+  return el("div", { className: "row" }, [
+    edit,
+    action("Delete", { kind: "trashItem", id: item.id }),
+  ]);
+}
+
+function loginRow(item: DecryptedLogin): HTMLLIElement {
   const label = item.name?.trim();
   const heading = el("div", { className: "name" }, [label || item.username || "(untitled)"]);
   if (isWeak(item.strength.level)) {
@@ -554,42 +914,114 @@ function liveRow(item: DecryptedItem): HTMLLIElement {
       copyable(item.password, { masked: true, onCopy: noteUse }),
     ]),
     stamps(item),
-    el("div", { className: "row" }, [
-      edit,
-      action("Delete", { kind: "trashItem", id: item.id }),
-    ]),
   ]);
+  row.append(rowActions(item, row));
+  return row;
+}
 
-  edit.addEventListener("click", () => {
-    row.replaceChildren(
-      itemForm(
-        "Save",
-        item,
-        async (content) => {
-          unwrap(await send({ kind: "updateItem", id: item.id, content }));
-        },
-        () => void refresh(),
-      ),
+function noteRow(item: DecryptedNote): HTMLLIElement {
+  const noteUse = (): void => {
+    void send({ kind: "recordUse", id: item.id });
+  };
+
+  const row = el("li", {}, [
+    el("div", { className: "name" }, [item.name?.trim() || "(untitled note)"]),
+    el("div", { className: "meta", textContent: TYPE_LABEL.note }),
+    // Masked like a password. The body of a secure note is the secret — it
+    // has no username half that is safe to show at a glance.
+    el("div", { className: "row" }, [
+      copyable(item.notes, { masked: true, onCopy: noteUse }),
+    ]),
+    stamps(item),
+  ]);
+  row.append(rowActions(item, row));
+  return row;
+}
+
+/** How an authenticator account reads when it has no name of its own. */
+function totpLabel(item: DecryptedTotp): string {
+  return [item.issuer, item.account].filter(Boolean).join(" · ") || TYPE_LABEL.totp;
+}
+
+/**
+ * A row that counts down.
+ *
+ * The code is asked for again when its window runs out rather than on a
+ * fixed timer, and the request is for this one account — re-listing the vault
+ * once a second would decrypt every item to refresh six digits. The interval
+ * is cleared when the row leaves the document, which a re-render does.
+ */
+function totpRow(item: DecryptedTotp): HTMLLIElement {
+  const noteUse = (): void => {
+    void send({ kind: "recordUse", id: item.id });
+  };
+
+  const code = el("div", { className: "row" });
+  const countdown = el("div", { className: "meter muted" });
+
+  let showing = { code: item.code, secondsRemaining: item.secondsRemaining };
+
+  const paint = (): void => {
+    code.replaceChildren(
+      showing.code
+        ? copyable(showing.code, { onCopy: noteUse })
+        : el("span", { className: "error", textContent: "Secret cannot be read" }),
     );
-  });
+    countdown.textContent = showing.code ? `${String(showing.secondsRemaining)}s` : "";
+  };
+  paint();
 
+  const timer = setInterval(() => {
+    if (!row.isConnected) {
+      clearInterval(timer);
+      return;
+    }
+    if (showing.secondsRemaining > 1) {
+      showing = { ...showing, secondsRemaining: showing.secondsRemaining - 1 };
+      paint();
+      return;
+    }
+    void send({ kind: "totpCode", id: item.id }).then((response) => {
+      if (!response.ok || response.kind !== "totpCode") return;
+      showing = { code: response.code, secondsRemaining: response.secondsRemaining };
+      paint();
+    });
+  }, 1000);
+
+  const row = el("li", {}, [
+    el("div", { className: "name" }, [item.name?.trim() || totpLabel(item)]),
+    el("div", { className: "meta", textContent: item.name ? totpLabel(item) : TYPE_LABEL.totp }),
+    code,
+    countdown,
+    stamps(item),
+  ]);
+  row.append(rowActions(item, row));
   return row;
 }
 
 function trashedRow(item: DecryptedItem): HTMLLIElement {
   const label = item.name?.trim();
+  const fallback = untitled(item);
+  const detail =
+    item.type === "login"
+      ? [label ? item.username : "", item.url].filter(Boolean).join(" · ") || "(no site)"
+      : item.type === "card"
+        ? cardLabel(item)
+        : item.type === "identity"
+          ? oneLineAddress(item) || TYPE_LABEL.identity
+          : item.type === "totp"
+            ? totpLabel(item)
+            : TYPE_LABEL.note;
+
   return el("li", { className: "trashed" }, [
-    el("div", { className: "name" }, [label || item.username || "(untitled)"]),
-    el("div", {
-      className: "meta",
-      textContent: [label ? item.username : "", item.url].filter(Boolean).join(" · ") || "(no site)",
-    }),
+    el("div", { className: "name" }, [label || fallback || "(untitled)"]),
+    el("div", { className: "meta", textContent: detail }),
     el("div", { className: "row" }, [
       action("Restore", { kind: "restoreItem", id: item.id }),
       action(
         "Delete for good",
         { kind: "purgeItem", id: item.id },
-        "Erase this password permanently? It cannot be recovered.",
+        "Erase this item permanently? It cannot be recovered.",
       ),
     ]),
   ]);
@@ -597,10 +1029,33 @@ function trashedRow(item: DecryptedItem): HTMLLIElement {
 
 /** Everything the search box looks at. Never the password. */
 function haystack(item: DecryptedItem): string {
-  return [item.name, item.username, item.email, item.mobile, item.url, item.notes]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+  // A card is searched by its last four and its scheme, never by its full
+  // number: those are how a card is asked for, and a search that scanned
+  // whole numbers would match a typed digit against every card at once.
+  const fields =
+    item.type === "login"
+      ? [item.name, item.username, item.email, item.mobile, item.url, item.notes]
+      : item.type === "card"
+        ? [item.name, item.cardholder, item.brand, item.last4, item.notes]
+        : item.type === "identity"
+          ? // Never the national ID: it is a secret, and nobody searches by it.
+            [
+              item.name,
+              item.firstName,
+              item.lastName,
+              item.company,
+              item.email,
+              item.phone,
+              item.city,
+              item.country,
+              item.notes,
+            ]
+          : item.type === "totp"
+            ? // Never the secret, and never the code: one is the credential
+              // and the other is stale by the time anyone types it.
+              [item.name, item.issuer, item.account, item.notes]
+            : [item.name, item.notes];
+  return fields.filter(Boolean).join(" ").toLowerCase();
 }
 
 /** Most recently used first; anything never used falls back to its name. */
@@ -608,9 +1063,28 @@ function byRecentUse(a: DecryptedItem, b: DecryptedItem): number {
   const left = a.usage.lastUsedAt ?? 0;
   const right = b.usage.lastUsedAt ?? 0;
   if (left !== right) return right - left;
-  return (a.name ?? a.username).localeCompare(b.name ?? b.username, undefined, {
-    sensitivity: "base",
-  });
+  return sortName(a).localeCompare(sortName(b), undefined, { sensitivity: "base" });
+}
+
+/** What an item sorts under when nothing has been used recently. */
+function sortName(item: DecryptedItem): string {
+  return item.name ?? untitled(item);
+}
+
+/** What an item is called when it has no name of its own. */
+function untitled(item: DecryptedItem): string {
+  switch (item.type) {
+    case "login":
+      return item.username;
+    case "card":
+      return cardLabel(item);
+    case "identity":
+      return identityLabel(item);
+    case "totp":
+      return totpLabel(item);
+    case "note":
+      return "(untitled note)";
+  }
 }
 
 /** Kept across a re-render, so typing does not reset the list. */
@@ -639,7 +1113,7 @@ async function renderUnlocked(): Promise<void> {
 
   const search = el("input", {
     type: "search",
-    placeholder: "Search logins",
+    placeholder: "Search the vault",
     value: query,
     autocomplete: "off",
   });
@@ -679,7 +1153,7 @@ async function renderUnlocked(): Promise<void> {
   body.append(
     live.length
       ? el("div", { className: "group" }, [
-          el("h2", { textContent: site.length ? "Everything else" : "All logins" }),
+          el("h2", { textContent: site.length ? "Everything else" : "All items" }),
           el("ul", {}, live.map(liveRow)),
         ])
       : el("p", {
@@ -709,17 +1183,40 @@ async function renderUnlocked(): Promise<void> {
 
   body.append(el("hr"), generatorPanel(), el("hr"), syncPanel(showError), el("hr"), settingsPanel());
 
-  add.addEventListener("click", () => {
+  /** Opens an empty form for one type. */
+  const startNew = (type: ItemType): void => {
     body.replaceChildren(
-      el("h2", { textContent: "New login" }),
+      el("h2", { textContent: `New ${TYPE_LABEL[type].toLowerCase()}` }),
       itemForm(
         "Save item",
+        type,
         undefined,
         async (content) => {
           unwrap(await send({ kind: "addItem", content }));
         },
         () => void refresh(),
       ),
+    );
+  };
+
+  // Asked before the form rather than switched on it: the type is fixed for
+  // the life of an item, so it is a choice, not a field.
+  add.addEventListener("click", () => {
+    const choices = (Object.keys(TYPE_LABEL) as ItemType[]).map((type, index) => {
+      const button = el("button", {
+        ...(index === 0 ? { className: "primary" } : {}),
+        type: "button",
+        textContent: TYPE_LABEL[type],
+      });
+      button.addEventListener("click", () => {
+        startNew(type);
+      });
+      return button;
+    });
+
+    body.replaceChildren(
+      el("h2", { textContent: "What are you saving?" }),
+      el("div", { className: "row" }, choices),
     );
   });
 

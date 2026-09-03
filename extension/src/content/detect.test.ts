@@ -7,7 +7,14 @@
 // and a framework-backed input that ignores a plain value assignment.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fieldsFor, fillField, loginForms } from "./detect.js";
+import {
+  fieldsFor,
+  fillField,
+  loginForms,
+  sectionOf,
+  tokenFields,
+  tokenFor,
+} from "./detect.js";
 
 function render(html: string): void {
   document.body.innerHTML = html;
@@ -194,5 +201,100 @@ describe("filling a field", () => {
 
     fillField(document.querySelector<HTMLInputElement>("#u")!, "x");
     expect(heard).toHaveBeenCalled();
+  });
+});
+
+describe("naming a field", () => {
+  function input(html: string): HTMLInputElement {
+    render(`<form>${html}</form>`);
+    const field = document.querySelector("input");
+    if (!field) throw new Error("no input");
+    return field;
+  }
+
+  /** A form, rendered with the same visibility stub the rest of the file uses. */
+  function form(html: string): HTMLFormElement {
+    render(`<form>${html}</form>`);
+    const rendered = document.querySelector("form");
+    if (!rendered) throw new Error("no form");
+    return rendered;
+  }
+
+  it("believes the page when it declares what a field is", () => {
+    expect(tokenFor(input('<input autocomplete="cc-number">'))).toBe("cc-number");
+    expect(tokenFor(input('<input autocomplete="postal-code">'))).toBe("postal-code");
+  });
+
+  it("reads through the section and billing prefixes", () => {
+    // `section-blue billing cc-number` is valid, and the field name is the
+    // last word — which is where the spec puts it.
+    expect(tokenFor(input('<input autocomplete="section-blue billing cc-number">'))).toBe(
+      "cc-number",
+    );
+    expect(tokenFor(input('<input autocomplete="shipping address-line1">'))).toBe("address-line1");
+  });
+
+  it("guesses from the words developers reach for", () => {
+    expect(tokenFor(input('<input name="cardNumber">'))).toBe("cc-number");
+    expect(tokenFor(input('<input id="cvv">'))).toBe("cc-csc");
+    expect(tokenFor(input('<input placeholder="ZIP">'))).toBe("postal-code");
+    expect(tokenFor(input('<input aria-label="First name">'))).toBe("given-name");
+  });
+
+  it("leaves anything ambiguous unmatched", () => {
+    // A wrong guess types a card number into the wrong box. "code", "number"
+    // and "name" alone are not enough to act on.
+    expect(tokenFor(input('<input name="code">'))).toBeUndefined();
+    expect(tokenFor(input('<input name="number">'))).toBeUndefined();
+    expect(tokenFor(input('<input name="name">'))).toBeUndefined();
+    expect(tokenFor(input("<input>"))).toBeUndefined();
+  });
+
+  it("honours autocomplete=off", () => {
+    // Unlike a login, there is no long-standing convention of overriding it
+    // for an address or a card.
+    expect(tokenFor(input('<input autocomplete="off" name="cardNumber">'))).toBeUndefined();
+  });
+
+  it("never names a password field", () => {
+    // Filling a card number into something the browser will not display is
+    // how a number ends up where nobody can check it.
+    expect(tokenFields(form('<input type="password" autocomplete="cc-number">')).size).toBe(0);
+  });
+
+  it("collects every field a form asks for", () => {
+    const checkout = form(`
+      <input autocomplete="cc-name">
+      <input autocomplete="cc-number">
+      <input autocomplete="cc-exp-month">
+      <input autocomplete="cc-exp-year">
+      <input autocomplete="cc-csc">
+    `);
+
+    expect([...tokenFields(checkout).keys()].sort()).toEqual([
+      "cc-csc",
+      "cc-exp-month",
+      "cc-exp-year",
+      "cc-name",
+      "cc-number",
+    ]);
+  });
+
+  it("keeps every field sharing a token", () => {
+    // Billing and shipping side by side in one form. Which to fill is the
+    // caller's decision, made from a click.
+    const both = form(`
+      <input autocomplete="billing postal-code">
+      <input autocomplete="shipping postal-code">
+    `);
+    expect(tokenFields(both).get("postal-code")).toHaveLength(2);
+  });
+
+  it("reads the section a field belongs to", () => {
+    expect(sectionOf(input('<input autocomplete="billing cc-number">'))).toBe("billing");
+    expect(sectionOf(input('<input autocomplete="section-a shipping tel">'))).toBe("section-a shipping");
+    // The common case: no section at all.
+    expect(sectionOf(input('<input autocomplete="email">'))).toBe("");
+    expect(sectionOf(input('<input name="whatever">'))).toBe("");
   });
 });

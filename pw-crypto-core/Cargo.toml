@@ -22,6 +22,18 @@ chacha20poly1305 = { version = "=0.11.0", features = ["zeroize"] }
 # HKDF + SHA-256: domain-separated derivation of auth / stretched keys.
 hkdf = "=0.13.0"
 sha2 = "=0.11.0"
+# HMAC for RFC 6238 one-time passwords. Already in the tree as hkdf's own
+# dependency; named here because this crate now calls it directly.
+hmac = "=0.13.0"
+# SHA-1, for one reason: RFC 6238 defaults to HMAC-SHA1 and nearly every
+# issuer's QR code uses it, so a vault that could not compute it would produce
+# wrong codes for most real accounts. SHA-1's collision weakness does not
+# carry into HMAC, which is what it is used for here — never for signing,
+# hashing a password, or authenticating a message we store.
+sha1 = { version = "=0.11.0", default-features = false }
+# Base32 (RFC 4648) — the encoding every authenticator hands out its shared
+# secret in. Decoding only; no dependencies of its own.
+data-encoding = { version = "=2.11.1", default-features = false, features = ["alloc"] }
 # CSPRNG: OsRng only, for salts, nonces and the vault key.
 rand = "=0.10.2"
 # Scrubs key material from memory on drop.

@@ -24,9 +24,21 @@ export interface PasswordOptions {
   symbols: boolean;
 }
 
-export interface LoginContent {
+/**
+ * The kinds of thing a vault can hold.
+ *
+ * This lives in the *record header*, not in the encrypted content: it is
+ * bound into each item's authentication tag, so a server cannot relabel a
+ * secure note as a login and have it decrypt. The union below carries a
+ * matching `type` for the popup's benefit, and it is stripped again before
+ * anything is stored — one fact, one place.
+ */
+export type ItemType = "login" | "note" | "card" | "identity" | "totp";
+
+/** What every item carries, whatever its type. */
+export interface CommonContent {
   /**
-   * What to call this login.
+   * What to call this item.
    *
    * Optional, and it lives inside the encrypted content rather than beside
    * it — a server that could read "Work email" would learn a great deal
@@ -35,17 +47,10 @@ export interface LoginContent {
    * because the AEAD layout and the associated data are unchanged.
    */
   name?: string;
-  username: string;
-  password: string;
-  url: string;
   notes: string;
 
-  /** Optional, for forms that ask for one of these specifically. */
-  email?: string;
-  mobile?: string;
-
   /**
-   * When this login was first saved, and when its content last changed.
+   * When this item was first saved, and when its content last changed.
    *
    * Inside the encrypted content, and only ever written when the content
    * itself does — so they cost nothing in version churn. Absent on anything
@@ -54,6 +59,113 @@ export interface LoginContent {
   createdAt?: number;
   lastModifiedAt?: number;
 }
+
+export interface LoginContent extends CommonContent {
+  type: "login";
+  username: string;
+  password: string;
+  url: string;
+
+  /** Optional, for forms that ask for one of these specifically. */
+  email?: string;
+  mobile?: string;
+}
+
+/**
+ * A secure note: a name and free text, and deliberately nothing else.
+ *
+ * It adds no field of its own — `notes` is already common to every item, and
+ * a note whose body lived in a second field would mean two text areas on one
+ * form and two places for the same sentence to hide in.
+ */
+export type NoteContent = CommonContent & { type: "note" };
+
+/**
+ * A payment card.
+ *
+ * The expiry is two fields rather than one "MM/YY" string because that is the
+ * shape a checkout form asks for — `cc-exp-month` and `cc-exp-year` are
+ * separate inputs on most of them — and splitting a stored string at fill
+ * time would only move the parsing somewhere less testable.
+ */
+export interface CardContent extends CommonContent {
+  type: "card";
+  cardholder: string;
+  /** Digits only: spaces and dashes are normalized away as it is saved. */
+  number: string;
+  expiryMonth: string;
+  expiryYear: string;
+  securityCode: string;
+  /** Some cards have one, most vaults never fill it in. */
+  pin?: string;
+}
+
+/**
+ * A person, as forms ask about one.
+ *
+ * The field names follow the HTML autocomplete tokens rather than any one
+ * country's postal vocabulary — `state` is `address-level1`, `city` is
+ * `address-level2` — because a form is what this will eventually be filled
+ * into, and a schema that has to be translated at fill time is a schema that
+ * will be translated differently by each client.
+ *
+ * Everything is a plain string, including the postcode: leading zeros are
+ * real, and half the world's postcodes contain letters.
+ */
+export interface IdentityContent extends CommonContent {
+  type: "identity";
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+
+  street: string;
+  street2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+
+  company?: string;
+  /** ISO `YYYY-MM-DD`, which is what a date input reads and writes. */
+  dateOfBirth?: string;
+  /**
+   * Passport number, national insurance number, Aadhaar, SSN.
+   *
+   * Masked wherever it is shown and kept out of the search index. It is the
+   * one field here that opens accounts on its own.
+   */
+  nationalId?: string;
+}
+
+/** The HMACs RFC 6238 allows an issuer to choose. */
+export type TotpAlgorithmName = "SHA1" | "SHA256" | "SHA512";
+
+/**
+ * An authenticator account: a shared secret and the shape of the codes it
+ * produces.
+ *
+ * The algorithm, digits and period are stored rather than assumed, even when
+ * they are the defaults. A record that carried only a secret would be one
+ * whose codes silently changed the day a default did.
+ */
+export interface TotpContent extends CommonContent {
+  type: "totp";
+  issuer: string;
+  account: string;
+  /** Base32, as the issuer printed it. */
+  secret: string;
+  algorithm: TotpAlgorithmName;
+  digits: number;
+  period: number;
+}
+
+export type ItemContent =
+  | LoginContent
+  | NoteContent
+  | CardContent
+  | IdentityContent
+  | TotpContent;
 
 /** What someone did with a login. */
 export type UsageEvent = "created" | "edited" | "autofilled" | "copied" | "revealed";
@@ -100,14 +212,18 @@ export interface DeviceIdentity {
   name: string;
 }
 
-/** An item as the popup sees it: plaintext, and only while unlocked. */
-export interface DecryptedItem extends LoginContent {
+/** What is true of every item once decrypted, whatever its type. */
+export interface ItemFacts {
   id: string;
   updatedAt: number;
   /** In the trash. The content is still here and can be restored. */
   deleted: boolean;
-  /** Zeroed for a login that has never been reached for. */
+  /** Zeroed for an item that has never been reached for. */
   usage: ItemUsage;
+}
+
+/** What only a login has: a password, and therefore something to say about it. */
+export interface PasswordFacts {
   /**
    * How many *other* live logins share this password.
    *
@@ -121,6 +237,71 @@ export interface DecryptedItem extends LoginContent {
    * not have to load the crypto module to show a badge.
    */
   strength: PasswordStrength;
+}
+
+/**
+ * An item as the popup sees it: plaintext, and only while unlocked.
+ *
+ * A union rather than one wide shape with optional fields. The popup has to
+ * branch on the type anyway to render it, and a union makes the compiler
+ * insist on that instead of letting `item.password` be quietly undefined on
+ * something that never had one.
+ */
+/**
+ * What a card's number says about it, worked out where the item is decrypted.
+ *
+ * Derived rather than stored, like a password's strength: a stored brand
+ * would be a copy that could disagree with the number it describes, and it
+ * would have to be migrated the day the scheme list changes.
+ */
+export interface CardFacts {
+  /** The scheme, or null for a number no list recognises. */
+  brand: string | null;
+  /** How a card is identified out loud. Empty if the number is too short. */
+  last4: string;
+}
+
+export type DecryptedLogin = LoginContent & ItemFacts & PasswordFacts;
+export type DecryptedNote = NoteContent & ItemFacts;
+export type DecryptedCard = CardContent & ItemFacts & CardFacts;
+export type DecryptedIdentity = IdentityContent & ItemFacts;
+
+/**
+ * The current code, worked out where the item is decrypted.
+ *
+ * Computed rather than stored — it is only true for the next few seconds —
+ * and computed in the background, because the popup does not load the crypto
+ * module. `code` is empty when the stored secret will not decode, which is
+ * how a mistyped secret becomes something the row can say rather than an
+ * exception that empties the list.
+ */
+export interface TotpFacts {
+  code: string;
+  secondsRemaining: number;
+}
+
+export type DecryptedTotp = TotpContent & ItemFacts & TotpFacts;
+
+export type DecryptedItem =
+  | DecryptedLogin
+  | DecryptedNote
+  | DecryptedCard
+  | DecryptedIdentity
+  | DecryptedTotp;
+
+/**
+ * One line in the autofill picker.
+ *
+ * Names only. The content script runs inside the page — the least trusted
+ * context in the extension — and it is handed enough to draw a list and
+ * nothing that would be worth stealing. Values arrive one item at a time,
+ * after a click, through `fillValues`.
+ */
+export interface FillSuggestion {
+  id: string;
+  type: ItemType;
+  label: string;
+  detail: string;
 }
 
 import type { RemoteDevice } from "../sync/client.js";
@@ -152,8 +333,8 @@ export type Request =
   | { kind: "unlockWithPin"; pin: string }
   | { kind: "autoLock" }
   | { kind: "setAutoLock"; minutes: number }
-  | { kind: "addItem"; content: LoginContent }
-  | { kind: "updateItem"; id: string; content: LoginContent }
+  | { kind: "addItem"; content: ItemContent }
+  | { kind: "updateItem"; id: string; content: ItemContent }
   // Moves to the trash: the content is kept and can be restored.
   | { kind: "trashItem"; id: string }
   | { kind: "restoreItem"; id: string }
@@ -161,6 +342,10 @@ export type Request =
   // has to be able to propagate to other devices later.
   | { kind: "purgeItem"; id: string }
   | { kind: "listItems" }
+  // Just the code for one authenticator account, for the popup's countdown:
+  // re-listing the whole vault once a second would decrypt every item to
+  // refresh six digits.
+  | { kind: "totpCode"; id: string }
   // Generation happens in the background like everything else, so the popup
   // never loads the crypto module itself.
   | { kind: "generatePassword"; options?: PasswordOptions }
@@ -178,6 +363,12 @@ export type Request =
   // belongs to the sender's own site, so a compromised page cannot read
   // credentials for anywhere else.
   | { kind: "credentialForFill"; id: string }
+  // What the autofill picker should list for the field just focused. Carries
+  // no URL and no values: the background reads the sender tab's site itself,
+  // and answers with labels only.
+  | { kind: "fillSuggestions"; wants: ItemType[] }
+  // The values for the one item the user picked, keyed by autocomplete token.
+  | { kind: "fillValues"; id: string }
   // Asks whether a just-submitted login is worth offering to save. Carries no
   // URL: the background uses the sender tab, as everywhere else.
   | { kind: "shouldOfferToSave"; username: string; password: string }
@@ -218,14 +409,18 @@ export type Response =
   | { ok: true; kind: "restoreItem" }
   | { ok: true; kind: "purgeItem" }
   | { ok: true; kind: "listItems"; items: DecryptedItem[] }
+  | { ok: true; kind: "totpCode"; code: string; secondsRemaining: number }
   | { ok: true; kind: "generatePassword"; password: string }
   | { ok: true; kind: "checkStrength"; strength: PasswordStrength }
-  | { ok: true; kind: "itemsForSite"; site: string | null; items: DecryptedItem[] }
+  // Logins only: a note has no site to belong to, so nothing else can be here.
+  | { ok: true; kind: "itemsForSite"; site: string | null; items: DecryptedLogin[] }
   | { ok: true; kind: "recordUse" }
   | { ok: true; kind: "device"; device: DeviceIdentity }
   | { ok: true; kind: "renameDevice" }
   | { ok: true; kind: "auditLog"; events: AuditEvent[]; devices: DeviceIdentity[] }
   | { ok: true; kind: "credentialForFill"; username: string; password: string }
+  | { ok: true; kind: "fillSuggestions"; site: string | null; suggestions: FillSuggestion[] }
+  | { ok: true; kind: "fillValues"; values: Record<string, string> }
   | { ok: true; kind: "shouldOfferToSave"; offer: false }
   | { ok: true; kind: "shouldOfferToSave"; offer: true; site: string; existingId: string | null }
   | { ok: true; kind: "saveSubmitted" }
