@@ -5,6 +5,12 @@
 android/app/src/main/jniLibs/
 android/app/src/main/java/uniffi/
 
+# Local dev defaults (e.g. the server URL used every test run) -- same
+# .example pattern as the repo-root .env/.env.example. Never put a real
+# enrollment token here: tokens are single-use and expire in 15 minutes, so
+# there is no default that would still work.
+src/devConfig.ts
+
 # OSX
 #
 .DS_Store
