@@ -1,13 +1,20 @@
 /**
  * Vaultiq mobile -- proving-ground shell.
  *
- * Join Vault, Unlock, Vault Home, Item Detail and Settings are styled
- * against real mockups (fall palette -- see src/theme.ts) and wired with
- * real navigation (bottom tabs once unlocked, a stack for Vault Home ->
- * Item Detail, native back gesture/button support throughout). New Item
- * and Autofill have no plumbing behind them yet and don't exist as screens.
- * Covers enrollment, unlock, a read-only item list with detail viewing,
- * device management, and idle auto-lock (CLAUDE.md §0, phase 4).
+ * Join Vault, Unlock, Vault Home, Item Detail, Authenticator and Settings
+ * are laid out against the real Figma exports (~/Downloads/screen-*.svg,
+ * rasterized and reviewed -- see src/theme.ts for what carried over vs.
+ * what stayed ours: the fall palette is ours, layout/components/icons now
+ * follow Figma). Real navigation throughout: bottom tabs once unlocked,
+ * a stack for Vault Home -> Item Detail and one for Settings -> Auto-lock,
+ * native back gesture/button support. New Item and Autofill have no
+ * plumbing behind them yet and don't exist as screens; the item-detail
+ * header's favorite/edit/delete icons are shown for visual fidelity but are
+ * not wired to anything real yet (same reason).
+ *
+ * Covers enrollment, unlock, a read-only item list with detail viewing, a
+ * live-code authenticator tab, device management, and idle auto-lock
+ * (CLAUDE.md §0, phase 4).
  *
  * @format
  */
@@ -16,18 +23,21 @@ import { NavigationContainer, type Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StatusBar, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import Icon, { type FeatherName } from './src/icons';
 import * as storage from './src/storage';
 import { colors } from './src/theme';
 import * as vault from './src/vault';
 import type { Status } from './src/vault';
-import type { VaultStackParamList } from './src/navigation';
+import type { SettingsStackParamList, VaultStackParamList } from './src/navigation';
 import JoinVaultScreen from './src/screens/JoinVaultScreen';
 import UnlockScreen from './src/screens/UnlockScreen';
 import VaultHomeScreen from './src/screens/VaultHomeScreen';
 import ItemDetailScreen from './src/screens/ItemDetailScreen';
+import AuthenticatorScreen from './src/screens/AuthenticatorScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import AutoLockScreen from './src/screens/AutoLockScreen';
 
 // `card` matches `background` exactly (not the slightly-lighter `surface`)
 // so the header has no visible seam against the content below it -- a flat,
@@ -50,18 +60,72 @@ const navigationTheme: Theme = {
   },
 };
 
+const ITEM_TYPE_TITLES: Record<string, string> = {
+  login: 'Login',
+  card: 'Payment Card',
+  identity: 'Identity',
+  note: 'Secure Note',
+  totp: 'Authenticator',
+};
+
+function notYetAvailable(feature: string) {
+  Alert.alert('Not yet available', `${feature} isn't implemented yet.`);
+}
+
+/** Favorite/edit/delete: shown for visual fidelity, not wired to anything real (see file header). */
+function ItemDetailHeaderActions() {
+  return (
+    <View style={styles.headerActions}>
+      <Pressable onPress={() => notYetAvailable('Favoriting')}>
+        <Icon name="heart" />
+      </Pressable>
+      <Pressable onPress={() => notYetAvailable('Editing')}>
+        <Icon name="edit-2" />
+      </Pressable>
+      <Pressable onPress={() => notYetAvailable('Deleting')}>
+        <Icon name="trash-2" />
+      </Pressable>
+    </View>
+  );
+}
+
 const VaultStack = createNativeStackNavigator<VaultStackParamList>();
 
 function VaultTab() {
   return (
-    <VaultStack.Navigator screenOptions={{ headerTintColor: colors.heading, headerShadowVisible: false }}>
+    <VaultStack.Navigator screenOptions={{ headerTintColor: colors.text, headerShadowVisible: false }}>
       <VaultStack.Screen name="VaultHome" component={VaultHomeScreen} options={{ title: 'Vaultiq' }} />
-      <VaultStack.Screen name="ItemDetail" component={ItemDetailScreen} options={({ route }) => ({ title: route.params.item.itemType })} />
+      <VaultStack.Screen
+        name="ItemDetail"
+        component={ItemDetailScreen}
+        options={({ route }) => ({
+          title: ITEM_TYPE_TITLES[route.params.item.itemType] ?? route.params.item.itemType,
+          headerRight: ItemDetailHeaderActions,
+        })}
+      />
     </VaultStack.Navigator>
   );
 }
 
+const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
+
+function SettingsTab(props: { onLock: () => void }) {
+  return (
+    <SettingsStack.Navigator screenOptions={{ headerTintColor: colors.text, headerShadowVisible: false }}>
+      <SettingsStack.Screen name="SettingsHome" options={{ title: 'Settings' }}>
+        {screenProps => <SettingsScreen {...screenProps} onLock={props.onLock} />}
+      </SettingsStack.Screen>
+      <SettingsStack.Screen name="AutoLock" component={AutoLockScreen} options={{ title: 'Auto-lock timeout' }} />
+    </SettingsStack.Navigator>
+  );
+}
+
 const Tab = createBottomTabNavigator();
+const TAB_ICONS: Record<string, FeatherName> = {
+  Vault: 'grid',
+  Authenticator: 'shield',
+  Settings: 'settings',
+};
 
 function App() {
   const [status, setStatus] = useState<Status | 'loading'>('loading');
@@ -117,7 +181,10 @@ function App() {
       <NavigationContainer theme={navigationTheme}>
         {status === 'loading' && (
           <View style={styles.loading}>
-            <ActivityIndicator color={colors.primary} />
+            <View style={styles.brandMark}>
+              <Icon name="shield" size={28} color={colors.onPrimary} />
+            </View>
+            <ActivityIndicator color={colors.primary} style={styles.spinner} />
           </View>
         )}
         {status === 'not-enrolled' && (
@@ -147,22 +214,20 @@ function App() {
         {status === 'unlocked' && (
           <View style={styles.tabRoot} onTouchStart={resetIdleTimer}>
             <Tab.Navigator
-              screenOptions={{
+              screenOptions={({ route }) => ({
                 headerShown: false,
                 tabBarActiveTintColor: colors.primary,
                 tabBarInactiveTintColor: colors.muted,
                 // No border/shadow -- the tab bar is the same surface as the
                 // content above it, not a separate boxed strip.
                 tabBarStyle: { backgroundColor: colors.background, borderTopWidth: 0, elevation: 0 },
-              }}
+                // eslint-disable-next-line react/no-unstable-nested-components -- React Navigation's own documented tabBarIcon shape.
+                tabBarIcon: ({ color, size }) => <Icon name={TAB_ICONS[route.name] ?? 'circle'} color={color} size={size} />,
+              })}
             >
               <Tab.Screen name="Vault" component={VaultTab} />
-              <Tab.Screen
-                name="Settings"
-                options={{ headerShown: true, headerTintColor: colors.heading, headerShadowVisible: false }}
-              >
-                {() => <SettingsScreen onLock={doLock} />}
-              </Tab.Screen>
+              <Tab.Screen name="Authenticator" component={AuthenticatorScreen} options={{ headerShown: true, title: 'Authenticator' }} />
+              <Tab.Screen name="Settings">{() => <SettingsTab onLock={doLock} />}</Tab.Screen>
             </Tab.Navigator>
           </View>
         )}
@@ -177,9 +242,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 16,
+  },
+  brandMark: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spinner: {
+    marginTop: 8,
   },
   tabRoot: {
     flex: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 16,
+    paddingRight: 4,
   },
 });
 

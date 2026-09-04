@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text } from 'react-native';
+import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { DEV_DEVICE_NAME, DEV_SERVER_URL } from '../devConfig';
 import { colors, spacing } from '../theme';
 import { Field, PillButton } from '../ui';
@@ -16,8 +16,10 @@ export default function JoinVaultScreen(props: {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <View style={styles.header}>
         <Text style={styles.title}>Join Vault</Text>
+      </View>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Field
           label="Server URL"
           placeholder="https://vault.example.com"
@@ -27,7 +29,7 @@ export default function JoinVaultScreen(props: {
         />
         <Field
           label="Enrollment Token"
-          placeholder="From an already-enrolled device"
+          placeholder="0x9F82A…"
           autoCapitalize="none"
           value={token}
           onChangeText={setToken}
@@ -35,6 +37,8 @@ export default function JoinVaultScreen(props: {
         />
         <Field label="Device Name" value={deviceName} onChangeText={setDeviceName} />
         <Field label="Master Password" secure value={password} onChangeText={setPassword} />
+      </ScrollView>
+      <View style={styles.footer}>
         <PillButton
           title={props.busy ? 'Joining…' : 'Join'}
           disabled={props.busy}
@@ -43,7 +47,7 @@ export default function JoinVaultScreen(props: {
         <Text style={styles.footnote}>
           Vault enrollment tokens must be generated on a previously-trusted device running Vaultiq.
         </Text>
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -53,21 +57,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  content: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: spacing.lg,
-    gap: spacing.sm,
+  header: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
   },
   title: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
-    color: colors.heading,
+    color: colors.text,
+  },
+  content: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  footer: {
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
   footnote: {
     color: colors.muted,
     fontSize: 12,
     textAlign: 'center',
-    marginTop: spacing.sm,
   },
 });
