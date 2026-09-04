@@ -71,6 +71,8 @@ type CryptoCoreNativeModule = {
   isUnlocked(): Promise<boolean>;
   encryptItem(plaintextJson: string, header: ItemHeader): Promise<EncryptedItem>;
   decryptItem(item: EncryptedItem): Promise<string>;
+  totpCode(secretB32: string, algorithm: string, digits: number, period: number, unixSeconds: number): Promise<string>;
+  totpSecondsRemaining(period: number, unixSeconds: number): Promise<number>;
 };
 
 const { CryptoCore } = NativeModules as { CryptoCore: CryptoCoreNativeModule };

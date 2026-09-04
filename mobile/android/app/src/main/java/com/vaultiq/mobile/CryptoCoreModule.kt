@@ -20,6 +20,8 @@ import uniffi.pw_crypto_core.deriveMasterKey
 import uniffi.pw_crypto_core.encryptItemFfi
 import uniffi.pw_crypto_core.estimateStrengthFfi
 import uniffi.pw_crypto_core.generateSalt as generateSaltFfi
+import uniffi.pw_crypto_core.totpCodeFfi
+import uniffi.pw_crypto_core.totpSecondsRemainingFfi
 import uniffi.pw_crypto_core.unwrapVaultKey
 
 /**
@@ -171,6 +173,30 @@ class CryptoCoreModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun isUnlocked(promise: Promise) {
         promise.resolve(vaultKey != null)
+    }
+
+    /**
+     * The current TOTP code for an authenticator item, and how it's scored.
+     * Stateless -- the secret is already-decrypted plaintext content the
+     * caller holds, so this needs no vault key, same as ffi.rs's
+     * totp_code_ffi/totp_seconds_remaining_ffi.
+     */
+    @ReactMethod
+    fun totpCode(secretB32: String, algorithm: String, digits: Double, period: Double, unixSeconds: Double, promise: Promise) {
+        try {
+            promise.resolve(totpCodeFfi(secretB32, algorithm, digits.toInt().toUInt(), period, unixSeconds))
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
+    }
+
+    @ReactMethod
+    fun totpSecondsRemaining(period: Double, unixSeconds: Double, promise: Promise) {
+        try {
+            promise.resolve(totpSecondsRemainingFfi(period, unixSeconds))
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
     }
 
     /**
