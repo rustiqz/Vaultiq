@@ -40,5 +40,20 @@ async function clearEnrollment(): Promise<void> {
   await AsyncStorage.removeItem(STORAGE_KEY);
 }
 
-export { clearEnrollment, readEnrollment, writeEnrollment };
+// Device-local preference, not vault state -- unrelated to enrollment, kept
+// under its own key so it survives independently (e.g. a re-enroll doesn't
+// reset it). 0 means "never", matching the extension's setting.
+const AUTO_LOCK_KEY = 'vaultiq:autoLockMinutes';
+const DEFAULT_AUTO_LOCK_MINUTES = 15;
+
+async function readAutoLockMinutes(): Promise<number> {
+  const raw = await AsyncStorage.getItem(AUTO_LOCK_KEY);
+  return raw === null ? DEFAULT_AUTO_LOCK_MINUTES : Number(raw);
+}
+
+async function writeAutoLockMinutes(minutes: number): Promise<void> {
+  await AsyncStorage.setItem(AUTO_LOCK_KEY, String(minutes));
+}
+
+export { clearEnrollment, readAutoLockMinutes, readEnrollment, writeAutoLockMinutes, writeEnrollment };
 export type { EnrollmentState, VaultRecord };
