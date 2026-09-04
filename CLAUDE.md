@@ -23,9 +23,37 @@ fast and clever, every time.
   - `server/` — NestJS + PostgreSQL: device authentication, enrolment tokens,
     revocation, item sync with version-based optimistic concurrency, and the
     Docker/Caddy deployment.
-- **Next is phase 4**, native mobile over the same Rust core via FFI. That
-  brings the first `unsafe` in the repo — it lives in its own module, never in
-  `kdf`/`keys`/`vault_item` (§4.2).
+- **Phase 4 is underway**: native mobile over the same Rust core via FFI.
+  `pw-crypto-core/src/ffi.rs` (behind the `ffi` feature) mirrors `wasm.rs` for
+  Kotlin/Swift via `uniffi`, generating the same opaque-handle contract the
+  wasm bindings use. §4.2 forecast this as "the first `unsafe` in the repo,
+  in its own module" — that did not happen: `uniffi`'s generated code holds
+  the unsafe FFI glue, ours doesn't need any, and `#![forbid(unsafe_code)]`
+  stays crate-wide, unmodified. Verified by cross-compiling to Android
+  arm64-v8a via `cargo-ndk` and generating Kotlin bindings from it — see
+  `pw-crypto-core/Cargo.toml` for the `ffi` / `uniffi-bindgen` features. The
+  `mobile/` app below is the first thing that consumes it.
+  - Toolchain switched from the pacman `rust`/`rust-wasm` packages to
+    `rustup` (same pinned `1.98.0`) so `aarch64-linux-android` and
+    `wasm32-unknown-unknown` can both be installed as targets. Android SDK
+    (`~/Android/Sdk`, cmdline-tools from `/opt/android-sdk`) and NDK
+    (`/opt/android-ndk`, AUR `android-ndk` r29) are machine-local, not
+    project-committed. **No iOS toolchain exists here and cannot**: this is
+    Linux, and Xcode requires macOS. iOS work is deferred until that changes.
+  - `mobile/` is a bare (non-Expo) React Native app, Android only for now —
+    one JS/TS codebase for the eventual vault UI, but that does not remove
+    native work: the FFI bridge is still per-platform (uniffi's generated
+    Kotlin today, Swift later), and Android Autofill / iOS Credential
+    Provider are both OS-invoked native processes RN cannot reach. Its
+    `pnpm run crypto` (`mobile/scripts/build-crypto-core.sh`) cross-compiles
+    `pw-crypto-core` and regenerates the Kotlin bindings into
+    `android/app/src/main/{jniLibs,java/uniffi}` — gitignored, not
+    committed, same as `extension/vendor/` for wasm. `CryptoCoreModule.kt` /
+    `CryptoCorePackage.kt` are a proving-ground native module (legacy-style,
+    riding the New Architecture interop layer rather than a generated
+    TurboModule spec) exercising that bridge from `App.tsx`; this is not the
+    real vault-unlock surface. `./gradlew assembleDebug` has built a debug
+    APK; it has not yet been installed on a physical device.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the

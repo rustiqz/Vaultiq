@@ -56,6 +56,12 @@ mod test_util;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
+#[cfg(feature = "ffi")]
+uniffi::setup_scaffolding!();
+
+#[cfg(feature = "ffi")]
+pub mod ffi;
+
 pub use error::{CryptoError, Result};
 pub use kdf::{Argon2Params, MasterKey, Salt};
 pub use keys::{
