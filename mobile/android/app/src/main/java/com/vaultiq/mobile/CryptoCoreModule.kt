@@ -1,49 +1,247 @@
 package com.vaultiq.mobile
 
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableArray
+import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.WritableArray
+import com.facebook.react.bridge.WritableMap
+import uniffi.pw_crypto_core.EncryptedItemFfi
+import uniffi.pw_crypto_core.FfiException
+import uniffi.pw_crypto_core.ItemHeaderInput
+import uniffi.pw_crypto_core.VaultKeyHandle
+import uniffi.pw_crypto_core.WrappedVaultKeyFfi
+import uniffi.pw_crypto_core.decryptItemFfi
+import uniffi.pw_crypto_core.deriveAuthKey as deriveAuthKeyFfi
+import uniffi.pw_crypto_core.deriveMasterKey
+import uniffi.pw_crypto_core.encryptItemFfi
 import uniffi.pw_crypto_core.estimateStrengthFfi
-import uniffi.pw_crypto_core.generateSalt
+import uniffi.pw_crypto_core.generateSalt as generateSaltFfi
+import uniffi.pw_crypto_core.unwrapVaultKey
 
 /**
- * Smoke-test bridge into `pw-crypto-core`'s uniffi bindings -- proves the
- * Rust -> JNI -> Kotlin -> JS chain works end to end on a real device, the
- * same role the Firefox extension played for the wasm bindings in phase 2.
+ * Bridge into `pw-crypto-core`'s uniffi bindings.
+ *
+ * Holds at most one unwrapped [VaultKeyHandle] at a time -- the mobile
+ * analogue of the extension's single `warmVaultKey` / `storage.session`
+ * (CLAUDE.md §0). Nothing derived from a key ever crosses into JS: [unlock]
+ * takes a password and resolves with nothing but success/failure, and every
+ * later vault operation ([encryptItem]/[decryptItem]) operates on the held
+ * handle rather than taking one as an argument from JS. [deriveAuthKey] is
+ * the one exception, same as `wasm.rs::derive_auth_key` -- that key is
+ * meant to leave the device.
  *
  * A plain legacy native module rather than a generated TurboModule spec:
  * React Native's New Architecture interop layer still supports this style
- * without codegen, which is all a proving-ground module needs. The real
- * vault-unlock surface (deriving a [uniffi.pw_crypto_core.MasterKeyHandle],
- * holding it, wrapping/unwrapping the vault key) is not implemented here --
- * this module exists only to confirm the native bridge itself works.
+ * without codegen.
  */
 class CryptoCoreModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
+    // Mutated only on the thread the RN bridge invokes @ReactMethod calls on
+    // for a given module instance -- the same single-writer assumption the
+    // legacy bridge already guarantees for its native modules.
+    private var vaultKey: VaultKeyHandle? = null
+
     override fun getName() = "CryptoCore"
+
+    private fun rejectFfi(promise: Promise, error: Throwable) {
+        // The message this surfaces to JS is deliberately generic for
+        // DecryptionFailed -- see ffi.rs::FfiError. InvalidArgument's reason
+        // describes only the shape of a bad caller argument, never key or
+        // plaintext material, so it is safe to pass through.
+        val message = when (error) {
+            is FfiException.DecryptionFailed -> "decryption failed"
+            is FfiException.InvalidArgument -> error.reason
+            else -> error.message ?: "unknown error"
+        }
+        promise.reject("crypto_core_error", message, error)
+    }
 
     /** Draws a fresh per-vault salt via the real crypto core, base64 encoded. */
     @ReactMethod
-    fun generateSalt(promise: com.facebook.react.bridge.Promise) {
+    fun generateSalt(promise: Promise) {
         try {
-            promise.resolve(generateSalt())
+            promise.resolve(generateSaltFfi())
         } catch (error: Exception) {
-            // The message is uniffi's own FfiException text, which never
-            // carries key or plaintext material -- see ffi.rs's FfiError.
-            promise.reject("crypto_core_error", error.message, error)
+            rejectFfi(promise, error)
         }
     }
 
     /** Scores a password's shape. Never fails, so no promise rejection path. */
     @ReactMethod
-    fun estimateStrength(password: String, promise: com.facebook.react.bridge.Promise) {
+    fun estimateStrength(password: String, promise: Promise) {
         val strength = estimateStrengthFfi(password)
         promise.resolve(
-            com.facebook.react.bridge.Arguments.createMap().apply {
+            Arguments.createMap().apply {
                 putInt("bits", strength.bits.toInt())
                 putString("level", strength.level.name)
             },
         )
     }
+
+    /**
+     * Derives the auth key for enrollment, base64 encoded. Frees the master
+     * key immediately after -- it is never needed again for this call.
+     */
+    @ReactMethod
+    fun deriveAuthKey(
+        password: String,
+        saltB64: String,
+        memoryKib: Double,
+        iterations: Double,
+        parallelism: Double,
+        promise: Promise,
+    ) {
+        try {
+            val masterKey =
+                deriveMasterKey(
+                    password,
+                    saltB64,
+                    memoryKib.toInt().toUInt(),
+                    iterations.toInt().toUInt(),
+                    parallelism.toInt().toUInt(),
+                )
+            try {
+                promise.resolve(deriveAuthKeyFfi(masterKey))
+            } finally {
+                masterKey.close()
+            }
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
+    }
+
+    /**
+     * Derives the master key and unwraps the vault key, holding the result
+     * until [lock]. A wrong password surfaces as the same `DecryptionFailed`
+     * a tampered record would -- this call is also the only password check
+     * that happens (CLAUDE.md §2.4).
+     */
+    @ReactMethod
+    fun unlock(
+        password: String,
+        saltB64: String,
+        memoryKib: Double,
+        iterations: Double,
+        parallelism: Double,
+        wrappedVaultKey: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            val masterKey =
+                deriveMasterKey(
+                    password,
+                    saltB64,
+                    memoryKib.toInt().toUInt(),
+                    iterations.toInt().toUInt(),
+                    parallelism.toInt().toUInt(),
+                )
+            val wrapped =
+                WrappedVaultKeyFfi(
+                    version = wrappedVaultKey.getInt("version").toUByte(),
+                    ciphertext = readByteArray(requireNotNull(wrappedVaultKey.getArray("ciphertext"))),
+                    nonce = readByteArray(requireNotNull(wrappedVaultKey.getArray("nonce"))),
+                )
+            val unwrapped =
+                try {
+                    unwrapVaultKey(wrapped, masterKey)
+                } finally {
+                    masterKey.close()
+                }
+            vaultKey?.close()
+            vaultKey = unwrapped
+            promise.resolve(null)
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
+    }
+
+    /** Scrubs the held vault key and forgets it. */
+    @ReactMethod
+    fun lock(promise: Promise) {
+        vaultKey?.close()
+        vaultKey = null
+        promise.resolve(null)
+    }
+
+    @ReactMethod
+    fun isUnlocked(promise: Promise) {
+        promise.resolve(vaultKey != null)
+    }
+
+    /** Encrypts one item's already-serialized JSON content under the held vault key. */
+    @ReactMethod
+    fun encryptItem(plaintextJson: String, header: ReadableMap, promise: Promise) {
+        val key = vaultKey
+        if (key == null) {
+            promise.reject("crypto_core_error", "vault is locked")
+            return
+        }
+        try {
+            val encrypted =
+                encryptItemFfi(
+                    plaintextJson,
+                    ItemHeaderInput(
+                        id = requireNotNull(header.getString("id")),
+                        itemType = requireNotNull(header.getString("itemType")),
+                        version = header.getDouble("version").toULong(),
+                        updatedAt = header.getDouble("updatedAt").toLong(),
+                        deleted = header.getBoolean("deleted"),
+                    ),
+                    key,
+                )
+            promise.resolve(writeEncryptedItem(encrypted))
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
+    }
+
+    /** Decrypts an item back to the JSON string it was built from. */
+    @ReactMethod
+    fun decryptItem(item: ReadableMap, promise: Promise) {
+        val key = vaultKey
+        if (key == null) {
+            promise.reject("crypto_core_error", "vault is locked")
+            return
+        }
+        try {
+            val encrypted =
+                EncryptedItemFfi(
+                    id = requireNotNull(item.getString("id")),
+                    itemType = requireNotNull(item.getString("itemType")),
+                    format = item.getInt("format").toUByte(),
+                    ciphertext = readByteArray(requireNotNull(item.getArray("ciphertext"))),
+                    nonce = readByteArray(requireNotNull(item.getArray("nonce"))),
+                    version = item.getDouble("version").toULong(),
+                    updatedAt = item.getDouble("updatedAt").toLong(),
+                    deleted = item.getBoolean("deleted"),
+                )
+            promise.resolve(decryptItemFfi(encrypted, key))
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
+    }
+
+    private fun readByteArray(array: ReadableArray): ByteArray = ByteArray(array.size()) { i -> array.getInt(i).toByte() }
+
+    private fun writeByteArray(bytes: ByteArray): WritableArray =
+        Arguments.createArray().apply {
+            for (b in bytes) pushInt(b.toInt() and 0xFF)
+        }
+
+    private fun writeEncryptedItem(item: EncryptedItemFfi): WritableMap =
+        Arguments.createMap().apply {
+            putString("id", item.id)
+            putString("itemType", item.itemType)
+            putInt("format", item.format.toInt())
+            putArray("ciphertext", writeByteArray(item.ciphertext))
+            putArray("nonce", writeByteArray(item.nonce))
+            putDouble("version", item.version.toDouble())
+            putDouble("updatedAt", item.updatedAt.toDouble())
+            putBoolean("deleted", item.deleted)
+        }
 }

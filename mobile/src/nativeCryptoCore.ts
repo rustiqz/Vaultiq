@@ -5,10 +5,41 @@ import { NativeModules } from 'react-native';
  * android/app/src/main/java/com/vaultiq/mobile/CryptoCoreModule.kt), which
  * bridges into pw-crypto-core's uniffi bindings.
  *
- * This is a proving-ground surface, not the real vault API: it exists to
- * confirm the Rust -> JNI -> Kotlin -> JS chain works on a device, not to be
- * the shape the eventual unlock flow calls.
+ * The module holds at most one unwrapped vault key at a time -- nothing
+ * derived from a key is ever passed across this boundary as a value, only
+ * success/failure and the auth key (which is meant to leave the device).
  */
+type Argon2Params = {
+  memoryKib: number;
+  iterations: number;
+  parallelism: number;
+};
+
+type WrappedVaultKey = {
+  version: number;
+  ciphertext: number[];
+  nonce: number[];
+};
+
+type EncryptedItem = {
+  id: string;
+  itemType: string;
+  format: number;
+  ciphertext: number[];
+  nonce: number[];
+  version: number;
+  updatedAt: number;
+  deleted: boolean;
+};
+
+type ItemHeader = {
+  id: string;
+  itemType: string;
+  version: number;
+  updatedAt: number;
+  deleted: boolean;
+};
+
 type PasswordStrength = {
   bits: number;
   level: string;
@@ -17,9 +48,28 @@ type PasswordStrength = {
 type CryptoCoreNativeModule = {
   generateSalt(): Promise<string>;
   estimateStrength(password: string): Promise<PasswordStrength>;
+  deriveAuthKey(
+    password: string,
+    saltB64: string,
+    memoryKib: number,
+    iterations: number,
+    parallelism: number,
+  ): Promise<string>;
+  unlock(
+    password: string,
+    saltB64: string,
+    memoryKib: number,
+    iterations: number,
+    parallelism: number,
+    wrappedVaultKey: WrappedVaultKey,
+  ): Promise<void>;
+  lock(): Promise<void>;
+  isUnlocked(): Promise<boolean>;
+  encryptItem(plaintextJson: string, header: ItemHeader): Promise<EncryptedItem>;
+  decryptItem(item: EncryptedItem): Promise<string>;
 };
 
 const { CryptoCore } = NativeModules as { CryptoCore: CryptoCoreNativeModule };
 
 export default CryptoCore;
-export type { PasswordStrength };
+export type { Argon2Params, EncryptedItem, ItemHeader, PasswordStrength, WrappedVaultKey };
