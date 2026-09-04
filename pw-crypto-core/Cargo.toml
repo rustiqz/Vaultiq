@@ -57,6 +57,10 @@ getrandom = { version = "=0.4.3", optional = true }
 # The alternative is hand-marshalling every field, which is more code and more
 # places to get an AAD-bound field wrong.
 serde-wasm-bindgen = { version = "=0.6.5", optional = true }
+# Feature-gated: thin Kotlin/Swift bindings for native mobile (phase 4). The
+# unsafe FFI glue this needs lives inside the `uniffi` crate's own generated
+# code, never in ours — see CLAUDE.md §4.2 and src/ffi.rs.
+uniffi = { version = "=0.32.0", optional = true }
 
 # Host-only. proptest pulls rand 0.9 and with it a second, older getrandom
 # that needs a RUSTFLAGS cfg on wasm32 — and these tests do not belong in a
@@ -82,3 +86,14 @@ wasm = [
   "dep:getrandom",
   "getrandom/wasm_js",
 ]
+# Native mobile bindings (phase 4): Kotlin on Android today, Swift once iOS
+# development is possible again (CLAUDE.md §0).
+ffi = ["dep:uniffi"]
+# Pulls in uniffi's CLI (clap and friends) only for the bindgen binary below,
+# so an ordinary `ffi` build stays free of that dependency tree.
+uniffi-bindgen = ["ffi", "uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi_bindgen.rs"
+required-features = ["uniffi-bindgen"]

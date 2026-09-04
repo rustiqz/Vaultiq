@@ -23,9 +23,23 @@ fast and clever, every time.
   - `server/` — NestJS + PostgreSQL: device authentication, enrolment tokens,
     revocation, item sync with version-based optimistic concurrency, and the
     Docker/Caddy deployment.
-- **Next is phase 4**, native mobile over the same Rust core via FFI. That
-  brings the first `unsafe` in the repo — it lives in its own module, never in
-  `kdf`/`keys`/`vault_item` (§4.2).
+- **Phase 4 is underway**: native mobile over the same Rust core via FFI.
+  `pw-crypto-core/src/ffi.rs` (behind the `ffi` feature) mirrors `wasm.rs` for
+  Kotlin/Swift via `uniffi`, generating the same opaque-handle contract the
+  wasm bindings use. §4.2 forecast this as "the first `unsafe` in the repo,
+  in its own module" — that did not happen: `uniffi`'s generated code holds
+  the unsafe FFI glue, ours doesn't need any, and `#![forbid(unsafe_code)]`
+  stays crate-wide, unmodified. Verified by cross-compiling to Android
+  arm64-v8a via `cargo-ndk` and generating Kotlin bindings from it — see
+  `pw-crypto-core/Cargo.toml` for the `ffi` / `uniffi-bindgen` features. No
+  mobile app consumes it yet.
+  - Toolchain switched from the pacman `rust`/`rust-wasm` packages to
+    `rustup` (same pinned `1.98.0`) so `aarch64-linux-android` and
+    `wasm32-unknown-unknown` can both be installed as targets. Android SDK
+    (`~/Android/Sdk`, cmdline-tools from `/opt/android-sdk`) and NDK
+    (`/opt/android-ndk`, AUR `android-ndk` r29) are machine-local, not
+    project-committed. **No iOS toolchain exists here and cannot**: this is
+    Linux, and Xcode requires macOS. iOS work is deferred until that changes.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
