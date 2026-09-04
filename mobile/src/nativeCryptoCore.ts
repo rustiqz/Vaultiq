@@ -21,12 +21,16 @@ type WrappedVaultKey = {
   nonce: number[];
 };
 
+// Ciphertext/nonce are base64 here, matching the server's `sync` wire shape
+// exactly (server/src/sync/dto.ts validates them as such) -- unlike
+// WrappedVaultKey above, which is number arrays, an untyped field the server
+// never validates. Two different wire conventions for two different routes.
 type EncryptedItem = {
   id: string;
   itemType: string;
   format: number;
-  ciphertext: number[];
-  nonce: number[];
+  ciphertext: string;
+  nonce: string;
   version: number;
   updatedAt: number;
   deleted: boolean;
