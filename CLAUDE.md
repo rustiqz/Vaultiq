@@ -31,8 +31,8 @@ fast and clever, every time.
   the unsafe FFI glue, ours doesn't need any, and `#![forbid(unsafe_code)]`
   stays crate-wide, unmodified. Verified by cross-compiling to Android
   arm64-v8a via `cargo-ndk` and generating Kotlin bindings from it — see
-  `pw-crypto-core/Cargo.toml` for the `ffi` / `uniffi-bindgen` features. No
-  mobile app consumes it yet.
+  `pw-crypto-core/Cargo.toml` for the `ffi` / `uniffi-bindgen` features. The
+  `mobile/` app below is the first thing that consumes it.
   - Toolchain switched from the pacman `rust`/`rust-wasm` packages to
     `rustup` (same pinned `1.98.0`) so `aarch64-linux-android` and
     `wasm32-unknown-unknown` can both be installed as targets. Android SDK
@@ -40,6 +40,20 @@ fast and clever, every time.
     (`/opt/android-ndk`, AUR `android-ndk` r29) are machine-local, not
     project-committed. **No iOS toolchain exists here and cannot**: this is
     Linux, and Xcode requires macOS. iOS work is deferred until that changes.
+  - `mobile/` is a bare (non-Expo) React Native app, Android only for now —
+    one JS/TS codebase for the eventual vault UI, but that does not remove
+    native work: the FFI bridge is still per-platform (uniffi's generated
+    Kotlin today, Swift later), and Android Autofill / iOS Credential
+    Provider are both OS-invoked native processes RN cannot reach. Its
+    `pnpm run crypto` (`mobile/scripts/build-crypto-core.sh`) cross-compiles
+    `pw-crypto-core` and regenerates the Kotlin bindings into
+    `android/app/src/main/{jniLibs,java/uniffi}` — gitignored, not
+    committed, same as `extension/vendor/` for wasm. `CryptoCoreModule.kt` /
+    `CryptoCorePackage.kt` are a proving-ground native module (legacy-style,
+    riding the New Architecture interop layer rather than a generated
+    TurboModule spec) exercising that bridge from `App.tsx`; this is not the
+    real vault-unlock surface. `./gradlew assembleDebug` has built a debug
+    APK; it has not yet been installed on a physical device.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
