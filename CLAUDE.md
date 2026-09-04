@@ -67,12 +67,15 @@ fast and clever, every time.
     scope so far: item sync/CRUD, autofill, quick-unlock by PIN (its
     session-only design doesn't map cleanly onto Android's process
     lifecycle — a later, deliberate decision, not an oversight), and vault
-    *creation* (this app only joins an existing vault). **Not yet verified
-    against a real server**: `docker-compose.yml` deliberately publishes only
-    Caddy, and the phone has no path to the `server` container as currently
-    deployed — needs a decision (expose a dev port, or a real
-    `VAULTIQ_DOMAIN` the phone can reach) before this can be tested
-    end-to-end rather than by inspection.
+    *creation* (this app only joins an existing vault). **Verified
+    end-to-end** against a real running server: enrolled a physical device
+    onto a test vault (`auth/enrollment-params` → on-device auth key →
+    `auth/enroll` → `GET vault` → on-device unlock) and confirmed the device
+    row landed in Postgres. `docker-compose.yml` still deliberately publishes
+    only Caddy; reaching the `server` container for this test needed a local,
+    gitignored `docker-compose.override.yml` publishing its port plus
+    `adb reverse tcp:3000 tcp:3000` — dev-only, not how a real deployment
+    is reached.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
