@@ -48,12 +48,31 @@ fast and clever, every time.
     `pnpm run crypto` (`mobile/scripts/build-crypto-core.sh`) cross-compiles
     `pw-crypto-core` and regenerates the Kotlin bindings into
     `android/app/src/main/{jniLibs,java/uniffi}` — gitignored, not
-    committed, same as `extension/vendor/` for wasm. `CryptoCoreModule.kt` /
-    `CryptoCorePackage.kt` are a proving-ground native module (legacy-style,
-    riding the New Architecture interop layer rather than a generated
-    TurboModule spec) exercising that bridge from `App.tsx`; this is not the
-    real vault-unlock surface. `./gradlew assembleDebug` has built a debug
-    APK; it has not yet been installed on a physical device.
+    committed, same as `extension/vendor/` for wasm. `./gradlew assembleDebug`
+    installed and ran on a physical device (Android 16, arm64-v8a) —
+    generated a real salt and scored a test password through the full
+    Rust → JNI → Kotlin → JS chain.
+  - Vault enrollment and unlock now work, mirroring
+    `extension/src/background/vault.ts`'s `enrollWithServer`/`unlock`/`lock`
+    rather than inventing a parallel design: `mobile/src/vault.ts`
+    orchestrates in TypeScript (server calls in `syncClient.ts`, local state
+    in `storage.ts`), the same JS-orchestrates-native-crypto-only split the
+    extension uses. `CryptoCoreModule.kt` is now stateful — it holds at most
+    one unwrapped `VaultKeyHandle` at a time, the mobile analogue of the
+    extension's single `warmVaultKey` / `storage.session`; no key material
+    ever crosses the RN bridge as a value. Local storage is plain
+    `AsyncStorage`, matching the extension's `storage.local` model (the one
+    genuine secret, the device credential, is sealed under the vault key
+    before it's persisted, same as `sealCredential`). Deliberately out of
+    scope so far: item sync/CRUD, autofill, quick-unlock by PIN (its
+    session-only design doesn't map cleanly onto Android's process
+    lifecycle — a later, deliberate decision, not an oversight), and vault
+    *creation* (this app only joins an existing vault). **Not yet verified
+    against a real server**: `docker-compose.yml` deliberately publishes only
+    Caddy, and the phone has no path to the `server` container as currently
+    deployed — needs a decision (expose a dev port, or a real
+    `VAULTIQ_DOMAIN` the phone can reach) before this can be tested
+    end-to-end rather than by inspection.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
