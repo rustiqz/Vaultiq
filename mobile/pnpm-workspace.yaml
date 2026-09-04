@@ -1,0 +1,7 @@
+# pnpm 11 reads settings other than auth/registry from here, not .npmrc --
+# see extension/pnpm-workspace.yaml for the same note re: allowBuilds.
+#
+# React Native's Gradle/CocoaPods autolinking and Metro's resolver expect a
+# flat node_modules with every transitive dependency hoisted to the top
+# level, not pnpm's default strict, symlinked layout.
+nodeLinker: hoisted
