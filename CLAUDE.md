@@ -141,6 +141,44 @@ fast and clever, every time.
     been dropped in the navigation rewrite — without it Android defaulted to
     light (white) status bar content, unreadable against the cream
     background.
+  - The above was screenshot-approximate; screens now follow the real Figma
+    exports instead (delivered as `~/Downloads/screen-*.svg`, rasterized
+    with `rsvg-convert` and reviewed visually — the SVGs export selectable
+    text as flattened vector paths, not `<text>` elements, so there was
+    nothing to read from the markup itself). The fall palette stays ours
+    (the Figma set uses teal); layout, spacing, icons and components now
+    follow Figma. Two new dependencies for fidelity: `react-native-svg`
+    (the Authenticator ring — a real animated arc, not an approximation)
+    and `@react-native-vector-icons/feather` (outline icons matching the
+    Figma set closely). A third bottom tab, **Authenticator**, lists every
+    TOTP item with its live code inline (Authy-style quick access, tap to
+    copy) rather than requiring a trip through Vault Home — `useTotpCode.ts`
+    factors the ticking logic shared with Item Detail's ring. Settings'
+    auto-lock control moved to its own pushed screen
+    (`SettingsStack: SettingsHome → AutoLock`) to match Figma's chevron-row
+    pattern. Item Detail's header gained the mockup's favorite/edit/delete
+    icons; they are **not wired to anything real** (no favorite, edit, or
+    delete plumbing exists) and tapping them says so via
+    `Alert.alert('Not yet available', ...)` rather than doing nothing
+    silently. `DetailField` grew a `multiline` mode after testing surfaced
+    that Secure Note content was being clipped to one line.
+  - Verified end-to-end on a physical device against seeded real data (one
+    item per type, pushed straight to `/sync` with real ciphertext from a
+    throwaway `#[cfg(test)]` block in `pw-crypto-core`, the same pattern as
+    the earlier test-vault bootstrap — not committed): every item type's
+    detail view, the Authenticator tab's live code, and Settings' device
+    revoke (which also cleaned up a stale duplicate device row left over
+    from an earlier test re-enrollment this session).
+  - This machine's native Android builds are memory-constrained enough that
+    `react-native-svg`'s C++ view manager compile can OOM-kill the Gradle
+    daemon under load — `org.gradle.workers.max=2` in
+    `mobile/android/gradle.properties` caps it, and even that was not
+    always enough when the machine's other applications were also under
+    memory pressure; `taskset -c 0,1 ./gradlew ...` (capping visible CPUs,
+    which Ninja's job-count autodetection respects) was the reliable fix.
+    Ninja's build cache survives a killed daemon, so a crashed attempt is
+    not wasted work — retrying picks up from the last completed object
+    file.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the

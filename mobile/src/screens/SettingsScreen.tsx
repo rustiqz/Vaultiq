@@ -1,36 +1,46 @@
-import { useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Icon from '../icons';
+import type { SettingsStackScreenProps } from '../navigation';
 import * as storage from '../storage';
 import { colors, spacing } from '../theme';
-import { Chip, PillButton } from '../ui';
+import { Card, PillButton, SectionLabel } from '../ui';
 import * as vault from '../vault';
 import type { DeviceSummary } from '../syncClient';
 
-const AUTO_LOCK_OPTIONS = [1, 5, 15, 30, 0] as const;
+const AUTO_LOCK_LABELS: Record<number, string> = {
+  0: 'Never',
+  1: 'After 1 minute',
+  5: 'After 5 minutes',
+  15: 'After 15 minutes',
+  30: 'After 30 minutes',
+};
 
-export default function SettingsScreen(props: { onLock: () => void }) {
+function notYetAvailable(feature: string) {
+  Alert.alert('Not yet available', `${feature} isn't implemented yet.`);
+}
+
+export default function SettingsScreen({ navigation, onLock }: SettingsStackScreenProps<'SettingsHome'> & { onLock: () => void }) {
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [autoLockMinutes, setAutoLockMinutes] = useState(15);
 
-  const loadDevices = () => {
+  const loadDevices = useCallback(() => {
     vault
       .listDevices()
       .then(setDevices)
       .catch(thrown => setError(thrown instanceof Error ? thrown.message : String(thrown)));
-  };
-
-  useEffect(() => {
-    vault.serverUrl().then(setServerUrl);
-    storage.readAutoLockMinutes().then(setAutoLockMinutes);
-    loadDevices();
   }, []);
 
-  const updateAutoLockMinutes = (minutes: number) => {
-    setAutoLockMinutes(minutes);
-    storage.writeAutoLockMinutes(minutes);
-  };
+  useFocusEffect(
+    useCallback(() => {
+      vault.serverUrl().then(setServerUrl);
+      storage.readAutoLockMinutes().then(setAutoLockMinutes);
+      loadDevices();
+    }, [loadDevices]),
+  );
 
   const confirmRevoke = (device: DeviceSummary) => {
     Alert.alert('Revoke device?', `"${device.name}" will no longer be able to sync this vault.`, [
@@ -49,39 +59,62 @@ export default function SettingsScreen(props: { onLock: () => void }) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Devices</Text>
+      <SectionLabel>Devices</SectionLabel>
       {error !== null && <Text style={styles.error}>error: {error}</Text>}
       {(devices ?? [])
         .filter(device => device.revokedAt === null)
         .map(device => (
-          <View key={device.id} style={styles.deviceRow}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowName}>
-                {device.name}
-                {device.current ? ' (this device)' : ''}
-              </Text>
-              <Text style={styles.secondary}>Enrolled {new Date(device.enrolledAt).toLocaleDateString()}</Text>
+          <Card key={device.id}>
+            <View style={styles.deviceRow}>
+              <View style={styles.deviceIcon}>
+                <Icon name={device.current ? 'smartphone' : 'monitor'} size={18} color={colors.heading} />
+              </View>
+              <View style={styles.rowText}>
+                <View style={styles.deviceNameRow}>
+                  <Text style={styles.rowName}>{device.name}</Text>
+                  {device.current && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>This device</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.secondary}>Enrolled {new Date(device.enrolledAt).toLocaleDateString()}</Text>
+              </View>
+              {!device.current && (
+                <Text style={styles.revoke} onPress={() => confirmRevoke(device)}>
+                  Revoke
+                </Text>
+              )}
             </View>
-            {!device.current && <Text style={styles.revoke} onPress={() => confirmRevoke(device)}>Revoke</Text>}
+          </Card>
+        ))}
+
+      <SectionLabel>Security</SectionLabel>
+      <Card onPress={() => navigation.navigate('AutoLock')}>
+        <View style={styles.navRow}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowName}>Auto-lock timeout</Text>
+            <Text style={styles.secondary}>{AUTO_LOCK_LABELS[autoLockMinutes] ?? `${autoLockMinutes}m`}</Text>
           </View>
-        ))}
+          <Icon name="chevron-right" size={18} color={colors.muted} />
+        </View>
+      </Card>
+      <Card onPress={() => notYetAvailable('Changing the master password')}>
+        <View style={styles.navRow}>
+          <Text style={styles.rowName}>Change master password</Text>
+          <Icon name="chevron-right" size={18} color={colors.muted} />
+        </View>
+      </Card>
 
-      <Text style={styles.title}>Auto-lock</Text>
-      <View style={styles.chipRow}>
-        {AUTO_LOCK_OPTIONS.map(minutes => (
-          <Chip
-            key={minutes}
-            label={minutes === 0 ? 'Never' : `${minutes}m`}
-            active={autoLockMinutes === minutes}
-            onPress={() => updateAutoLockMinutes(minutes)}
-          />
-        ))}
-      </View>
+      <SectionLabel>Server Settings</SectionLabel>
+      <Card>
+        <View style={styles.infoRow}>
+          <Text style={styles.rowName}>Server URL</Text>
+          <Text style={styles.secondary}>{serverUrl ?? '—'}</Text>
+        </View>
+      </Card>
 
-      <Text style={styles.title}>Server</Text>
-      <Text style={styles.secondary}>{serverUrl ?? '—'}</Text>
-
-      <PillButton title="Lock Vault" danger onPress={props.onLock} />
+      <PillButton title="Lock Vault" variant="outline" onPress={onLock} />
     </ScrollView>
   );
 }
@@ -95,12 +128,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.heading,
-    marginTop: spacing.sm,
-  },
   error: {
     color: colors.danger,
     fontSize: 12,
@@ -108,10 +135,31 @@ const styles = StyleSheet.create({
   deviceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    gap: spacing.sm,
+  },
+  deviceIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.badge,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deviceNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  badge: {
+    backgroundColor: colors.badge,
+    borderRadius: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  badgeText: {
+    color: colors.heading,
+    fontSize: 11,
+    fontWeight: '600',
   },
   rowText: {
     flex: 1,
@@ -128,9 +176,12 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontWeight: '600',
   },
-  chipRow: {
+  navRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  infoRow: {
+    gap: spacing.xs,
   },
 });

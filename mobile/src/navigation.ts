@@ -12,4 +12,15 @@ type VaultStackScreenProps<Screen extends keyof VaultStackParamList> = NativeSta
   Screen
 >;
 
-export type { VaultStackParamList, VaultStackScreenProps };
+/** The Settings tab's own stack -- the settings list, and the auto-lock timeout picker it pushes. */
+type SettingsStackParamList = {
+  SettingsHome: undefined;
+  AutoLock: undefined;
+};
+
+type SettingsStackScreenProps<Screen extends keyof SettingsStackParamList> = NativeStackScreenProps<
+  SettingsStackParamList,
+  Screen
+>;
+
+export type { SettingsStackParamList, SettingsStackScreenProps, VaultStackParamList, VaultStackScreenProps };

@@ -1,19 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
+import Icon, { type FeatherName } from '../icons';
+import { displayName, text } from '../itemContent';
 import type { VaultStackScreenProps } from '../navigation';
 import { colors, radii, spacing } from '../theme';
-import { Chip } from '../ui';
+import { Card, Chip } from '../ui';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
-import { displayName, text } from '../itemContent';
 
 const ITEM_TYPES = ['login', 'card', 'identity', 'note', 'totp'] as const;
 const ITEM_TYPE_LABELS: Record<string, string> = {
   login: 'Logins',
   card: 'Cards',
   identity: 'Identities',
-  note: 'Notes',
+  note: 'Secure Notes',
   totp: 'Authenticators',
+};
+const ITEM_TYPE_ICONS: Record<string, FeatherName> = {
+  login: 'key',
+  card: 'credit-card',
+  identity: 'user',
+  note: 'file-text',
+  totp: 'shield',
 };
 
 export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'VaultHome'>) {
@@ -53,15 +61,20 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
       contentContainerStyle={styles.listContent}
       data={visible}
       keyExtractor={item => item.id}
+      // eslint-disable-next-line react/no-unstable-nested-components -- FlatList's own documented separator shape.
+      ItemSeparatorComponent={() => <View style={styles.rowGap} />}
       ListHeaderComponent={
         <View>
-          <TextInput
-            style={styles.search}
-            placeholder="Search vault items"
-            placeholderTextColor={colors.muted}
-            value={query}
-            onChangeText={setQuery}
-          />
+          <View style={styles.searchRow}>
+            <Icon name="search" size={18} color={colors.muted} />
+            <TextInput
+              style={styles.search}
+              placeholder="Search vault items"
+              placeholderTextColor={colors.muted}
+              value={query}
+              onChangeText={setQuery}
+            />
+          </View>
           <FlatList
             horizontal
             data={[null, ...ITEM_TYPES]}
@@ -84,17 +97,20 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
       }
       renderItem={({ item }) => {
         const name = displayName(item.itemType, item.content, item.id);
-        const secondary = text(item.content, 'username') || text(item.content, 'url') || item.itemType;
+        const secondary = text(item.content, 'username') || text(item.content, 'url') || ITEM_TYPE_LABELS[item.itemType];
         return (
-          <Pressable style={styles.listRow} onPress={() => navigation.navigate('ItemDetail', { item })}>
-            <View style={styles.rowIcon}>
-              <Text style={styles.rowIconText}>{item.itemType.charAt(0).toUpperCase()}</Text>
+          <Card onPress={() => navigation.navigate('ItemDetail', { item })}>
+            <View style={styles.row}>
+              <View style={styles.rowIcon}>
+                <Icon name={ITEM_TYPE_ICONS[item.itemType] ?? 'file'} size={18} color={colors.heading} />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.rowName}>{name}</Text>
+                <Text style={styles.secondary}>{secondary}</Text>
+              </View>
+              <Icon name="chevron-right" size={18} color={colors.muted} />
             </View>
-            <View style={styles.rowText}>
-              <Text style={styles.rowName}>{name}</Text>
-              <Text style={styles.secondary}>{secondary}</Text>
-            </View>
-          </Pressable>
+          </Card>
         );
       }}
       refreshing={syncing}
@@ -111,14 +127,19 @@ const styles = StyleSheet.create({
   listContent: {
     padding: spacing.lg,
   },
-  search: {
-    borderWidth: 1,
-    borderColor: colors.border,
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     borderRadius: radii.button,
-    padding: spacing.sm + 4,
-    backgroundColor: colors.surface,
-    color: colors.text,
+    backgroundColor: colors.badge,
+    paddingHorizontal: spacing.md,
     marginBottom: spacing.sm,
+  },
+  search: {
+    flex: 1,
+    paddingVertical: spacing.sm + 4,
+    color: colors.text,
   },
   chipRow: {
     gap: spacing.sm,
@@ -133,25 +154,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: spacing.lg,
   },
-  listRow: {
+  rowGap: {
+    height: spacing.sm,
+  },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    paddingVertical: spacing.sm + 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
   },
   rowIcon: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     borderRadius: 10,
-    backgroundColor: colors.secondary,
+    backgroundColor: colors.badge,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  rowIconText: {
-    color: colors.onPrimary,
-    fontWeight: '700',
   },
   rowText: {
     flex: 1,
