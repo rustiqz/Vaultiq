@@ -1,5 +1,6 @@
 package com.vaultiq.mobile
 
+import android.util.Base64
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -7,7 +8,6 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
-import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import uniffi.pw_crypto_core.EncryptedItemFfi
 import uniffi.pw_crypto_core.FfiException
@@ -173,7 +173,15 @@ class CryptoCoreModule(reactContext: ReactApplicationContext) :
         promise.resolve(vaultKey != null)
     }
 
-    /** Encrypts one item's already-serialized JSON content under the held vault key. */
+    /**
+     * Encrypts one item's already-serialized JSON content under the held
+     * vault key. Ciphertext/nonce cross as base64 -- the server's `sync`
+     * routes validate them as base64 strings (`@IsBase64()` in
+     * server/src/sync/dto.ts), unlike the vault-bootstrap wire shape
+     * ([unlock]'s `wrappedVaultKey`), which is an untyped, opaque field the
+     * server never validates the shape of. Two different wire conventions
+     * for two different endpoints, matched rather than unified.
+     */
     @ReactMethod
     fun encryptItem(plaintextJson: String, header: ReadableMap, promise: Promise) {
         val key = vaultKey
@@ -214,8 +222,8 @@ class CryptoCoreModule(reactContext: ReactApplicationContext) :
                     id = requireNotNull(item.getString("id")),
                     itemType = requireNotNull(item.getString("itemType")),
                     format = item.getInt("format").toUByte(),
-                    ciphertext = readByteArray(requireNotNull(item.getArray("ciphertext"))),
-                    nonce = readByteArray(requireNotNull(item.getArray("nonce"))),
+                    ciphertext = readByteArrayB64(requireNotNull(item.getString("ciphertext"))),
+                    nonce = readByteArrayB64(requireNotNull(item.getString("nonce"))),
                     version = item.getDouble("version").toULong(),
                     updatedAt = item.getDouble("updatedAt").toLong(),
                     deleted = item.getBoolean("deleted"),
@@ -226,20 +234,20 @@ class CryptoCoreModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    // Used for wrappedVaultKey only -- see the encryptItem/decryptItem doc.
     private fun readByteArray(array: ReadableArray): ByteArray = ByteArray(array.size()) { i -> array.getInt(i).toByte() }
 
-    private fun writeByteArray(bytes: ByteArray): WritableArray =
-        Arguments.createArray().apply {
-            for (b in bytes) pushInt(b.toInt() and 0xFF)
-        }
+    private fun readByteArrayB64(value: String): ByteArray = Base64.decode(value, Base64.NO_WRAP)
+
+    private fun writeByteArrayB64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
 
     private fun writeEncryptedItem(item: EncryptedItemFfi): WritableMap =
         Arguments.createMap().apply {
             putString("id", item.id)
             putString("itemType", item.itemType)
             putInt("format", item.format.toInt())
-            putArray("ciphertext", writeByteArray(item.ciphertext))
-            putArray("nonce", writeByteArray(item.nonce))
+            putString("ciphertext", writeByteArrayB64(item.ciphertext))
+            putString("nonce", writeByteArrayB64(item.nonce))
             putDouble("version", item.version.toDouble())
             putDouble("updatedAt", item.updatedAt.toDouble())
             putBoolean("deleted", item.deleted)

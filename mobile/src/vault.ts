@@ -11,6 +11,13 @@ import * as syncClient from './syncClient';
  */
 type Status = 'not-enrolled' | 'locked' | 'unlocked';
 
+/** A decrypted item's outer fields plus its parsed plaintext content. */
+type DecryptedItem = {
+  id: string;
+  itemType: string;
+  content: Record<string, unknown>;
+};
+
 const CREDENTIAL_HEADER = {
   id: 'sync:credential',
   itemType: 'credential',
@@ -18,6 +25,12 @@ const CREDENTIAL_HEADER = {
   updatedAt: 0,
   deleted: false,
 };
+
+// The unsealed device credential, held only in JS memory for this session --
+// not persisted (the sealed form in storage.ts is), same lifetime as the
+// native module's held vault key. Needed for any authenticated server call
+// after unlock (pullItems below); cleared on lock.
+let credential: { deviceId: string; credential: string } | null = null;
 
 async function status(): Promise<Status> {
   const enrollment = await storage.readEnrollment();
@@ -77,16 +90,10 @@ async function enrollAndUnlock(
     },
   };
   await storage.writeEnrollment(enrollment);
+  credential = { deviceId: device.deviceId, credential: device.credential };
 }
 
-/**
- * Unlocks an already-enrolled vault with the master password.
- *
- * Does not yet unseal the stored device credential -- nothing in this app
- * makes an authenticated server call after enrollment yet, so there is
- * nothing to unseal it for. That belongs with the item-sync work that reads
- * it (CLAUDE.md §0).
- */
+/** Unlocks an already-enrolled vault with the master password. */
 async function unlock(password: string): Promise<void> {
   const enrollment = await storage.readEnrollment();
   if (enrollment === null) throw new Error('not enrolled on this device yet');
@@ -99,11 +106,48 @@ async function unlock(password: string): Promise<void> {
     enrollment.vault.argon2.parallelism,
     enrollment.vault.wrappedVaultKey,
   );
+
+  const unsealed = JSON.parse(await CryptoCore.decryptItem(enrollment.sealedCredential)) as {
+    credential: string;
+  };
+  credential = { deviceId: enrollment.deviceId, credential: unsealed.credential };
 }
 
 async function lock(): Promise<void> {
   await CryptoCore.lock();
+  credential = null;
 }
 
-export { enrollAndUnlock, lock, status, unlock };
-export type { Status };
+/**
+ * Pulls and decrypts the vault's current items.
+ *
+ * Always pulls from the beginning rather than tracking a cursor: this app
+ * does not keep a local item cache yet (nothing is persisted here but
+ * ciphertext-free enrollment state -- see storage.ts), so every call needs
+ * the full set to render from anyway. A cursor only pays for itself once
+ * there is a cache to advance incrementally; premature here. Follows the
+ * server's `more` flag until caught up, the same loop
+ * extension/src/sync/engine.ts's pull side runs.
+ */
+async function pullItems(): Promise<DecryptedItem[]> {
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null) throw new Error('not enrolled on this device yet');
+  if (credential === null) throw new Error('vault is locked');
+
+  const decrypted: DecryptedItem[] = [];
+  let cursor = '0';
+  for (;;) {
+    const page = await syncClient.pull(enrollment.serverUrl, credential.deviceId, credential.credential, cursor);
+    for (const item of page.items) {
+      if (item.deleted) continue;
+      const content = JSON.parse(await CryptoCore.decryptItem(item)) as Record<string, unknown>;
+      decrypted.push({ id: item.id, itemType: item.itemType, content });
+    }
+    cursor = page.cursor;
+    if (!page.more) break;
+  }
+  return decrypted;
+}
+
+export { enrollAndUnlock, lock, pullItems, status, unlock };
+export type { DecryptedItem, Status };
