@@ -105,6 +105,20 @@ fast and clever, every time.
     already tends to kill the process and wipe the held vault key regardless,
     so the gap that matters is staying unlocked while foregrounded and
     untouched, which this covers.
+  - Join Vault, Unlock and Vault Home are now styled against real mockups —
+    `mobile/src/theme.ts` holds a fall/autumn palette (cream background, deep
+    brown primary, sage secondary, rust danger), light mode only; a dark
+    variant is a deliberate later addition, not attempted, since RN has no
+    built-in theme provider and building one is its own piece of work. Built
+    from exported screenshots, not a live Figma connection, so spacing and
+    type scale are approximate. Everything past those three screens — item
+    detail, New Item, Settings, Autofill — has no plumbing behind it yet and
+    stays unstyled; styling them now would mean styling a mockup, not a
+    screen. `mobile/src/devConfig.ts` (gitignored, `.example` committed, same
+    pattern as the repo-root `.env`) prefills the Join Vault server URL and
+    device name for local testing — never the enrollment token, which is
+    single-use and expires in 15 minutes, so there is no default that would
+    still be valid by the time it's read.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the

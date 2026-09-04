@@ -1,27 +1,33 @@
 /**
  * Vaultiq mobile -- proving-ground shell.
  *
- * Not the designed vault UI. Covers enrollment, unlock, a read-only item
- * list, and idle auto-lock (CLAUDE.md §0, phase 4), plus the original
- * native-bridge smoke test kept as a diagnostic once unlocked.
+ * Join Vault, Unlock, and Vault Home are styled against the real mockups
+ * (fall palette -- see src/theme.ts); everything past that -- item detail,
+ * New Item, Settings, Autofill -- has no plumbing behind it yet and stays
+ * unstyled. Covers enrollment, unlock, a read-only item list, and idle
+ * auto-lock (CLAUDE.md §0, phase 4), plus the original native-bridge smoke
+ * test kept as a diagnostic once unlocked.
  *
  * @format
  */
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Button,
   FlatList,
+  Pressable,
   SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
-  useColorScheme,
   View,
 } from 'react-native';
 import CryptoCore from './src/nativeCryptoCore';
+import { DEV_DEVICE_NAME, DEV_SERVER_URL } from './src/devConfig';
 import * as storage from './src/storage';
+import { colors, radii, spacing } from './src/theme';
 import * as vault from './src/vault';
 import type { DecryptedItem, Status } from './src/vault';
 
@@ -29,7 +35,6 @@ import type { DecryptedItem, Status } from './src/vault';
 const TEST_PASSWORD = 'correct horse battery staple';
 
 function App() {
-  const isDarkMode = useColorScheme() === 'dark';
   const [status, setStatus] = useState<Status | 'loading'>('loading');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -85,7 +90,7 @@ function App() {
   if (status === 'unlocked') {
     return (
       <SafeAreaView style={styles.container} onTouchStart={resetIdleTimer}>
-        <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+        <StatusBar barStyle="dark-content" />
         <UnlockedPanel
           onLock={doLock}
           error={error}
@@ -99,12 +104,13 @@ function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <StatusBar barStyle="dark-content" />
       <View style={styles.content}>
-        {status === 'loading' && <Text>loading…</Text>}
+        {status === 'loading' && <ActivityIndicator color={colors.primary} />}
         {status === 'not-enrolled' && (
           <EnrollForm
             busy={busy}
+            error={error}
             onSubmit={(serverUrl, token, deviceName, password) =>
               run(async () => {
                 await vault.enrollAndUnlock(serverUrl, token, deviceName, password);
@@ -116,6 +122,7 @@ function App() {
         {status === 'locked' && (
           <UnlockForm
             busy={busy}
+            error={error}
             onSubmit={password =>
               run(async () => {
                 await vault.unlock(password);
@@ -124,72 +131,143 @@ function App() {
             }
           />
         )}
-        {error !== null && <Text style={styles.error}>error: {error}</Text>}
       </View>
     </SafeAreaView>
   );
 }
 
+/** A labelled input, styled per the mockups -- optionally maskable with a Show/Hide toggle. */
+function Field(props: {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  placeholder?: string;
+  secure?: boolean;
+  error?: string;
+  autoCapitalize?: 'none' | 'sentences';
+}) {
+  const [revealed, setRevealed] = useState(false);
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{props.label}</Text>
+      <View style={styles.inputRow}>
+        <TextInput
+          style={[styles.input, props.error !== undefined && styles.inputError]}
+          autoCapitalize={props.autoCapitalize ?? 'sentences'}
+          autoCorrect={false}
+          placeholder={props.placeholder}
+          placeholderTextColor={colors.muted}
+          secureTextEntry={props.secure === true && !revealed}
+          value={props.value}
+          onChangeText={props.onChangeText}
+        />
+        {props.secure === true && (
+          <Pressable style={styles.reveal} onPress={() => setRevealed(r => !r)}>
+            <Text style={styles.revealText}>{revealed ? 'Hide' : 'Show'}</Text>
+          </Pressable>
+        )}
+      </View>
+      {props.error !== undefined && <Text style={styles.fieldError}>{props.error}</Text>}
+    </View>
+  );
+}
+
+function PillButton(props: { title: string; onPress: () => void; disabled?: boolean }) {
+  return (
+    <Pressable
+      style={[styles.pillButton, props.disabled === true && styles.pillButtonDisabled]}
+      disabled={props.disabled}
+      onPress={props.onPress}
+    >
+      <Text style={styles.pillButtonText}>{props.title}</Text>
+    </Pressable>
+  );
+}
+
 function EnrollForm(props: {
   busy: boolean;
+  error: string | null;
   onSubmit: (serverUrl: string, token: string, deviceName: string, password: string) => void;
 }) {
-  const [serverUrl, setServerUrl] = useState('');
+  const [serverUrl, setServerUrl] = useState(DEV_SERVER_URL);
   const [token, setToken] = useState('');
-  const [deviceName, setDeviceName] = useState('');
+  const [deviceName, setDeviceName] = useState(DEV_DEVICE_NAME);
   const [password, setPassword] = useState('');
 
   return (
     <View style={styles.form}>
-      <Text style={styles.title}>Join your vault</Text>
-      <Text>Server URL</Text>
-      <TextInput
-        style={styles.input}
-        autoCapitalize="none"
-        autoCorrect={false}
+      <Text style={styles.title}>Join Vault</Text>
+      <Field
+        label="Server URL"
         placeholder="https://vault.example.com"
+        autoCapitalize="none"
         value={serverUrl}
         onChangeText={setServerUrl}
       />
-      <Text>Enrollment token (from an already-enrolled device)</Text>
-      <TextInput style={styles.input} autoCapitalize="none" autoCorrect={false} value={token} onChangeText={setToken} />
-      <Text>Device name</Text>
-      <TextInput style={styles.input} value={deviceName} onChangeText={setDeviceName} />
-      <Text>Master password</Text>
-      <TextInput style={styles.input} secureTextEntry value={password} onChangeText={setPassword} />
-      <Button
+      <Field
+        label="Enrollment Token"
+        placeholder="From an already-enrolled device"
+        autoCapitalize="none"
+        value={token}
+        onChangeText={setToken}
+        error={props.error ?? undefined}
+      />
+      <Field label="Device Name" value={deviceName} onChangeText={setDeviceName} />
+      <Field label="Master Password" secure value={password} onChangeText={setPassword} />
+      <PillButton
         title={props.busy ? 'Joining…' : 'Join'}
         disabled={props.busy}
         onPress={() => props.onSubmit(serverUrl, token, deviceName, password)}
       />
+      <Text style={styles.footnote}>
+        Vault enrollment tokens must be generated on a previously-trusted device running Vaultiq.
+      </Text>
     </View>
   );
 }
 
-function UnlockForm(props: { busy: boolean; onSubmit: (password: string) => void }) {
+function UnlockForm(props: { busy: boolean; error: string | null; onSubmit: (password: string) => void }) {
   const [password, setPassword] = useState('');
 
   return (
     <View style={styles.form}>
-      <Text style={styles.title}>Unlock</Text>
-      <TextInput style={styles.input} secureTextEntry value={password} onChangeText={setPassword} />
-      <Button
-        title={props.busy ? 'Unlocking…' : 'Unlock'}
-        disabled={props.busy}
-        onPress={() => props.onSubmit(password)}
-      />
+      {props.error !== null && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerText}>⚠ Unable to unlock vault</Text>
+        </View>
+      )}
+      <View style={styles.brand}>
+        <View style={styles.brandMark}>
+          <Text style={styles.brandMarkText}>V</Text>
+        </View>
+        <Text style={styles.brandTitle}>Vaultiq</Text>
+      </View>
+      <Field label="Master Password" secure value={password} onChangeText={setPassword} />
+      <PillButton title={props.busy ? 'Unlocking…' : 'Unlock'} disabled={props.busy} onPress={() => props.onSubmit(password)} />
+      <View style={styles.infoBox}>
+        <Text style={styles.infoBoxText}>
+          Zero-knowledge vault — no password recovery is possible.
+        </Text>
+      </View>
     </View>
   );
 }
 
-/**
- * Bare item list -- not the designed Vault Home screen. Proves the sync
- * pipeline (pull -> decrypt) works; per-type detail views and real styling
- * are a separate, later slice once there is a design to build against
- * (CLAUDE.md §0).
- */
 const AUTO_LOCK_OPTIONS = [1, 5, 15, 30, 0] as const;
+const ITEM_TYPES = ['login', 'card', 'identity', 'note', 'totp'] as const;
+const ITEM_TYPE_LABELS: Record<string, string> = {
+  login: 'Logins',
+  card: 'Cards',
+  identity: 'Identities',
+  note: 'Notes',
+  totp: 'Authenticators',
+};
 
+/**
+ * Vault Home, styled against the mockup -- search + type filter chips over
+ * the real (currently empty) synced item list -- plus the diagnostics
+ * (auto-lock settings, FFI smoke test) that have no mockup of their own yet.
+ */
 function UnlockedPanel(props: {
   onLock: () => void;
   error: string | null;
@@ -199,6 +277,8 @@ function UnlockedPanel(props: {
 }) {
   const [items, setItems] = useState<DecryptedItem[] | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [salt, setSalt] = useState<string | null>(null);
   const [strength, setStrength] = useState<string | null>(null);
 
@@ -228,30 +308,58 @@ function UnlockedPanel(props: {
     setStrength(`${estimated.level} (${estimated.bits} bits)`);
   };
 
+  const visible = (items ?? []).filter(item => {
+    if (typeFilter !== null && item.itemType !== typeFilter) return false;
+    if (query.trim() === '') return true;
+    const name = typeof item.content.name === 'string' ? item.content.name : '';
+    const username = typeof item.content.username === 'string' ? item.content.username : '';
+    return `${name} ${username}`.toLowerCase().includes(query.trim().toLowerCase());
+  });
+
   return (
     <FlatList
       style={styles.list}
       contentContainerStyle={styles.listContent}
-      data={items ?? []}
+      data={visible}
       keyExtractor={item => item.id}
       ListHeaderComponent={
-        <View style={styles.form}>
-          <Text style={styles.title}>Vault unlocked</Text>
-          <Button title="Lock" onPress={props.onLock} />
-          <Button title={syncing ? 'Syncing…' : 'Sync'} disabled={syncing} onPress={sync} />
-          {props.error !== null && <Text style={styles.error}>error: {props.error}</Text>}
-          {items !== null && <Text>{items.length} item(s)</Text>}
-          <Text style={styles.title}>Auto-lock</Text>
-          <View style={styles.row}>
-            {AUTO_LOCK_OPTIONS.map(minutes => (
-              <Button
-                key={minutes}
-                title={minutes === 0 ? 'Never' : `${minutes}m`}
-                color={props.autoLockMinutes === minutes ? undefined : '#888'}
-                onPress={() => props.onChangeAutoLockMinutes(minutes)}
-              />
-            ))}
+        <View>
+          <View style={styles.homeHeader}>
+            <View style={styles.brandMarkSmall}>
+              <Text style={styles.brandMarkTextSmall}>V</Text>
+            </View>
+            <Text style={styles.brandTitleSmall}>Vaultiq</Text>
           </View>
+          <TextInput
+            style={styles.search}
+            placeholder="Search vault items"
+            placeholderTextColor={colors.muted}
+            value={query}
+            onChangeText={setQuery}
+          />
+          <FlatList
+            horizontal
+            data={[null, ...ITEM_TYPES]}
+            keyExtractor={type => type ?? 'all'}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipRow}
+            renderItem={({ item: type }) => (
+              <Pressable
+                style={[styles.chip, typeFilter === type && styles.chipActive]}
+                onPress={() => setTypeFilter(type)}
+              >
+                <Text style={[styles.chipText, typeFilter === type && styles.chipTextActive]}>
+                  {type === null ? 'All' : ITEM_TYPE_LABELS[type]}
+                </Text>
+              </Pressable>
+            )}
+          />
+          {props.error !== null && <Text style={styles.fieldError}>error: {props.error}</Text>}
+          {items !== null && visible.length === 0 && (
+            <Text style={styles.emptyState}>
+              {items.length === 0 ? 'No items in this vault yet.' : 'No items match.'}
+            </Text>
+          )}
         </View>
       }
       renderItem={({ item }) => {
@@ -259,17 +367,41 @@ function UnlockedPanel(props: {
           (typeof item.content.name === 'string' && item.content.name) ||
           (typeof item.content.username === 'string' && item.content.username) ||
           item.id;
+        const secondary = typeof item.content.username === 'string' ? item.content.username : item.itemType;
         return (
           <View style={styles.listRow}>
-            <Text>{name}</Text>
-            <Text style={styles.secondary}>{item.itemType}</Text>
+            <View style={styles.rowIcon}>
+              <Text style={styles.rowIconText}>{item.itemType.charAt(0).toUpperCase()}</Text>
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowName}>{name}</Text>
+              <Text style={styles.secondary}>{secondary}</Text>
+            </View>
           </View>
         );
       }}
       ListFooterComponent={
         <View style={styles.form}>
+          <PillButton title="Lock Vault" onPress={props.onLock} />
+          <PillButton title={syncing ? 'Syncing…' : 'Sync'} disabled={syncing} onPress={sync} />
+
+          <Text style={styles.title}>Auto-lock</Text>
+          <View style={styles.chipRow}>
+            {AUTO_LOCK_OPTIONS.map(minutes => (
+              <Pressable
+                key={minutes}
+                style={[styles.chip, props.autoLockMinutes === minutes && styles.chipActive]}
+                onPress={() => props.onChangeAutoLockMinutes(minutes)}
+              >
+                <Text style={[styles.chipText, props.autoLockMinutes === minutes && styles.chipTextActive]}>
+                  {minutes === 0 ? 'Never' : `${minutes}m`}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
           <Text style={styles.title}>pw-crypto-core FFI smoke test</Text>
-          <Button title="Run" onPress={runSmokeTest} />
+          <Button title="Run" color={colors.primary} onPress={runSmokeTest} />
           {salt !== null && <Text>salt: {salt}</Text>}
           {strength !== null && <Text>test password strength: {strength}</Text>}
         </View>
@@ -281,48 +413,223 @@ function UnlockedPanel(props: {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.background,
   },
   content: {
     flex: 1,
     justifyContent: 'center',
-    padding: 24,
-    gap: 12,
+    padding: spacing.lg,
+  },
+  form: {
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+  },
+  field: {
+    gap: spacing.xs,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.heading,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.input,
+    padding: spacing.sm + 4,
+    backgroundColor: colors.surface,
+    color: colors.text,
+  },
+  inputError: {
+    borderColor: colors.danger,
+  },
+  reveal: {
+    position: 'absolute',
+    right: spacing.sm + 4,
+  },
+  revealText: {
+    color: colors.primary,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  fieldError: {
+    color: colors.danger,
+    fontSize: 12,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.heading,
+    marginTop: spacing.sm,
+  },
+  footnote: {
+    color: colors.muted,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+  },
+  pillButton: {
+    backgroundColor: colors.primary,
+    borderRadius: radii.button,
+    paddingVertical: spacing.sm + 4,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  pillButtonDisabled: {
+    opacity: 0.6,
+  },
+  pillButtonText: {
+    color: colors.onPrimary,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  brand: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  brandMark: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandMarkText: {
+    color: colors.onPrimary,
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  brandTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.heading,
+  },
+  brandMarkSmall: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandMarkTextSmall: {
+    color: colors.onPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  homeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  brandTitleSmall: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.heading,
+  },
+  errorBanner: {
+    backgroundColor: '#F6D9CE',
+    borderRadius: radii.input,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  errorBannerText: {
+    color: colors.danger,
+    fontWeight: '600',
+  },
+  infoBox: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.input,
+    padding: spacing.sm + 4,
+    marginTop: spacing.md,
+  },
+  infoBoxText: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  search: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.button,
+    padding: spacing.sm + 4,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    marginBottom: spacing.sm,
+  },
+  chipRow: {
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  chip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.chip,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    backgroundColor: colors.surface,
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chipText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  chipTextActive: {
+    color: colors.onPrimary,
+  },
+  emptyState: {
+    color: colors.muted,
+    textAlign: 'center',
+    padding: spacing.lg,
   },
   list: {
     flex: 1,
   },
   listContent: {
-    padding: 24,
-    gap: 12,
+    padding: spacing.lg,
   },
   listRow: {
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: '#888',
-  },
-  secondary: {
-    color: '#888',
-    fontSize: 12,
-  },
-  row: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm + 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
   },
-  form: {
-    gap: 8,
+  rowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  title: {
-    fontSize: 18,
+  rowIconText: {
+    color: colors.onPrimary,
+    fontWeight: '700',
+  },
+  rowText: {
+    flex: 1,
+  },
+  rowName: {
+    color: colors.text,
     fontWeight: '600',
   },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#888',
-    borderRadius: 4,
-    padding: 8,
-  },
-  error: {
-    color: 'red',
+  secondary: {
+    color: colors.muted,
+    fontSize: 12,
   },
 });
 
