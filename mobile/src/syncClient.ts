@@ -1,11 +1,11 @@
-import type { Argon2Params, WrappedVaultKey } from './nativeCryptoCore';
+import type { Argon2Params, EncryptedItem, WrappedVaultKey } from './nativeCryptoCore';
 
 /**
- * HTTP calls to the sync server's enrollment/auth routes -- the mobile
+ * HTTP calls to the sync server's enrollment/auth/sync routes -- the mobile
  * analogue of extension/src/sync/client.ts, covering only the subset this
- * app currently uses: joining an *existing* vault as a new device and
- * fetching its bootstrap record. Vault creation (`auth/register`) and item
- * sync (`sync`) are not implemented here; see CLAUDE.md §0.
+ * app currently uses: joining an *existing* vault as a new device, fetching
+ * its bootstrap record, and pulling items. Vault creation (`auth/register`)
+ * and pushing items are not implemented here; see CLAUDE.md §0.
  */
 type KdfParams = {
   saltB64: string;
@@ -18,6 +18,12 @@ type DeviceCredential = {
 
 type VaultBootstrap = KdfParams & {
   wrappedVaultKey: WrappedVaultKey;
+};
+
+type PullResult = {
+  items: EncryptedItem[];
+  cursor: string;
+  more: boolean;
 };
 
 class SyncServerError extends Error {}
@@ -69,5 +75,10 @@ function vaultBootstrap(serverUrl: string, deviceId: string, credential: string)
   return getJson(serverUrl, 'vault', `Bearer ${deviceId}.${credential}`);
 }
 
-export { enroll, enrollmentParams, SyncServerError, vaultBootstrap };
-export type { DeviceCredential, KdfParams, VaultBootstrap };
+/** Everything written after `since` (a bare integer cursor, "0" for everything). */
+function pull(serverUrl: string, deviceId: string, credential: string, since: string): Promise<PullResult> {
+  return getJson(serverUrl, `sync?since=${encodeURIComponent(since)}`, `Bearer ${deviceId}.${credential}`);
+}
+
+export { enroll, enrollmentParams, pull, SyncServerError, vaultBootstrap };
+export type { DeviceCredential, KdfParams, PullResult, VaultBootstrap };

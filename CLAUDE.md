@@ -64,7 +64,7 @@ fast and clever, every time.
     `AsyncStorage`, matching the extension's `storage.local` model (the one
     genuine secret, the device credential, is sealed under the vault key
     before it's persisted, same as `sealCredential`). Deliberately out of
-    scope so far: item sync/CRUD, autofill, quick-unlock by PIN (its
+    scope so far: pushing items, autofill, quick-unlock by PIN (its
     session-only design doesn't map cleanly onto Android's process
     lifecycle — a later, deliberate decision, not an oversight), and vault
     *creation* (this app only joins an existing vault). **Verified
@@ -76,6 +76,35 @@ fast and clever, every time.
     gitignored `docker-compose.override.yml` publishing its port plus
     `adb reverse tcp:3000 tcp:3000` — dev-only, not how a real deployment
     is reached.
+  - Item **pull** now works too: `vault.pullItems()` unseals the stored
+    device credential, calls `GET /sync` (paginating on the server's `more`
+    flag), and decrypts each non-tombstoned item. No local item cache yet —
+    every call re-pulls and re-decrypts from scratch rather than persisting
+    ciphertext or plaintext between sessions, since there's nothing here yet
+    that needs one; that's a deliberate simplification, not a gap, until a
+    real Vault Home design exists to build a cache for. `App.tsx` renders a
+    bare, unstyled item list (name/username fallback + type) — proving the
+    pipeline, not the designed screen from the Figma brief.
+  - `EncryptedItem`'s wire shape on the native bridge is base64 strings for
+    `ciphertext`/`nonce` (`CryptoCoreModule.kt`'s `encryptItem`/`decryptItem`),
+    matching `server/src/sync/dto.ts`'s `@IsBase64()` validation on the
+    `sync` routes exactly. This is deliberately *different* from
+    `WrappedVaultKeyFfi` in `unlock` (still number arrays): the vault
+    bootstrap's `wrappedVaultKey` field is untyped and unvalidated
+    server-side, so it stays whatever shape wasm's default serialization
+    produced; `sync` items are validated, so the bridge matches that wire
+    format instead of picking one convention and converting. Caught by
+    testing on-device: an app upgrade over stale `AsyncStorage` data written
+    in the old (number-array) shape failed decryption with a Kotlin cast
+    error, not a silent misdecrypt — expected given there is no migration
+    path for local dev state, not a data-loss bug.
+  - Auto-lock is now real and user-configurable (1/5/15/30 minutes or
+    never, default 15 — matches the extension's default): a foreground-only
+    idle timer in `App.tsx`, reset on touch, not the extension's background
+    alarm. Deliberately not full parity — Android backgrounding this app
+    already tends to kill the process and wipe the held vault key regardless,
+    so the gap that matters is staying unlocked while foregrounded and
+    untouched, which this covers.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
