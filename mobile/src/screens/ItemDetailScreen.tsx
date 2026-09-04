@@ -56,6 +56,8 @@ export default function ItemDetailScreen({ route }: VaultStackScreenProps<'ItemD
           {text(c, 'url') !== '' && <DetailField label="URL" value={text(c, 'url')} onCopy={copy(text(c, 'url'))} />}
           <DetailField label="Username" value={text(c, 'username')} onCopy={copy(text(c, 'username'))} />
           <DetailField label="Password" value={text(c, 'password')} secure onCopy={copy(text(c, 'password'))} />
+          <DetailField label="Email" value={text(c, 'email')} onCopy={copy(text(c, 'email'))} />
+          <DetailField label="Mobile" value={text(c, 'mobile')} onCopy={copy(text(c, 'mobile'))} />
         </>
       )}
       {item.itemType === 'card' && (
@@ -67,6 +69,7 @@ export default function ItemDetailScreen({ route }: VaultStackScreenProps<'ItemD
             value={[text(c, 'expiryMonth'), text(c, 'expiryYear')].filter(Boolean).join('/')}
           />
           <DetailField label="Security Code" value={text(c, 'securityCode')} secure onCopy={copy(text(c, 'securityCode'))} />
+          <DetailField label="PIN" value={text(c, 'pin')} secure />
         </>
       )}
       {item.itemType === 'identity' && (
@@ -74,13 +77,16 @@ export default function ItemDetailScreen({ route }: VaultStackScreenProps<'ItemD
           <DetailField label="Full Name" value={[text(c, 'firstName'), text(c, 'lastName')].filter(Boolean).join(' ')} />
           <DetailField label="Email" value={text(c, 'email')} onCopy={copy(text(c, 'email'))} />
           <DetailField label="Phone" value={text(c, 'phone')} onCopy={copy(text(c, 'phone'))} />
-          <DetailField
-            label="Address"
-            value={[text(c, 'street'), text(c, 'city'), text(c, 'state'), text(c, 'postalCode'), text(c, 'country')]
-              .filter(Boolean)
-              .join(', ')}
-          />
+          <DetailField label="Company" value={text(c, 'company')} />
+          <DetailField label="Street" value={text(c, 'street')} />
+          <DetailField label="Street 2" value={text(c, 'street2')} />
+          <DetailField label="City" value={text(c, 'city')} />
+          <DetailField label="State" value={text(c, 'state')} />
+          <DetailField label="Postal Code" value={text(c, 'postalCode')} />
+          <DetailField label="Country" value={text(c, 'country')} />
           <DetailField label="Date of Birth" value={text(c, 'dateOfBirth')} />
+          {/* Masked wherever shown -- it opens accounts on its own (extension/src/lib/messages.ts). */}
+          <DetailField label="National ID" value={text(c, 'nationalId')} secure />
         </>
       )}
       {item.itemType === 'totp' && (
