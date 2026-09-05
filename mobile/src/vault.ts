@@ -45,12 +45,12 @@ async function status(): Promise<Status> {
  * at the unlock step below, identically to a tampered record.
  */
 async function enrollAndUnlock(
-  serverUrl: string,
+  url: string,
   token: string,
   deviceName: string,
   password: string,
 ): Promise<void> {
-  const params = await syncClient.enrollmentParams(serverUrl, token);
+  const params = await syncClient.enrollmentParams(url, token);
   const authKey = await CryptoCore.deriveAuthKey(
     password,
     params.saltB64,
@@ -58,8 +58,8 @@ async function enrollAndUnlock(
     params.iterations,
     params.parallelism,
   );
-  const device = await syncClient.enroll(serverUrl, token, authKey, deviceName);
-  const bootstrap = await syncClient.vaultBootstrap(serverUrl, device.deviceId, device.credential);
+  const device = await syncClient.enroll(url, token, authKey, deviceName);
+  const bootstrap = await syncClient.vaultBootstrap(url, device.deviceId, device.credential);
 
   await CryptoCore.unlock(
     password,
@@ -76,7 +76,7 @@ async function enrollAndUnlock(
   );
 
   const enrollment: EnrollmentState = {
-    serverUrl,
+    serverUrl: url,
     deviceId: device.deviceId,
     sealedCredential,
     vault: {
@@ -118,6 +118,29 @@ async function lock(): Promise<void> {
   credential = null;
 }
 
+/** The server this device is enrolled with, for display -- null if not enrolled. */
+async function serverUrl(): Promise<string | null> {
+  return (await storage.readEnrollment())?.serverUrl ?? null;
+}
+
+/** Fails the same way pullItems does if called before unlock. */
+async function authenticated<T>(call: (url: string, deviceId: string, credential: string) => Promise<T>): Promise<T> {
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null) throw new Error('not enrolled on this device yet');
+  if (credential === null) throw new Error('vault is locked');
+  return call(enrollment.serverUrl, credential.deviceId, credential.credential);
+}
+
+function listDevices(): Promise<syncClient.DeviceSummary[]> {
+  return authenticated((url, deviceId, cred) => syncClient.listDevices(url, deviceId, cred));
+}
+
+function revokeDevice(targetId: string): Promise<void> {
+  return authenticated(async (url, deviceId, cred) => {
+    await syncClient.revokeDevice(url, deviceId, cred, targetId);
+  });
+}
+
 /**
  * Pulls and decrypts the vault's current items.
  *
@@ -129,25 +152,23 @@ async function lock(): Promise<void> {
  * server's `more` flag until caught up, the same loop
  * extension/src/sync/engine.ts's pull side runs.
  */
-async function pullItems(): Promise<DecryptedItem[]> {
-  const enrollment = await storage.readEnrollment();
-  if (enrollment === null) throw new Error('not enrolled on this device yet');
-  if (credential === null) throw new Error('vault is locked');
-
-  const decrypted: DecryptedItem[] = [];
-  let cursor = '0';
-  for (;;) {
-    const page = await syncClient.pull(enrollment.serverUrl, credential.deviceId, credential.credential, cursor);
-    for (const item of page.items) {
-      if (item.deleted) continue;
-      const content = JSON.parse(await CryptoCore.decryptItem(item)) as Record<string, unknown>;
-      decrypted.push({ id: item.id, itemType: item.itemType, content });
+function pullItems(): Promise<DecryptedItem[]> {
+  return authenticated(async (url, deviceId, cred) => {
+    const decrypted: DecryptedItem[] = [];
+    let cursor = '0';
+    for (;;) {
+      const page = await syncClient.pull(url, deviceId, cred, cursor);
+      for (const item of page.items) {
+        if (item.deleted) continue;
+        const content = JSON.parse(await CryptoCore.decryptItem(item)) as Record<string, unknown>;
+        decrypted.push({ id: item.id, itemType: item.itemType, content });
+      }
+      cursor = page.cursor;
+      if (!page.more) break;
     }
-    cursor = page.cursor;
-    if (!page.more) break;
-  }
-  return decrypted;
+    return decrypted;
+  });
 }
 
-export { enrollAndUnlock, lock, pullItems, status, unlock };
+export { enrollAndUnlock, listDevices, lock, pullItems, revokeDevice, serverUrl, status, unlock };
 export type { DecryptedItem, Status };

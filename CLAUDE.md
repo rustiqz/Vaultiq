@@ -111,14 +111,74 @@ fast and clever, every time.
     variant is a deliberate later addition, not attempted, since RN has no
     built-in theme provider and building one is its own piece of work. Built
     from exported screenshots, not a live Figma connection, so spacing and
-    type scale are approximate. Everything past those three screens — item
-    detail, New Item, Settings, Autofill — has no plumbing behind it yet and
-    stays unstyled; styling them now would mean styling a mockup, not a
-    screen. `mobile/src/devConfig.ts` (gitignored, `.example` committed, same
-    pattern as the repo-root `.env`) prefills the Join Vault server URL and
-    device name for local testing — never the enrollment token, which is
-    single-use and expires in 15 minutes, so there is no default that would
-    still be valid by the time it's read.
+    type scale are approximate. `mobile/src/devConfig.ts` (gitignored,
+    `.example` committed, same pattern as the repo-root `.env`) prefills the
+    Join Vault server URL and device name for local testing — never the
+    enrollment token, which is single-use and expires in 15 minutes, so
+    there is no default that would still be valid by the time it's read.
+  - Real navigation now, via `@react-navigation` (native-stack + bottom-tabs
+    + `react-native-screens`): a bottom-tab shell (Vault, Settings) once
+    unlocked, with Vault Home → Item Detail as its own native stack — native
+    Android back gesture/button support throughout, not custom-handled.
+    Item Detail is styled and real for all five types (login, card,
+    identity, note, totp), reading the already-decrypted content already in
+    memory; TOTP gets a live 6-digit code via two new native methods
+    (`totpCode`/`totpSecondsRemaining`, mirroring `ffi.rs`'s stateless
+    `totp_code_ffi`/`totp_seconds_remaining_ffi` — no vault key needed).
+    Settings is real too: device list/revoke (`GET`/`DELETE /devices`,
+    newly added to `syncClient.ts`), auto-lock (moved here from Vault
+    Home), server URL. Copy-to-clipboard on secret fields via
+    `@react-native-clipboard/clipboard`. New Item and Autofill still have
+    no plumbing and don't exist as screens.
+  - Fixed on the way: `SafeAreaView` from `'react-native'` is a no-op on
+    Android (iOS-only in core RN) — content was rendering under the status
+    bar until switched to `react-native-safe-area-context`'s version
+    (already a dependency) under a root `SafeAreaProvider`. Also dropped the
+    default header shadow and tab-bar top border for a flatter, borderless
+    look (`headerShadowVisible: false`, `tabBarStyle` with no border/
+    elevation, header `card` color matched to the page background), and
+    restored an explicit `<StatusBar barStyle="dark-content" />` that had
+    been dropped in the navigation rewrite — without it Android defaulted to
+    light (white) status bar content, unreadable against the cream
+    background.
+  - The above was screenshot-approximate; screens now follow the real Figma
+    exports instead (delivered as `~/Downloads/screen-*.svg`, rasterized
+    with `rsvg-convert` and reviewed visually — the SVGs export selectable
+    text as flattened vector paths, not `<text>` elements, so there was
+    nothing to read from the markup itself). The fall palette stays ours
+    (the Figma set uses teal); layout, spacing, icons and components now
+    follow Figma. Two new dependencies for fidelity: `react-native-svg`
+    (the Authenticator ring — a real animated arc, not an approximation)
+    and `@react-native-vector-icons/feather` (outline icons matching the
+    Figma set closely). A third bottom tab, **Authenticator**, lists every
+    TOTP item with its live code inline (Authy-style quick access, tap to
+    copy) rather than requiring a trip through Vault Home — `useTotpCode.ts`
+    factors the ticking logic shared with Item Detail's ring. Settings'
+    auto-lock control moved to its own pushed screen
+    (`SettingsStack: SettingsHome → AutoLock`) to match Figma's chevron-row
+    pattern. Item Detail's header gained the mockup's favorite/edit/delete
+    icons; they are **not wired to anything real** (no favorite, edit, or
+    delete plumbing exists) and tapping them says so via
+    `Alert.alert('Not yet available', ...)` rather than doing nothing
+    silently. `DetailField` grew a `multiline` mode after testing surfaced
+    that Secure Note content was being clipped to one line.
+  - Verified end-to-end on a physical device against seeded real data (one
+    item per type, pushed straight to `/sync` with real ciphertext from a
+    throwaway `#[cfg(test)]` block in `pw-crypto-core`, the same pattern as
+    the earlier test-vault bootstrap — not committed): every item type's
+    detail view, the Authenticator tab's live code, and Settings' device
+    revoke (which also cleaned up a stale duplicate device row left over
+    from an earlier test re-enrollment this session).
+  - This machine's native Android builds are memory-constrained enough that
+    `react-native-svg`'s C++ view manager compile can OOM-kill the Gradle
+    daemon under load — `org.gradle.workers.max=2` in
+    `mobile/android/gradle.properties` caps it, and even that was not
+    always enough when the machine's other applications were also under
+    memory pressure; `taskset -c 0,1 ./gradlew ...` (capping visible CPUs,
+    which Ninja's job-count autodetection respects) was the reliable fix.
+    Ninja's build cache survives a killed daemon, so a crashed attempt is
+    not wasted work — retrying picks up from the last completed object
+    file.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the

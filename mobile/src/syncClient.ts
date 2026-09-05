@@ -26,6 +26,14 @@ type PullResult = {
   more: boolean;
 };
 
+type DeviceSummary = {
+  id: string;
+  name: string;
+  enrolledAt: string;
+  revokedAt: string | null;
+  current: boolean;
+};
+
 class SyncServerError extends Error {}
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -60,6 +68,15 @@ async function getJson<T>(serverUrl: string, path: string, authHeader: string): 
   return (await response.json()) as T;
 }
 
+async function deleteJson<T>(serverUrl: string, path: string, authHeader: string): Promise<T> {
+  const response = await fetch(`${serverUrl}/${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: authHeader },
+  });
+  if (!response.ok) throw new SyncServerError(await readErrorMessage(response));
+  return (await response.json()) as T;
+}
+
 /** The salt and KDF costs an enrolling device needs to derive its auth key. */
 function enrollmentParams(serverUrl: string, token: string): Promise<KdfParams> {
   return postJson(serverUrl, 'auth/enrollment-params', { token });
@@ -80,5 +97,15 @@ function pull(serverUrl: string, deviceId: string, credential: string, since: st
   return getJson(serverUrl, `sync?since=${encodeURIComponent(since)}`, `Bearer ${deviceId}.${credential}`);
 }
 
-export { enroll, enrollmentParams, pull, SyncServerError, vaultBootstrap };
-export type { DeviceCredential, KdfParams, PullResult, VaultBootstrap };
+/** Every device enrolled on this vault, this one flagged as `current`. */
+function listDevices(serverUrl: string, deviceId: string, credential: string): Promise<DeviceSummary[]> {
+  return getJson(serverUrl, 'devices', `Bearer ${deviceId}.${credential}`);
+}
+
+/** Revokes another device. The server refuses to revoke the caller's own. */
+function revokeDevice(serverUrl: string, deviceId: string, credential: string, targetId: string): Promise<{ revoked: true }> {
+  return deleteJson(serverUrl, `devices/${encodeURIComponent(targetId)}`, `Bearer ${deviceId}.${credential}`);
+}
+
+export { enroll, enrollmentParams, listDevices, pull, revokeDevice, SyncServerError, vaultBootstrap };
+export type { DeviceCredential, DeviceSummary, KdfParams, PullResult, VaultBootstrap };
