@@ -1332,8 +1332,13 @@ describe("what the autofill picker is told", () => {
     );
 
     // The content script runs inside the page. It is handed enough to draw a
-    // list and nothing that would be worth stealing from it.
-    const payload = JSON.stringify(suggestions);
+    // list and nothing that would be worth stealing from it. Check only the
+    // label/detail text a page would see — the item's own random id isn't a
+    // secret, but as an arbitrary string it can coincidentally contain a
+    // short numeric value like a CVV.
+    const payload = JSON.stringify(
+      suggestions.map(({ label, detail }) => ({ label, detail })),
+    );
     expect(payload).not.toContain(CONTENT.password);
     expect(payload).not.toContain(CARD.number);
     expect(payload).not.toContain(CARD.securityCode);
