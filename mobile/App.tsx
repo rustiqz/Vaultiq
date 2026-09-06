@@ -13,7 +13,7 @@
  * @format
  */
 
-import { NavigationContainer, type Theme } from '@react-navigation/native';
+import { NavigationContainer, getFocusedRouteNameFromRoute, type Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useEffect, useRef, useState } from 'react';
@@ -131,12 +131,7 @@ function VaultTab() {
       <VaultStack.Screen
         name="ItemEdit"
         component={ItemEditScreen}
-        options={({ route }) => ({
-          title:
-            route.params.mode === 'create'
-              ? `New ${ITEM_TYPE_TITLES[route.params.itemType] ?? route.params.itemType}`
-              : `Edit ${ITEM_TYPE_TITLES[route.params.item.itemType] ?? route.params.item.itemType}`,
-        })}
+        options={{ headerShown: false }}
       />
     </VaultStack.Navigator>
   );
@@ -259,7 +254,7 @@ function App() {
                 tabBarActiveTintColor: colors.ink,
                 tabBarInactiveTintColor: colors.ink,
                 tabBarLabelStyle: styles.tabLabel,
-                tabBarStyle: { backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: 'rgba(103, 70, 54, 0.12)', elevation: 0, height: 68 },
+                tabBarStyle: styles.tabBar,
                 // eslint-disable-next-line react/no-unstable-nested-components -- React Navigation's own documented tabBarIcon shape.
                 tabBarIcon: ({ focused }) => (
                   <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive]}>
@@ -268,7 +263,17 @@ function App() {
                 ),
               })}
             >
-              <Tab.Screen name="Vault" component={VaultTab} />
+              <Tab.Screen
+                name="Vault"
+                component={VaultTab}
+                options={({ route }) => ({
+                  // Item Detail/Edit and the per-type lists are full-screen
+                  // pushed routes in the mockups -- nested-stack-in-tabs
+                  // otherwise keeps the tab bar visible underneath them by
+                  // default, which the design never shows.
+                  tabBarStyle: (getFocusedRouteNameFromRoute(route) ?? 'VaultHome') === 'VaultHome' ? styles.tabBar : { display: 'none' },
+                })}
+              />
               <Tab.Screen name="Codes" component={AuthenticatorScreen} />
               <Tab.Screen name="Settings">{() => <SettingsTab onLock={doLock} />}</Tab.Screen>
             </Tab.Navigator>
@@ -296,6 +301,13 @@ const styles = StyleSheet.create({
   },
   tabRoot: {
     flex: 1,
+  },
+  tabBar: {
+    backgroundColor: colors.background,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(103, 70, 54, 0.12)',
+    elevation: 0,
+    height: 68,
   },
   tabIconWrap: {
     width: 46,
