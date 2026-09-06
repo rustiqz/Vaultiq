@@ -2,6 +2,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 import Icon from '../icons';
 import { text } from '../itemContent';
@@ -55,7 +56,7 @@ export default function AuthenticatorScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appBar}>
         <Text style={styles.title}>Codes</Text>
         <Pressable onPress={() => showComingSoon(show, 'Adding an authenticator from here')} hitSlop={8}>
@@ -93,7 +94,7 @@ export default function AuthenticatorScreen() {
         )}
       />
       {dialog}
-    </View>
+    </SafeAreaView>
   );
 }
 

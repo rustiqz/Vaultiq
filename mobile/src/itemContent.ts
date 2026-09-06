@@ -66,7 +66,17 @@ function text(content: Record<string, unknown>, field: string): string {
   return typeof value === 'string' ? value : '';
 }
 
+/**
+ * The row/header title shown for an item. Identity is the one exception --
+ * its `name` field is repurposed by the redesign as a Personal/Work label
+ * (see IdentityWizard.tsx), not the display title, so the person's actual
+ * name takes priority there.
+ */
 function displayName(itemType: string, content: Record<string, unknown>, id: string): string {
+  if (itemType === 'identity') {
+    const fullName = [text(content, 'firstName'), text(content, 'lastName')].filter(Boolean).join(' ');
+    if (fullName !== '') return fullName;
+  }
   return text(content, 'name') || text(content, 'username') || text(content, 'cardholder') || `${itemType} ${id.slice(0, 8)}`;
 }
 

@@ -232,7 +232,7 @@ fast and clever, every time.
     flagged alongside them: there is no native splash screen, so a cold
     start shows a brief default blank flash before the in-app loading
     view (`App.tsx`'s `status === 'loading'` branch) pops in.
-  - **Redesign v2, part 1of 2 (foundation + app shell).** The designer's
+  - **Redesign v2, part 1 of 2 (foundation + app shell).** The designer's
     redesign came back as a Claude Design canvas project (33 mockups plus a
     written design-system doc), read via the `DesignSync` MCP tool rather
     than screenshots. This first half replaces the visual system everywhere
@@ -317,6 +317,55 @@ fast and clever, every time.
       `icons.tsx`, was untouched, still the old Feather wrapper. The
       report was pure confabulation, not a race or an overwrite. Redone
       directly instead of re-delegated.
+  - **Redesign v2, part 2 of 2 (item screens).** Item Detail for all five
+    types, the create/edit forms, and the identity wizard, replacing part
+    one's light token-compat pass with the actual per-mockup rework.
+    - **Card**: a real card graphic (`CardPreview.tsx`, shared between
+      New/Edit and Detail) — ink face, the dial watermarked into it, brand
+      guessed from the number's prefix (Visa/Mastercard/Amex/Discover, a
+      prefix check, not a real BIN lookup) — the design backlog's ask,
+      replacing the old generic field-list.
+    - **Every-time/sometimes fields** (design rule 2), for login, card, and
+      authenticator: a fixed set of fields always shown, everything else
+      starts as an add-chip and becomes a field once tapped — never hidden
+      again once added. Editing a saved item starts with every field that
+      already has a value pre-shown, not just the schema defaults.
+    - **Identity is its own wizard** (`IdentityWizard.tsx`), not the shared
+      form: three data steps (Name, Contact, Address) plus a fourth "step"
+      that's the review screen itself, matching the mockups exactly (6i/
+      6ab/6ac) — a per-group summary with a jump-back Edit pill, not a
+      literal fourth data-entry step. One schema wrinkle the mockups
+      revealed: identity's `name` field is repurposed there as a
+      Personal/Work label shown in the review as "Label," not the display
+      title — the person's `firstName`/`lastName` is the title everywhere
+      instead (`itemContent.ts`'s `displayName` special-cases this now).
+      Company/date of birth/national ID/street 2/state — real schema
+      fields the mockups' three data steps didn't have room to show
+      individually — were distributed across the three steps as their own
+      sometimes-chips rather than dropped.
+    - **TOTP**: "Scan QR code" is shown as the design specifies but is a
+      labeled stub (manual entry works) — real QR scanning needs camera
+      access, already flagged in part one's gap list.
+    - Not touched: the Autofill picker mockup (6aa) — still nothing to
+      build without the real `AutofillService`, as in part one.
+    - **On-device testing surfaced real bugs, all fixed**: the bottom tab
+      bar stayed visible underneath every pushed screen in the Vault
+      stack (Item Detail, Item Edit, the per-type lists) — nested-stack-
+      inside-tabs keeps it by default in React Navigation, which the
+      mockups never show. Fixed with a per-tab `tabBarStyle: {display:
+      'none'}` driven by `getFocusedRouteNameFromRoute`, live only on
+      `VaultHome`. Separately, `ItemEdit` rendered a double header (the
+      native-stack default plus `ItemEditScreen`'s own custom app bar)
+      because its `App.tsx` screen options still computed a `title`
+      instead of setting `headerShown: false`. And `VaultHomeScreen`,
+      `AuthenticatorScreen`, `ItemEditScreen`, and `IdentityWizard` were
+      each missing `SafeAreaView` on their self-drawn app bars, so
+      content collided with the status bar — same class of bug already
+      fixed once on Join Vault/Unlock in part one, recurring because
+      these are newer custom-header screens. `TypeListScreen`'s search
+      placeholder also naively pluralized `identity` to "identitys";
+      fixed with an explicit map, the same approach already used for its
+      screen title.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
