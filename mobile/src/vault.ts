@@ -1,7 +1,10 @@
 import CryptoCore from './nativeCryptoCore';
+import type { EncryptedItem } from './nativeCryptoCore';
 import * as storage from './storage';
 import type { EnrollmentState } from './storage';
 import * as syncClient from './syncClient';
+import { randomItemId } from './lib/id';
+import type { ItemContent } from './itemContent';
 
 /**
  * Vault enrollment/unlock orchestration -- the mobile analogue of
@@ -15,6 +18,7 @@ type Status = 'not-enrolled' | 'locked' | 'unlocked';
 type DecryptedItem = {
   id: string;
   itemType: string;
+  version: number;
   content: Record<string, unknown>;
 };
 
@@ -161,7 +165,7 @@ function pullItems(): Promise<DecryptedItem[]> {
       for (const item of page.items) {
         if (item.deleted) continue;
         const content = JSON.parse(await CryptoCore.decryptItem(item)) as Record<string, unknown>;
-        decrypted.push({ id: item.id, itemType: item.itemType, content });
+        decrypted.push({ id: item.id, itemType: item.itemType, version: item.version, content });
       }
       cursor = page.cursor;
       if (!page.more) break;
@@ -170,5 +174,58 @@ function pullItems(): Promise<DecryptedItem[]> {
   });
 }
 
-export { enrollAndUnlock, listDevices, lock, pullItems, revokeDevice, serverUrl, status, unlock };
+/**
+ * A conflict here means the server holds a version of this item this device
+ * hadn't seen -- another device wrote it first. There's no local cache to
+ * reconcile against (see pullItems above), so unlike the extension's
+ * fork-and-keep-both (extension/src/sync/engine.ts), this just fails loudly:
+ * the caller's screen stays open with whatever the user typed still in it,
+ * and they can pull the latest and retry rather than silently losing either
+ * copy.
+ */
+async function pushOne(item: EncryptedItem): Promise<void> {
+  const result = await authenticated((url, deviceId, cred) => syncClient.push(url, deviceId, cred, [item]));
+  if (!result.accepted.includes(item.id)) {
+    throw new Error('This item changed on another device. Pull the latest and try again.');
+  }
+}
+
+/** Encrypts and pushes a brand-new item at version 1. */
+async function addItem(content: ItemContent): Promise<void> {
+  const now = Date.now();
+  const stamped = { ...content, createdAt: now, lastModifiedAt: now };
+  const header = { id: randomItemId(), itemType: content.type, version: 1, updatedAt: now, deleted: false };
+  const encrypted = await CryptoCore.encryptItem(JSON.stringify(stamped), header);
+  await pushOne(encrypted);
+}
+
+/**
+ * Rewrites an item at the next version -- `version` and `deleted` are bound
+ * into the authentication tag (pw-crypto-core/src/vault_item.rs), so an
+ * edit is always a fresh encryption, never an in-place field change. Callers
+ * pass the version they last saw (from the item as it was pulled or just
+ * created); the server is the one that decides whether that was current --
+ * see pushOne.
+ */
+async function updateItem(id: string, version: number, content: ItemContent): Promise<void> {
+  const header = { id, itemType: content.type, version: version + 1, updatedAt: Date.now(), deleted: false };
+  const stamped = { ...content, lastModifiedAt: Date.now() };
+  const encrypted = await CryptoCore.encryptItem(JSON.stringify(stamped), header);
+  await pushOne(encrypted);
+}
+
+/**
+ * Permanently erases an item: a tombstone (`deleted: true`) with its content
+ * replaced, the mobile analogue of the extension's `purgeItem` -- there's no
+ * trash/restore screen here to make a recoverable soft-delete meaningful, so
+ * this is the only kind of delete. The record itself is kept (with the new
+ * version and tombstone) so the deletion still propagates to other devices.
+ */
+async function deleteItem(id: string, version: number, itemType: string): Promise<void> {
+  const header = { id, itemType, version: version + 1, updatedAt: Date.now(), deleted: true };
+  const encrypted = await CryptoCore.encryptItem(JSON.stringify({ purged: true }), header);
+  await pushOne(encrypted);
+}
+
+export { addItem, deleteItem, enrollAndUnlock, listDevices, lock, pullItems, revokeDevice, serverUrl, status, unlock, updateItem };
 export type { DecryptedItem, Status };
