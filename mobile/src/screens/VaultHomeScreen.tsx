@@ -1,47 +1,55 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useLayoutEffect, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ItemContent } from '../itemContent';
-import Icon, { type FeatherName } from '../icons';
+import Icon from '../icons';
+import ItemAvatar from '../ItemAvatar';
 import { displayName, text } from '../itemContent';
+import LogoMark from '../LogoMark';
 import type { VaultStackScreenProps } from '../navigation';
-import { colors, radii, spacing } from '../theme';
-import { Card, Chip } from '../ui';
+import * as storage from '../storage';
+import { colors, fonts, spacing } from '../theme';
+import { Card, SearchBar } from '../ui';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 
-const ITEM_TYPES = ['login', 'card', 'identity', 'note', 'totp'] as const;
-const ITEM_TYPE_LABELS: Record<string, string> = {
-  login: 'Logins',
-  card: 'Cards',
-  identity: 'Identities',
-  note: 'Secure Notes',
-  totp: 'Authenticators',
-};
-const ITEM_TYPE_ICONS: Record<string, FeatherName> = {
-  login: 'key',
-  card: 'credit-card',
-  identity: 'user',
-  note: 'file-text',
-  totp: 'shield',
-};
+const BROWSE_TILES = [
+  { itemType: 'card', label: 'Cards', icon: 'card' },
+  { itemType: 'identity', label: 'Identities', icon: 'identity' },
+  { itemType: 'note', label: 'Notes', icon: 'note' },
+] as const;
+
+const NEW_ITEM_TYPES: { itemType: ItemContent['type']; label: string; hint: string; icon: Parameters<typeof Icon>[0]['name'] }[] = [
+  { itemType: 'login', label: 'Login', hint: 'Username, password, URL and TOTP', icon: 'login' },
+  { itemType: 'card', label: 'Card', hint: 'Payment card with expiry and CVV', icon: 'card' },
+  { itemType: 'identity', label: 'Identity', hint: 'Name, address, phone and documents', icon: 'identity' },
+  { itemType: 'note', label: 'Secure note', hint: 'Free text, recovery codes, keys', icon: 'note' },
+  { itemType: 'totp', label: 'Authenticator', hint: 'Time-based one-time code', icon: 'totp' },
+];
 
 /**
- * A plain custom picker rather than `Alert.alert`'s buttons: Android caps a
+ * A plain custom sheet rather than `Alert.alert`'s buttons: Android caps a
  * native alert at three buttons, which silently drops two of these five
  * types (and Cancel) instead of erroring -- found by testing this on an
  * actual device.
  */
-function NewItemPicker(props: { visible: boolean; onClose: () => void; onPick: (itemType: ItemContent['type']) => void }) {
+function NewItemSheet(props: { visible: boolean; onClose: () => void; onPick: (itemType: ItemContent['type']) => void }) {
   return (
     <Modal visible={props.visible} transparent animationType="fade" onRequestClose={props.onClose}>
-      <Pressable style={styles.pickerBackdrop} onPress={props.onClose}>
-        <Pressable style={styles.pickerCard}>
-          <Text style={styles.pickerTitle}>New Item</Text>
-          {ITEM_TYPES.map(itemType => (
-            <Pressable key={itemType} style={styles.pickerRow} onPress={() => props.onPick(itemType)}>
-              <Icon name={ITEM_TYPE_ICONS[itemType]} size={18} color={colors.text} />
-              <Text style={styles.pickerRowText}>{ITEM_TYPE_LABELS[itemType]}</Text>
+      <Pressable style={styles.sheetBackdrop} onPress={props.onClose}>
+        <Pressable style={styles.sheetCard}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>New item</Text>
+          {NEW_ITEM_TYPES.map(({ itemType, label, hint, icon }) => (
+            <Pressable key={itemType} style={styles.sheetRow} onPress={() => props.onPick(itemType)}>
+              <View style={styles.sheetRowIcon}>
+                <Icon name={icon} size={20} color={colors.ink} />
+              </View>
+              <View style={styles.sheetRowText}>
+                <Text style={styles.sheetRowLabel}>{label}</Text>
+                <Text style={styles.sheetRowHint}>{hint}</Text>
+              </View>
+              <Icon name="chevronRight" size={17} color={colors.ink} />
             </Pressable>
           ))}
         </Pressable>
@@ -50,121 +58,127 @@ function NewItemPicker(props: { visible: boolean; onClose: () => void; onPick: (
   );
 }
 
+type LoginSort = 'recent' | 'az';
+
 export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'VaultHome'>) {
   const [pickerVisible, setPickerVisible] = useState(false);
-
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      // eslint-disable-next-line react/no-unstable-nested-components -- react-navigation's own documented headerRight shape.
-      headerRight: () => (
-        <Pressable onPress={() => setPickerVisible(true)} hitSlop={8}>
-          <Icon name="plus" size={22} color={colors.text} />
-        </Pressable>
-      ),
-    });
-  }, [navigation]);
-
   const [items, setItems] = useState<DecryptedItem[] | null>(null);
-  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [sort, setSort] = useState<LoginSort>('recent');
+  const [lastUsed, setLastUsed] = useState<Record<string, number>>({});
 
   const sync = useCallback(async () => {
     setError(null);
-    setSyncing(true);
     try {
-      setItems(await vault.pullItems());
+      const [pulled, usage] = await Promise.all([vault.pullItems(), storage.readLastUsed()]);
+      setItems(pulled);
+      setLastUsed(usage);
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
-    } finally {
-      setSyncing(false);
     }
   }, []);
 
   // Refreshes on every focus, not just mount, so returning here after a
   // create/edit/delete on ItemEdit/ItemDetail shows the current server state
   // rather than a stale in-memory list -- this app has no local item cache
-  // to invalidate instead (see vault.ts's pullItems). Wrapped rather than
-  // passed directly: useFocusEffect treats its callback's return value as an
-  // optional cleanup function, and `sync` returns a Promise.
+  // to invalidate instead (see vault.ts's pullItems).
   useFocusEffect(
     useCallback(() => {
       sync();
     }, [sync]),
   );
 
-  const visible = (items ?? []).filter(item => {
-    if (typeFilter !== null && item.itemType !== typeFilter) return false;
-    if (query.trim() === '') return true;
-    const name = text(item.content, 'name');
-    const username = text(item.content, 'username');
-    return `${name} ${username}`.toLowerCase().includes(query.trim().toLowerCase());
-  });
+  const openItem = async (item: DecryptedItem) => {
+    await storage.recordItemUsed(item.id);
+    navigation.navigate('ItemDetail', { item });
+  };
+
+  const logins = (items ?? []).filter(item => item.itemType === 'login');
+  const visible = logins
+    .filter(item => {
+      if (query.trim() === '') return true;
+      const name = text(item.content, 'name');
+      const username = text(item.content, 'username');
+      return `${name} ${username}`.toLowerCase().includes(query.trim().toLowerCase());
+    })
+    .sort((a, b) => {
+      if (sort === 'az') return displayName(a.itemType, a.content, a.id).localeCompare(displayName(b.itemType, b.content, b.id));
+      return (lastUsed[b.id] ?? 0) - (lastUsed[a.id] ?? 0);
+    });
+
+  const isEmptyVault = items !== null && items.length === 0;
 
   return (
     <>
-      <FlatList
-        style={styles.list}
-        contentContainerStyle={styles.listContent}
-        data={visible}
-        keyExtractor={item => item.id}
-        // eslint-disable-next-line react/no-unstable-nested-components -- FlatList's own documented separator shape.
-        ItemSeparatorComponent={() => <View style={styles.rowGap} />}
-        ListHeaderComponent={
-          <View>
-            <View style={styles.searchRow}>
-              <Icon name="search" size={18} color={colors.muted} />
-              <TextInput
-                style={styles.search}
-                placeholder="Search vault items"
-                placeholderTextColor={colors.muted}
-                value={query}
-                onChangeText={setQuery}
-              />
-            </View>
-            <FlatList
-              horizontal
-              data={[null, ...ITEM_TYPES]}
-              keyExtractor={type => type ?? 'all'}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chipRow}
-              renderItem={({ item: type }) => (
-                <Chip
-                  label={type === null ? 'All' : ITEM_TYPE_LABELS[type]}
-                  active={typeFilter === type}
-                  onPress={() => setTypeFilter(type)}
-                />
-              )}
-            />
-            {error !== null && <Text style={styles.error}>error: {error}</Text>}
-            {items !== null && visible.length === 0 && (
-              <Text style={styles.emptyState}>{items.length === 0 ? 'No items in this vault yet.' : 'No items match.'}</Text>
-            )}
-          </View>
-        }
-        renderItem={({ item }) => {
-          const name = displayName(item.itemType, item.content, item.id);
-          const secondary = text(item.content, 'username') || text(item.content, 'url') || ITEM_TYPE_LABELS[item.itemType];
-          return (
-            <Card onPress={() => navigation.navigate('ItemDetail', { item })}>
-              <View style={styles.row}>
-                <View style={styles.rowIcon}>
-                  <Icon name={ITEM_TYPE_ICONS[item.itemType] ?? 'file'} size={18} color={colors.heading} />
+      <View style={styles.appBar}>
+        <View style={styles.brandRow}>
+          <LogoMark size={26} color={colors.ink} />
+          <Text style={styles.brandWordmark}>Vaultiq</Text>
+        </View>
+        <Pressable onPress={() => setPickerVisible(true)} hitSlop={8}>
+          <Icon name="plus" size={21} color={colors.ink} />
+        </Pressable>
+      </View>
+      {isEmptyVault ? (
+        <EmptyVault onAddFirst={() => setPickerVisible(true)} />
+      ) : (
+        <FlatList
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          data={visible}
+          keyExtractor={item => item.id}
+          // eslint-disable-next-line react/no-unstable-nested-components -- FlatList's own documented separator shape.
+          ItemSeparatorComponent={() => <View style={styles.rowGap} />}
+          ListHeaderComponent={
+            <View style={styles.header}>
+              <SearchBar value={query} onChangeText={setQuery} placeholder={`Search ${(items ?? []).length} items`} />
+              <View style={styles.browseSection}>
+                <Text style={styles.sectionLabel}>Browse</Text>
+                <View style={styles.browseGrid}>
+                  {BROWSE_TILES.map(tile => (
+                    <Pressable
+                      key={tile.itemType}
+                      style={styles.browseTile}
+                      onPress={() => navigation.navigate('TypeList', { itemType: tile.itemType })}
+                    >
+                      <Icon name={tile.icon} size={20} color={colors.ink} />
+                      <Text style={styles.browseTileLabel}>{tile.label}</Text>
+                    </Pressable>
+                  ))}
                 </View>
-                <View style={styles.rowText}>
-                  <Text style={styles.rowName}>{name}</Text>
-                  <Text style={styles.secondary}>{secondary}</Text>
-                </View>
-                <Icon name="chevron-right" size={18} color={colors.muted} />
               </View>
-            </Card>
-          );
-        }}
-        refreshing={syncing}
-        onRefresh={sync}
-      />
-      <NewItemPicker
+              {error !== null && <Text style={styles.error}>error: {error}</Text>}
+              <View style={styles.loginsHeaderRow}>
+                <Text style={styles.sectionLabel}>Logins · {logins.length}</Text>
+                <Pressable onPress={() => setSort(s => (s === 'recent' ? 'az' : 'recent'))}>
+                  <Text style={styles.sortToggle}>{sort === 'recent' ? 'Recent' : 'A–Z'}</Text>
+                </Pressable>
+              </View>
+              {items !== null && visible.length === 0 && (
+                <Text style={styles.emptyState}>{logins.length === 0 ? 'No logins yet.' : 'No matches.'}</Text>
+              )}
+            </View>
+          }
+          renderItem={({ item }) => {
+            const name = displayName(item.itemType, item.content, item.id);
+            const sub = text(item.content, 'username') || text(item.content, 'url');
+            return (
+              <Card onPress={() => openItem(item)}>
+                <View style={styles.row}>
+                  <ItemAvatar itemType={item.itemType} content={item.content} id={item.id} />
+                  <View style={styles.rowText}>
+                    <Text style={styles.rowName}>{name}</Text>
+                    {sub !== '' && <Text style={styles.rowSub}>{sub}</Text>}
+                  </View>
+                  <Icon name="chevronRight" size={16} color={colors.ink} />
+                </View>
+              </Card>
+            );
+          }}
+        />
+      )}
+      <NewItemSheet
         visible={pickerVisible}
         onClose={() => setPickerVisible(false)}
         onPick={itemType => {
@@ -176,38 +190,118 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
   );
 }
 
+function EmptyVault(props: { onAddFirst: () => void }) {
+  const rows: { icon: Parameters<typeof Icon>[0]['name']; label: string }[] = [
+    { icon: 'login', label: 'Logins and passwords' },
+    { icon: 'card', label: 'Cards and payment details' },
+    { icon: 'totp', label: 'Authenticator codes' },
+  ];
+  return (
+    <View style={styles.empty}>
+      <View style={styles.emptyIntro}>
+        <Text style={styles.sectionLabel}>Empty vault</Text>
+        <Text style={styles.emptyTitle}>Nothing stored{'\n'}here yet</Text>
+        <View style={styles.emptyRule} />
+        <Text style={styles.emptyBody}>Everything is encrypted on this device before it ever reaches the server.</Text>
+      </View>
+      <View>
+        {rows.map(row => (
+          <View key={row.icon} style={styles.emptyRow}>
+            <Icon name={row.icon} size={21} color={colors.ink} />
+            <Text style={styles.emptyRowLabel}>{row.label}</Text>
+          </View>
+        ))}
+      </View>
+      <Pressable style={styles.emptyPrimary} onPress={props.onAddFirst}>
+        <Icon name="plus" size={18} color={colors.onInk} />
+        <Text style={styles.emptyPrimaryText}>Add first item</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  appBar: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.background,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  brandWordmark: {
+    fontFamily: fonts.semiCondensedBold,
+    fontSize: 17,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: colors.ink,
+  },
   list: {
     flex: 1,
     backgroundColor: colors.background,
   },
   listContent: {
     padding: spacing.lg,
+    paddingTop: spacing.xs,
   },
-  searchRow: {
+  header: {
+    gap: spacing.md,
+  },
+  browseSection: {
+    gap: spacing.sm + 2,
+  },
+  sectionLabel: {
+    fontFamily: fonts.condensedBold,
+    fontSize: 12,
+    letterSpacing: 1.7,
+    textTransform: 'uppercase',
+    color: colors.ink,
+  },
+  browseGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: spacing.sm,
-    borderRadius: radii.button,
-    backgroundColor: colors.badge,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
   },
-  search: {
+  browseTile: {
     flex: 1,
-    paddingVertical: spacing.sm + 4,
-    color: colors.text,
+    height: 66,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: 'rgba(103, 70, 54, 0.16)',
+    borderRadius: 14,
+    paddingHorizontal: 11,
+    justifyContent: 'center',
+    gap: 8,
   },
-  chipRow: {
-    gap: spacing.sm,
-    paddingVertical: spacing.xs,
+  browseTileLabel: {
+    fontFamily: fonts.semiCondensedSemiBold,
+    fontSize: 13.5,
+    color: colors.ink,
   },
   error: {
-    color: colors.danger,
+    fontFamily: fonts.body,
+    color: colors.rust,
     fontSize: 12,
   },
+  loginsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  sortToggle: {
+    fontFamily: fonts.condensedBold,
+    fontSize: 12,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    color: colors.ink,
+  },
   emptyState: {
-    color: colors.muted,
+    fontFamily: fonts.body,
+    color: colors.ink,
     textAlign: 'center',
     padding: spacing.lg,
   },
@@ -217,53 +311,136 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-  },
-  rowIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: colors.badge,
-    alignItems: 'center',
-    justifyContent: 'center',
+    gap: spacing.sm + 5,
+    padding: 13,
   },
   rowText: {
     flex: 1,
+    gap: 3,
   },
   rowName: {
-    color: colors.text,
-    fontWeight: '600',
+    fontFamily: fonts.semiCondensedSemiBold,
+    fontSize: 15.5,
+    color: colors.ink,
   },
-  secondary: {
-    color: colors.muted,
+  rowSub: {
+    fontFamily: fonts.mono,
     fontSize: 12,
+    color: colors.ink,
   },
-  pickerBackdrop: {
+  empty: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'flex-end',
-  },
-  pickerCard: {
-    backgroundColor: colors.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    justifyContent: 'center',
+    gap: 26,
     padding: spacing.lg,
-    gap: spacing.xs,
+    paddingBottom: 40,
   },
-  pickerTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.heading,
-    marginBottom: spacing.sm,
+  emptyIntro: {
+    gap: spacing.sm + 4,
   },
-  pickerRow: {
+  emptyTitle: {
+    fontFamily: fonts.condensedSemiBold,
+    fontSize: 40,
+    lineHeight: 41,
+    color: colors.ink,
+  },
+  emptyRule: {
+    height: 1,
+    backgroundColor: colors.ink,
+    opacity: 0.4,
+  },
+  emptyBody: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 21,
+    color: colors.ink,
+  },
+  emptyRow: {
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm + 4,
+    gap: 14,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(103, 70, 54, 0.14)',
   },
-  pickerRowText: {
-    color: colors.text,
+  emptyRowLabel: {
+    fontFamily: fonts.body,
     fontSize: 15,
+    color: colors.ink,
+  },
+  emptyPrimary: {
+    height: 54,
+    borderRadius: 12,
+    backgroundColor: colors.ink,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+  },
+  emptyPrimaryText: {
+    fontFamily: fonts.semiCondensedBold,
+    fontSize: 15,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: colors.onInk,
+  },
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(103, 70, 54, 0.34)',
+    justifyContent: 'flex-end',
+  },
+  sheetCard: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 16,
+    paddingBottom: 24,
+    gap: 2,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(103, 70, 54, 0.3)',
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  sheetTitle: {
+    fontFamily: fonts.condensedSemiBold,
+    fontSize: 26,
+    color: colors.ink,
+    paddingHorizontal: 6,
+    paddingBottom: 8,
+  },
+  sheetRow: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(103, 70, 54, 0.1)',
+  },
+  sheetRowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetRowText: {
+    flex: 1,
+    gap: 2,
+  },
+  sheetRowLabel: {
+    fontFamily: fonts.semiCondensedSemiBold,
+    fontSize: 15.5,
+    color: colors.ink,
+  },
+  sheetRowHint: {
+    fontFamily: fonts.body,
+    fontSize: 12.5,
+    color: colors.ink,
   },
 });

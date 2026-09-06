@@ -1,78 +1,147 @@
-/** Shared building blocks for the styled screens (Join Vault, Unlock, Vault Home, Item Detail, Settings). */
+/**
+ * Shared building blocks for the redesign v2 visual system (CLAUDE.md §0) --
+ * every screen is built from these rather than styling its own inputs,
+ * buttons and dialogs.
+ */
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 import Icon from './icons';
-import { colors, radii, spacing } from './theme';
+import { colors, fonts, inkAlpha, radii, spacing } from './theme';
 
 function Field(props: {
   label: string;
   value: string;
   onChangeText: (text: string) => void;
   placeholder?: string;
-  secure?: boolean;
+  hint?: string;
   error?: string;
   autoCapitalize?: 'none' | 'sentences';
+  keyboardType?: 'default' | 'number-pad' | 'email-address';
   multiline?: boolean;
-  keyboardType?: 'default' | 'number-pad';
+  optional?: boolean;
 }) {
-  const [revealed, setRevealed] = useState(false);
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{props.label}</Text>
-      <View style={styles.inputRow}>
-        <TextInput
-          style={[styles.input, props.error !== undefined && styles.inputError, props.multiline === true && styles.inputMultiline]}
-          autoCapitalize={props.autoCapitalize ?? 'sentences'}
-          autoCorrect={false}
-          placeholder={props.placeholder}
-          placeholderTextColor={colors.muted}
-          secureTextEntry={props.secure === true && !revealed}
-          multiline={props.multiline}
-          keyboardType={props.keyboardType}
-          value={props.value}
-          onChangeText={props.onChangeText}
-        />
-        {props.secure === true && (
-          <Pressable style={styles.inputAction} onPress={() => setRevealed(r => !r)}>
-            <Icon name={revealed ? 'eye-off' : 'eye'} size={18} color={colors.muted} />
-          </Pressable>
-        )}
+      <View style={styles.fieldLabelRow}>
+        <Text style={styles.label}>{props.label}</Text>
+        {props.optional === true && <Text style={styles.optional}>Optional</Text>}
       </View>
+      <TextInput
+        style={[styles.input, props.multiline === true && styles.inputMultiline, props.error !== undefined && styles.inputError]}
+        autoCapitalize={props.autoCapitalize ?? 'sentences'}
+        autoCorrect={false}
+        keyboardType={props.keyboardType}
+        multiline={props.multiline}
+        placeholder={props.placeholder}
+        placeholderTextColor={inkAlpha(0.45)}
+        value={props.value}
+        onChangeText={props.onChangeText}
+      />
       {props.error !== undefined && <Text style={styles.fieldError}>{props.error}</Text>}
+      {props.error === undefined && props.hint !== undefined && <Text style={styles.hint}>{props.hint}</Text>}
     </View>
   );
 }
 
-function PillButton(props: { title: string; onPress: () => void; disabled?: boolean; variant?: 'solid' | 'outline' }) {
+/**
+ * The "high-value field" from design rule 3: a 62px surface with a 2px ink
+ * border, mono text, and reveal/copy as their own 44-56px buttons -- used
+ * for passwords, secrets and anything else worth a dedicated action rather
+ * than a plain text field.
+ */
+function SecretField(props: {
+  label: string;
+  value: string;
+  onChangeText?: (text: string) => void;
+  editable?: boolean;
+  onCopy?: () => void;
+  hint?: string;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const editable = props.editable ?? props.onChangeText !== undefined;
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{props.label}</Text>
+      <View style={styles.secretBox}>
+        {editable ? (
+          <TextInput
+            style={styles.secretInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry={!revealed}
+            value={props.value}
+            onChangeText={props.onChangeText}
+          />
+        ) : (
+          <Text style={styles.secretInput} numberOfLines={1}>
+            {revealed ? props.value : '•'.repeat(Math.min(props.value.length, 14))}
+          </Text>
+        )}
+        <Pressable style={styles.secretAction} onPress={() => setRevealed(r => !r)}>
+          {/* No separate closed-eye glyph in the design -- the toggle reuses this one. */}
+          <Icon name="reveal" size={19} color={colors.ink} />
+        </Pressable>
+        {props.onCopy !== undefined && (
+          <Pressable style={[styles.secretAction, styles.secretActionFilled]} onPress={props.onCopy}>
+            <Icon name="copy" size={18} color={colors.onInk} />
+          </Pressable>
+        )}
+      </View>
+      {props.hint !== undefined && <Text style={styles.hint}>{props.hint}</Text>}
+    </View>
+  );
+}
+
+function Button(props: { title: string; onPress: () => void; disabled?: boolean; variant?: 'solid' | 'outline'; flex?: boolean }) {
   const outline = props.variant === 'outline';
   return (
     <Pressable
-      style={[styles.pillButton, outline && styles.pillButtonOutline, props.disabled === true && styles.pillButtonDisabled]}
+      style={[
+        styles.button,
+        outline ? styles.buttonOutline : styles.buttonSolid,
+        props.disabled === true && styles.buttonDisabled,
+        props.flex === true && styles.buttonFlex,
+      ]}
       disabled={props.disabled}
       onPress={props.onPress}
     >
-      <Text style={[styles.pillButtonText, outline && styles.pillButtonTextOutline]}>{props.title}</Text>
+      <Text style={[styles.buttonText, outline ? styles.buttonTextOutline : styles.buttonTextSolid]}>{props.title}</Text>
     </Pressable>
   );
 }
 
-function Chip(props: { label: string; active: boolean; onPress: () => void }) {
+function Chip(props: { label: string; icon?: Parameters<typeof Icon>[0]['name']; onPress: () => void }) {
   return (
-    <Pressable style={[styles.chip, props.active && styles.chipActive]} onPress={props.onPress}>
-      <Text style={[styles.chipText, props.active && styles.chipTextActive]}>{props.label}</Text>
+    <Pressable style={styles.chip} onPress={props.onPress}>
+      {props.icon !== undefined && <Icon name={props.icon} size={14} color={colors.ink} strokeWidth={2.2} />}
+      <Text style={styles.chipText}>{props.label}</Text>
     </Pressable>
   );
 }
 
-/** A read-only labelled value in a card-styled row, optionally maskable and/or copyable. */
-function DetailField(props: {
-  label: string;
-  value: string;
-  secure?: boolean;
-  onCopy?: () => void;
-  link?: boolean;
-  multiline?: boolean;
-}) {
+function SearchBar(props: { value: string; onChangeText: (text: string) => void; placeholder: string }) {
+  return (
+    <View style={styles.searchBar}>
+      <Icon name="search" size={18} color={colors.ink} />
+      <TextInput
+        style={styles.searchInput}
+        placeholder={props.placeholder}
+        placeholderTextColor={inkAlpha(0.55)}
+        value={props.value}
+        onChangeText={props.onChangeText}
+      />
+    </View>
+  );
+}
+
+/**
+ * A read-only labelled value, optionally maskable and/or copyable --
+ * pending PR2's field-system rework of Item Detail, this is a light-touch
+ * carry-over of the old component onto the new tokens, not yet restyled to
+ * the "every row has its own copy button" anatomy from 6m.
+ */
+function DetailField(props: { label: string; value: string; secure?: boolean; onCopy?: () => void; link?: boolean; multiline?: boolean }) {
   const [revealed, setRevealed] = useState(false);
   if (props.value === '') return null;
   const shown = props.secure === true && !revealed ? '•'.repeat(Math.min(props.value.length, 12)) : props.value;
@@ -80,22 +149,18 @@ function DetailField(props: {
     <View style={styles.field}>
       <Text style={styles.label}>{props.label}</Text>
       <View style={[styles.detailRow, props.multiline === true && styles.detailRowMultiline]}>
-        <Text
-          style={[styles.detailValue, props.link === true && styles.detailValueLink]}
-          numberOfLines={props.multiline === true ? undefined : 1}
-        >
+        <Text style={[styles.detailValue, props.link === true && styles.detailValueLink]} numberOfLines={props.multiline === true ? undefined : 1}>
           {shown}
         </Text>
         <View style={styles.detailActions}>
-          {props.link === true && <Icon name="external-link" size={16} color={colors.primary} />}
           {props.secure === true && (
             <Pressable onPress={() => setRevealed(r => !r)}>
-              <Icon name={revealed ? 'eye-off' : 'eye'} size={16} color={colors.muted} />
+              <Icon name="reveal" size={16} color={colors.ink} />
             </Pressable>
           )}
           {props.onCopy !== undefined && (
             <Pressable onPress={props.onCopy}>
-              <Icon name="copy" size={16} color={colors.muted} />
+              <Icon name="copy" size={16} color={colors.ink} />
             </Pressable>
           )}
         </View>
@@ -104,53 +169,75 @@ function DetailField(props: {
   );
 }
 
-/** A small uppercase section label, e.g. "DEVICES" / "SECURITY" on Settings. */
+/** A small uppercase section label -- e.g. "DEVICES", "SECURITY", "LOGINS · 6". */
 function SectionLabel(props: { children: string }) {
   return <Text style={styles.sectionLabel}>{props.children}</Text>;
 }
 
-/** The card shell every row on Vault Home / Settings sits in. */
-function Card(props: { children: React.ReactNode; onPress?: () => void }) {
+/** The card shell every grouped row (device list, settings group, item row) sits in. */
+function Card(props: { children: React.ReactNode; onPress?: () => void; style?: object }) {
   const Wrapper = props.onPress !== undefined ? Pressable : View;
   return (
-    <Wrapper style={styles.card} onPress={props.onPress}>
+    <Wrapper style={[styles.card, props.style]} onPress={props.onPress}>
       {props.children}
     </Wrapper>
+  );
+}
+
+/** The "not built yet" dial from 6z: a dashed middle ring, spokes not drawn in. */
+function PendingGlyph() {
+  return (
+    <Svg width={54} height={54} viewBox="0 0 120 120" aria-hidden>
+      <Circle cx={60} cy={60} r={55} fill="none" stroke={colors.sage} strokeWidth={3} />
+      <Circle cx={60} cy={60} r={40} fill="none" stroke={colors.sage} strokeWidth={3} strokeDasharray="6 8" />
+      <Circle cx={60} cy={60} r={13} fill="none" stroke={colors.ink} strokeWidth={4} />
+    </Svg>
   );
 }
 
 type DialogButton = {
   text: string;
   onPress?: () => void;
-  /** Right-most, styled in `colors.danger` -- an irreversible action. */
+  /** Full-width filled rust button -- an irreversible action. */
   destructive?: boolean;
 };
 
-type DialogRequest = { title: string; message?: string; buttons: DialogButton[] };
+type DialogRequest = { title: string; message?: string; buttons: DialogButton[]; icon?: 'pending' };
 
 /**
- * A themed stand-in for `Alert.alert`, which renders as the bare OS dialog
- * (unstyled gray, no relation to the app's palette). Pair with
- * `useConfirmDialog` below rather than rendering this directly.
+ * A themed stand-in for `Alert.alert`, matching the redesign's dialog anatomy
+ * (6x/6y/6z): centered card, title + message, then full-width stacked
+ * buttons -- not a native OS dialog, and not the old right-aligned text-link
+ * button row either. Pair with `useConfirmDialog` rather than rendering
+ * this directly.
  */
 function ConfirmDialog(props: DialogRequest & { visible: boolean; onRequestClose: () => void }) {
   return (
     <Modal visible={props.visible} transparent animationType="fade" onRequestClose={props.onRequestClose}>
       <Pressable style={styles.dialogBackdrop} onPress={props.onRequestClose}>
         <Pressable style={styles.dialogCard}>
-          <Text style={styles.dialogTitle}>{props.title}</Text>
-          {props.message !== undefined && <Text style={styles.dialogMessage}>{props.message}</Text>}
+          {props.icon === 'pending' && (
+            <View style={styles.dialogIcon}>
+              <PendingGlyph />
+            </View>
+          )}
+          <View style={[styles.dialogText, props.icon === 'pending' && styles.dialogTextCentered]}>
+            <Text style={[styles.dialogTitle, props.icon === 'pending' && styles.dialogTitleCentered]}>{props.title}</Text>
+            {props.message !== undefined && (
+              <Text style={[styles.dialogMessage, props.icon === 'pending' && styles.dialogTitleCentered]}>{props.message}</Text>
+            )}
+          </View>
           <View style={styles.dialogButtons}>
             {props.buttons.map(button => (
               <Pressable
                 key={button.text}
-                style={styles.dialogButton}
+                style={[styles.dialogButton, button.destructive === true ? styles.dialogButtonDestructive : styles.dialogButtonOutline]}
                 onPress={() => {
                   props.onRequestClose();
                   button.onPress?.();
                 }}
               >
-                <Text style={[styles.dialogButtonText, button.destructive === true && styles.dialogButtonTextDestructive]}>
+                <Text style={[styles.dialogButtonText, button.destructive === true ? styles.dialogButtonTextDestructive : styles.dialogButtonTextOutline]}>
                   {button.text}
                 </Text>
               </Pressable>
@@ -167,11 +254,14 @@ function ConfirmDialog(props: DialogRequest & { visible: boolean; onRequestClose
  * call `show(title, message, buttons)` from an event handler, and render
  * the returned `dialog` element anywhere in that component's tree.
  */
-function useConfirmDialog(): { show: (title: string, message: string | undefined, buttons: DialogButton[]) => void; dialog: React.ReactNode } {
+function useConfirmDialog(): {
+  show: (title: string, message: string | undefined, buttons: DialogButton[], icon?: 'pending') => void;
+  dialog: React.ReactNode;
+} {
   const [request, setRequest] = useState<DialogRequest | null>(null);
 
-  const show = (title: string, message: string | undefined, buttons: DialogButton[]) => {
-    setRequest({ title, message, buttons });
+  const show = (title: string, message: string | undefined, buttons: DialogButton[], icon?: 'pending') => {
+    setRequest({ title, message, buttons, icon });
   };
 
   const dialog = (
@@ -180,6 +270,7 @@ function useConfirmDialog(): { show: (title: string, message: string | undefined
       title={request?.title ?? ''}
       message={request?.message}
       buttons={request?.buttons ?? [{ text: 'OK' }]}
+      icon={request?.icon}
       onRequestClose={() => setRequest(null)}
     />
   );
@@ -187,94 +278,176 @@ function useConfirmDialog(): { show: (title: string, message: string | undefined
   return { show, dialog };
 }
 
+/** The "Not built yet" stub, matching 6z exactly -- names the feature, says nothing broke. */
+function showComingSoon(show: ReturnType<typeof useConfirmDialog>['show'], feature: string): void {
+  show('Not built yet', `${feature} is on the roadmap for a future release. Nothing was changed.`, [{ text: 'Got it' }], 'pending');
+}
+
 const styles = StyleSheet.create({
   field: {
-    gap: spacing.xs,
+    gap: spacing.xs + 3,
+  },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.sm,
   },
   label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
+    fontFamily: fonts.semiCondensedSemiBold,
+    fontSize: 12.5,
+    color: colors.ink,
   },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  optional: {
+    fontFamily: fonts.condensedBold,
+    fontSize: 12,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: colors.ink,
   },
   input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.input,
-    padding: spacing.sm + 4,
+    minHeight: 54,
     backgroundColor: colors.card,
-    color: colors.text,
-  },
-  inputError: {
-    borderColor: colors.danger,
+    borderWidth: 1,
+    borderColor: inkAlpha(0.2),
+    borderRadius: radii.input,
+    paddingHorizontal: 14,
+    fontFamily: fonts.body,
+    fontSize: 15.5,
+    color: colors.ink,
   },
   inputMultiline: {
-    minHeight: 100,
+    minHeight: 120,
+    paddingVertical: 14,
     textAlignVertical: 'top',
   },
-  inputAction: {
-    position: 'absolute',
-    right: spacing.sm + 4,
+  inputError: {
+    borderColor: colors.rust,
   },
   fieldError: {
-    color: colors.danger,
+    fontFamily: fonts.body,
     fontSize: 12,
+    color: colors.rust,
   },
-  pillButton: {
-    backgroundColor: colors.primary,
-    borderRadius: radii.button,
-    paddingVertical: spacing.sm + 4,
+  hint: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.ink,
+  },
+  secretBox: {
+    minHeight: 62,
+    backgroundColor: colors.card,
+    borderWidth: 2,
+    borderColor: colors.ink,
+    borderRadius: radii.input,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    overflow: 'hidden',
+  },
+  secretInput: {
+    flex: 1,
+    paddingHorizontal: 14,
+    fontFamily: fonts.mono,
+    fontSize: 17,
+    letterSpacing: 1,
+    color: colors.ink,
+    textAlignVertical: 'center',
+  },
+  secretAction: {
+    width: 56,
     alignItems: 'center',
-    marginTop: spacing.sm,
+    justifyContent: 'center',
+    borderLeftWidth: 1,
+    borderLeftColor: inkAlpha(0.16),
   },
-  pillButtonOutline: {
+  secretActionFilled: {
+    backgroundColor: colors.ink,
+    borderLeftWidth: 0,
+  },
+  button: {
+    minHeight: 54,
+    borderRadius: radii.button,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  buttonFlex: {
+    flex: 1,
+  },
+  buttonSolid: {
+    backgroundColor: colors.ink,
+  },
+  buttonOutline: {
     backgroundColor: 'transparent',
     borderWidth: 1.5,
-    borderColor: colors.danger,
+    borderColor: colors.ink,
   },
-  pillButtonDisabled: {
-    opacity: 0.6,
+  buttonDisabled: {
+    opacity: 0.5,
   },
-  pillButtonText: {
-    color: colors.onPrimary,
-    fontWeight: '700',
-    fontSize: 16,
+  buttonText: {
+    fontFamily: fonts.semiCondensedBold,
+    fontSize: 15,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
-  pillButtonTextOutline: {
-    color: colors.danger,
+  buttonTextSolid: {
+    color: colors.onInk,
+  },
+  buttonTextOutline: {
+    color: colors.ink,
   },
   chip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.chip,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 2,
-    backgroundColor: colors.card,
-  },
-  chipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    height: 44,
+    paddingHorizontal: 14,
+    borderRadius: radii.pill,
+    borderWidth: 1.5,
+    borderColor: colors.ink,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 3,
   },
   chipText: {
-    color: colors.text,
+    fontFamily: fonts.semiCondensedSemiBold,
     fontSize: 13,
-    fontWeight: '600',
+    color: colors.ink,
   },
-  chipTextActive: {
-    color: colors.onPrimary,
+  searchBar: {
+    height: 48,
+    backgroundColor: colors.surface,
+    borderRadius: radii.input,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    paddingHorizontal: 14,
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 15,
+    color: colors.ink,
+  },
+  sectionLabel: {
+    fontFamily: fonts.condensedBold,
+    fontSize: 12,
+    letterSpacing: 1.7,
+    textTransform: 'uppercase',
+    color: colors.ink,
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: inkAlpha(0.14),
   },
   detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: inkAlpha(0.16),
     borderRadius: radii.input,
-    padding: spacing.sm + 4,
+    padding: 14,
     backgroundColor: colors.card,
     gap: spacing.sm,
   },
@@ -284,71 +457,88 @@ const styles = StyleSheet.create({
   },
   detailValue: {
     flex: 1,
-    color: colors.text,
+    fontFamily: fonts.body,
+    color: colors.ink,
+    fontSize: 15.5,
   },
   detailValueLink: {
-    color: colors.primary,
+    color: colors.ink,
     textDecorationLine: 'underline',
   },
   detailActions: {
     flexDirection: 'row',
     gap: spacing.md,
   },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.primary,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: radii.card,
-    padding: spacing.md,
-  },
   dialogBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: inkAlpha(0.4),
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.lg,
   },
   dialogCard: {
     width: '100%',
-    maxWidth: 340,
-    backgroundColor: colors.card,
-    borderRadius: radii.card,
-    padding: spacing.lg,
+    maxWidth: 322,
+    backgroundColor: colors.background,
+    borderRadius: radii.dialog,
+    paddingHorizontal: 24,
+    paddingTop: 26,
+    paddingBottom: 20,
+    gap: spacing.md,
+  },
+  dialogIcon: {
+    alignSelf: 'center',
+  },
+  dialogText: {
     gap: spacing.sm,
   },
+  dialogTextCentered: {
+    alignItems: 'center',
+  },
   dialogTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.heading,
+    fontFamily: fonts.condensedSemiBold,
+    fontSize: 27,
+    lineHeight: 30,
+    color: colors.ink,
+  },
+  dialogTitleCentered: {
+    textAlign: 'center',
   },
   dialogMessage: {
+    fontFamily: fonts.body,
     fontSize: 14,
-    color: colors.text,
+    lineHeight: 22,
+    color: colors.ink,
   },
   dialogButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.md,
-    marginTop: spacing.sm,
+    gap: spacing.sm + 1,
   },
   dialogButton: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.xs,
+    height: 52,
+    borderRadius: radii.button,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogButtonDestructive: {
+    backgroundColor: colors.rust,
+  },
+  dialogButtonOutline: {
+    borderWidth: 1.5,
+    borderColor: colors.ink,
   },
   dialogButtonText: {
-    color: colors.primary,
-    fontWeight: '700',
+    fontFamily: fonts.semiCondensedBold,
     fontSize: 14,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   dialogButtonTextDestructive: {
-    color: colors.danger,
+    color: colors.onInk,
+  },
+  dialogButtonTextOutline: {
+    color: colors.ink,
   },
 });
 
-export { Card, Chip, ConfirmDialog, DetailField, Field, PillButton, SectionLabel, useConfirmDialog };
+export { Button, Card, Chip, ConfirmDialog, DetailField, Field, SearchBar, SecretField, SectionLabel, showComingSoon, useConfirmDialog };
 export type { DialogButton };
