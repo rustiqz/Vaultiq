@@ -6,15 +6,15 @@
  * rasterized and reviewed -- see src/theme.ts for what carried over vs.
  * what stayed ours: the fall palette is ours, layout/components/icons now
  * follow Figma). Real navigation throughout: bottom tabs once unlocked,
- * a stack for Vault Home -> Item Detail and one for Settings -> Auto-lock,
- * native back gesture/button support. New Item and Autofill have no
- * plumbing behind them yet and don't exist as screens; the item-detail
- * header's favorite/edit/delete icons are shown for visual fidelity but are
- * not wired to anything real yet (same reason).
+ * a stack for Vault Home -> Item Detail -> Item Edit and one for
+ * Settings -> Auto-lock, native back gesture/button support. Item Detail's
+ * edit/delete header icons are wired to a real create/edit form
+ * (ItemEditScreen) and a real (permanent) delete; favorite stays visual
+ * fidelity only, and Autofill has no plumbing and doesn't exist as a screen.
  *
- * Covers enrollment, unlock, a read-only item list with detail viewing, a
- * live-code authenticator tab, device management, and idle auto-lock
- * (CLAUDE.md §0, phase 4).
+ * Covers enrollment, unlock, a read-only item list with detail viewing,
+ * item create/edit/delete, a live-code authenticator tab, device
+ * management, and idle auto-lock (CLAUDE.md §0, phase 4).
  *
  * @format
  */
@@ -23,18 +23,20 @@ import { NavigationContainer, type Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StatusBar, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Icon, { type FeatherName } from './src/icons';
 import * as storage from './src/storage';
 import { colors } from './src/theme';
+import { useConfirmDialog } from './src/ui';
 import * as vault from './src/vault';
-import type { Status } from './src/vault';
-import type { SettingsStackParamList, VaultStackParamList } from './src/navigation';
+import type { DecryptedItem, Status } from './src/vault';
+import type { SettingsStackParamList, VaultStackParamList, VaultStackScreenProps } from './src/navigation';
 import JoinVaultScreen from './src/screens/JoinVaultScreen';
 import UnlockScreen from './src/screens/UnlockScreen';
 import VaultHomeScreen from './src/screens/VaultHomeScreen';
 import ItemDetailScreen from './src/screens/ItemDetailScreen';
+import ItemEditScreen from './src/screens/ItemEditScreen';
 import AuthenticatorScreen from './src/screens/AuthenticatorScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import AutoLockScreen from './src/screens/AutoLockScreen';
@@ -68,23 +70,40 @@ const ITEM_TYPE_TITLES: Record<string, string> = {
   totp: 'Authenticator',
 };
 
-function notYetAvailable(feature: string) {
-  Alert.alert('Not yet available', `${feature} isn't implemented yet.`);
-}
+/** Favorite stays visual fidelity only (see file header); edit/delete are real. */
+function ItemDetailHeaderActions(props: { item: DecryptedItem; navigation: VaultStackScreenProps<'ItemDetail'>['navigation'] }) {
+  const { show, dialog } = useConfirmDialog();
 
-/** Favorite/edit/delete: shown for visual fidelity, not wired to anything real (see file header). */
-function ItemDetailHeaderActions() {
+  const onDelete = () => {
+    show('Delete item?', 'This permanently removes it. This cannot be undone.', [
+      { text: 'Cancel' },
+      {
+        text: 'Delete',
+        destructive: true,
+        onPress: async () => {
+          try {
+            await vault.deleteItem(props.item.id, props.item.version, props.item.itemType);
+            props.navigation.navigate('VaultHome');
+          } catch (thrown) {
+            show('Could not delete', thrown instanceof Error ? thrown.message : String(thrown), [{ text: 'OK' }]);
+          }
+        },
+      },
+    ]);
+  };
+
   return (
     <View style={styles.headerActions}>
-      <Pressable onPress={() => notYetAvailable('Favoriting')}>
+      <Pressable onPress={() => show('Not yet available', "Favoriting isn't implemented yet.", [{ text: 'OK' }])}>
         <Icon name="heart" />
       </Pressable>
-      <Pressable onPress={() => notYetAvailable('Editing')}>
+      <Pressable onPress={() => props.navigation.navigate('ItemEdit', { mode: 'edit', item: props.item })}>
         <Icon name="edit-2" />
       </Pressable>
-      <Pressable onPress={() => notYetAvailable('Deleting')}>
+      <Pressable onPress={onDelete}>
         <Icon name="trash-2" />
       </Pressable>
+      {dialog}
     </View>
   );
 }
@@ -98,9 +117,20 @@ function VaultTab() {
       <VaultStack.Screen
         name="ItemDetail"
         component={ItemDetailScreen}
-        options={({ route }) => ({
+        options={({ route, navigation }) => ({
           title: ITEM_TYPE_TITLES[route.params.item.itemType] ?? route.params.item.itemType,
-          headerRight: ItemDetailHeaderActions,
+          // eslint-disable-next-line react/no-unstable-nested-components -- react-navigation's own documented headerRight shape.
+          headerRight: () => <ItemDetailHeaderActions item={route.params.item} navigation={navigation} />,
+        })}
+      />
+      <VaultStack.Screen
+        name="ItemEdit"
+        component={ItemEditScreen}
+        options={({ route }) => ({
+          title:
+            route.params.mode === 'create'
+              ? `New ${ITEM_TYPE_TITLES[route.params.itemType] ?? route.params.itemType}`
+              : `Edit ${ITEM_TYPE_TITLES[route.params.item.itemType] ?? route.params.item.itemType}`,
         })}
       />
     </VaultStack.Navigator>

@@ -70,5 +70,10 @@ function displayName(itemType: string, content: Record<string, unknown>, id: str
   return text(content, 'name') || text(content, 'username') || text(content, 'cardholder') || `${itemType} ${id.slice(0, 8)}`;
 }
 
-export { displayName, text };
+/** A blank content object for a freshly chosen type, for the new-item form to seed its fields from. */
+function emptyContent(itemType: ItemContent['type']): ItemContent {
+  return { type: itemType, name: '' } as ItemContent;
+}
+
+export { displayName, emptyContent, text };
 export type { CardContent, IdentityContent, ItemContent, LoginContent, NoteContent, TotpContent };
