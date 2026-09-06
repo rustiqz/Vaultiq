@@ -1,62 +1,108 @@
-/* Deep indigo vault.
-   Indigo reads security-native without going cold; one accent, no gradients.
-   Every colour is a token so both themes stay a coherent set. */
+/* Vaultiq's fall/autumn design system, ported from the mobile redesign
+   (mobile/src/theme.ts) so every app reads as the same product -- see
+   CLAUDE.md §0. Light palette is straight from that file; dark is derived
+   here (mobile is light-only so far), inverting ink/cream the same way the
+   mobile splash screen already does, with the state colors lightened to
+   stay readable on a dark ground. Not sourced from any mockup -- revisit if
+   a real dark design ever appears.
+
+   Only 5 of mobile's 6 bundled fonts are here: ArchivoCondensed-SemiBold.ttf
+   in mobile/android/app/src/main/assets/fonts is byte-identical to
+   ArchivoCondensed-Bold.ttf (same MD5) -- a mislabeled duplicate from the
+   font-fetch step in that redesign, not a real semibold instance. Every
+   mobile screen that asks for `fonts.condensedSemiBold` is silently getting
+   Bold weight instead. Left as-is there per CLAUDE.md §0 (mobile bugs are
+   being triaged separately); not worth shipping the same wrong file here
+   under a name nothing in this file actually uses. */
+
+@font-face {
+  font-family: "SpaceGrotesk-Regular";
+  src: url("./fonts/SpaceGrotesk-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBMPlexMono-Regular";
+  src: url("./fonts/IBMPlexMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "ArchivoCondensed-Bold";
+  src: url("./fonts/ArchivoCondensed-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "ArchivoSemiCondensed-SemiBold";
+  src: url("./fonts/ArchivoSemiCondensed-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "ArchivoSemiCondensed-Bold";
+  src: url("./fonts/ArchivoSemiCondensed-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
 
 :root {
-  --bg: #f4f5fb;
+  --bg: #fff8e8;
   --surface: #ffffff;
-  --text: #161329;
-  --accent: #4338ca;
-  --danger: #dc2626;
-  --warn: #c2740c;
-  --good: #0f9960;
+  --text: #674636;
+  /* No separate accent hue -- mobile's design rule 5: hierarchy rides on
+     size, not shade. Primary actions are solid ink, not a colored brand. */
+  --accent: #674636;
+  --danger: #a63d22; /* rust -- mobile's one state color used as text (paired with an action). */
+  --warn: #8a5a1e; /* darkened amber -- raw amber is icon/border-only in mobile; this is the text-safe reading for the strength meter, which has no mobile equivalent to defer to. */
+  --good: #5f6b49; /* darkened sage, same reasoning as --warn. */
 
   --muted: color-mix(in srgb, var(--text) 52%, var(--bg));
   --line: color-mix(in srgb, var(--accent) 20%, var(--bg));
   --hover: color-mix(in srgb, var(--accent) 10%, transparent);
   --tint: color-mix(in srgb, var(--accent) 7%, var(--surface));
-  --on-accent: #ffffff;
+  --on-accent: #fff8e8;
   /* Ground sits a shade deeper than the cards, so the list reads as objects
      on a surface rather than one flat wash. */
   --sunken: color-mix(in srgb, var(--accent) 6%, var(--bg));
-  --shadow: 0 1px 2px rgb(22 19 41 / 7%), 0 10px 24px -16px rgb(67 56 202 / 45%);
+  --shadow: 0 1px 2px rgb(103 70 54 / 10%), 0 10px 24px -16px rgb(103 70 54 / 45%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #100e1c;
-    --surface: #191631;
-    --text: #e9e7f7;
-    --accent: #818cf8;
-    --danger: #f87171;
-    --warn: #fbbf24;
-    --good: #4ade80;
+    --bg: #241a12;
+    --surface: #322418;
+    --text: #fff8e8;
+    --accent: #fff8e8;
+    --danger: #d97756;
+    --warn: #d9a75e;
+    --good: #a8b48f;
 
     --muted: color-mix(in srgb, var(--text) 58%, var(--bg));
     --line: color-mix(in srgb, var(--accent) 26%, var(--bg));
     --hover: color-mix(in srgb, var(--accent) 16%, transparent);
     --tint: color-mix(in srgb, var(--accent) 12%, var(--surface));
     --sunken: color-mix(in srgb, var(--accent) 5%, var(--bg));
-    --on-accent: #100e1c;
+    --on-accent: #241a12;
     --shadow: 0 1px 2px rgb(0 0 0 / 45%), 0 10px 24px -16px rgb(0 0 0 / 75%);
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #100e1c;
-  --surface: #191631;
-  --text: #e9e7f7;
-  --accent: #818cf8;
-  --danger: #f87171;
-  --warn: #fbbf24;
-  --good: #4ade80;
+  --bg: #241a12;
+  --surface: #322418;
+  --text: #fff8e8;
+  --accent: #fff8e8;
+  --danger: #d97756;
+  --warn: #d9a75e;
+  --good: #a8b48f;
 
   --muted: color-mix(in srgb, var(--text) 58%, var(--bg));
   --line: color-mix(in srgb, var(--accent) 26%, var(--bg));
   --hover: color-mix(in srgb, var(--accent) 16%, transparent);
   --tint: color-mix(in srgb, var(--accent) 12%, var(--surface));
   --sunken: color-mix(in srgb, var(--accent) 5%, var(--bg));
-  --on-accent: #100e1c;
+  --on-accent: #241a12;
   --shadow: 0 1px 2px rgb(0 0 0 / 45%), 0 10px 24px -16px rgb(0 0 0 / 75%);
 }
 
@@ -68,7 +114,7 @@ body {
   width: 420px;
   background: var(--sunken);
   color: var(--text);
-  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 14px/1.5 "SpaceGrotesk-Regular", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 /* The shell: header pinned, list scrolling under it, nothing else moving. */
@@ -98,10 +144,29 @@ main {
   gap: 12px;
 }
 
-h1 { font-size: 14px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+/* The dial mark next to a screen title -- Locked and Create-vault only. */
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand svg { flex-shrink: 0; }
+
+h1 {
+  font-family: "ArchivoCondensed-Bold", sans-serif;
+  font-size: 21px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
 h2 {
+  font-family: "ArchivoCondensed-Bold", sans-serif;
   font-size: 11px; font-weight: 700; margin: 0;
   letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent);
+}
+h3 {
+  margin: 4px 0 0;
+  font-family: "ArchivoSemiCondensed-SemiBold", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
 }
 p { margin: 0; }
 .muted { color: var(--muted); font-size: 13px; }
@@ -130,7 +195,9 @@ input[type="search"] {
 }
 
 button {
-  font: inherit; font-weight: 600; font-size: 13px;
+  font-family: "ArchivoSemiCondensed-Bold", sans-serif;
+  font-weight: 700; font-size: 12.5px;
+  letter-spacing: 0.03em;
   padding: 7px 11px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -138,6 +205,9 @@ button {
   color: var(--text);
   cursor: pointer;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 button:hover { background: var(--hover); }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -145,6 +215,7 @@ button:disabled { opacity: 0.55; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 button.primary:hover { filter: brightness(1.08); }
 button.icon { padding: 6px 9px; }
+button.icon-button { padding: 6px 8px; }
 button.inline { padding: 6px 9px; font-size: 12px; }
 button.danger { color: var(--danger); }
 
@@ -176,7 +247,8 @@ li.trashed { opacity: 0.7; border-style: dashed; box-shadow: none; }
 li.trashed .name { text-decoration: line-through; }
 
 .name {
-  font-weight: 650; font-size: 14.5px; letter-spacing: -0.01em;
+  font-family: "ArchivoSemiCondensed-SemiBold", sans-serif;
+  font-weight: 600; font-size: 14.5px; letter-spacing: -0.01em;
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
 }
 .meta { color: var(--muted); font-size: 12px; margin-top: 1px; }
@@ -185,7 +257,7 @@ li .row { margin-top: 8px; flex-wrap: wrap; }
 
 /* A value you can click to copy. Looks interactive because it is. */
 .copyable {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: "IBMPlexMono-Regular", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   background: color-mix(in srgb, var(--text) 5%, transparent);
   border: 1px solid transparent;
@@ -194,9 +266,12 @@ li .row { margin-top: 8px; flex-wrap: wrap; }
   cursor: pointer;
   text-align: left;
   font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
 }
 .copyable:hover { border-color: var(--line); background: var(--hover); }
 .copyable.copied { color: var(--good); border-color: var(--good); }
+.copyable svg { flex-shrink: 0; opacity: 0.7; }
 
 .badge {
   padding: 1.5px 7px; border-radius: 999px;
@@ -213,14 +288,6 @@ li .row { margin-top: 8px; flex-wrap: wrap; }
 
 /* --- Sync ------------------------------------------------------------- */
 
-h3 {
-  margin: 4px 0 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-  letter-spacing: 0.02em;
-}
-
 /* Name on the left, Revoke on the right, wrapping rather than overflowing
    in a popup this narrow. */
 .devices li {
@@ -235,7 +302,7 @@ h3 {
    has to wrap and be selectable rather than trail off the edge. */
 .token {
   user-select: all;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: "IBMPlexMono-Regular", ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 12px;
   overflow-wrap: anywhere;
 }
