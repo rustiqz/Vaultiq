@@ -3,9 +3,9 @@ import type { Argon2Params, EncryptedItem, WrappedVaultKey } from './nativeCrypt
 /**
  * HTTP calls to the sync server's enrollment/auth/sync routes -- the mobile
  * analogue of extension/src/sync/client.ts, covering only the subset this
- * app currently uses: joining an *existing* vault as a new device, fetching
- * its bootstrap record, and pulling items. Vault creation (`auth/register`)
- * and pushing items are not implemented here; see CLAUDE.md §0.
+ * app currently uses: joining an *existing* vault as a new device, its
+ * bootstrap record, and pulling/pushing items. Vault creation
+ * (`auth/register`) is not implemented here; see CLAUDE.md §0.
  */
 type KdfParams = {
   saltB64: string;
@@ -24,6 +24,13 @@ type PullResult = {
   items: EncryptedItem[];
   cursor: string;
   more: boolean;
+};
+
+type PushResult = {
+  accepted: string[];
+  /** What the server holds for items it would not overwrite -- see push() below. */
+  conflicts: EncryptedItem[];
+  cursor: string;
 };
 
 type DeviceSummary = {
@@ -97,6 +104,16 @@ function pull(serverUrl: string, deviceId: string, credential: string, since: st
   return getJson(serverUrl, `sync?since=${encodeURIComponent(since)}`, `Bearer ${deviceId}.${credential}`);
 }
 
+/**
+ * Writes items, where the caller is not behind. Accepted ids land in
+ * `accepted`; anything the server holds a newer or equal-but-different
+ * version of comes back in `conflicts` rather than being overwritten -- see
+ * server/src/sync/sync.service.ts's `push`.
+ */
+function push(serverUrl: string, deviceId: string, credential: string, items: EncryptedItem[]): Promise<PushResult> {
+  return postJson(serverUrl, 'sync', { items }, `Bearer ${deviceId}.${credential}`);
+}
+
 /** Every device enrolled on this vault, this one flagged as `current`. */
 function listDevices(serverUrl: string, deviceId: string, credential: string): Promise<DeviceSummary[]> {
   return getJson(serverUrl, 'devices', `Bearer ${deviceId}.${credential}`);
@@ -107,5 +124,5 @@ function revokeDevice(serverUrl: string, deviceId: string, credential: string, t
   return deleteJson(serverUrl, `devices/${encodeURIComponent(targetId)}`, `Bearer ${deviceId}.${credential}`);
 }
 
-export { enroll, enrollmentParams, listDevices, pull, revokeDevice, SyncServerError, vaultBootstrap };
-export type { DeviceCredential, DeviceSummary, KdfParams, PullResult, VaultBootstrap };
+export { enroll, enrollmentParams, listDevices, pull, push, revokeDevice, SyncServerError, vaultBootstrap };
+export type { DeviceCredential, DeviceSummary, KdfParams, PullResult, PushResult, VaultBootstrap };

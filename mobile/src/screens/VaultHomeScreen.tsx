@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useLayoutEffect, useState } from 'react';
+import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import type { ItemContent } from '../itemContent';
 import Icon, { type FeatherName } from '../icons';
 import { displayName, text } from '../itemContent';
 import type { VaultStackScreenProps } from '../navigation';
@@ -24,7 +26,44 @@ const ITEM_TYPE_ICONS: Record<string, FeatherName> = {
   totp: 'shield',
 };
 
+/**
+ * A plain custom picker rather than `Alert.alert`'s buttons: Android caps a
+ * native alert at three buttons, which silently drops two of these five
+ * types (and Cancel) instead of erroring -- found by testing this on an
+ * actual device.
+ */
+function NewItemPicker(props: { visible: boolean; onClose: () => void; onPick: (itemType: ItemContent['type']) => void }) {
+  return (
+    <Modal visible={props.visible} transparent animationType="fade" onRequestClose={props.onClose}>
+      <Pressable style={styles.pickerBackdrop} onPress={props.onClose}>
+        <Pressable style={styles.pickerCard}>
+          <Text style={styles.pickerTitle}>New Item</Text>
+          {ITEM_TYPES.map(itemType => (
+            <Pressable key={itemType} style={styles.pickerRow} onPress={() => props.onPick(itemType)}>
+              <Icon name={ITEM_TYPE_ICONS[itemType]} size={18} color={colors.text} />
+              <Text style={styles.pickerRowText}>{ITEM_TYPE_LABELS[itemType]}</Text>
+            </Pressable>
+          ))}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'VaultHome'>) {
+  const [pickerVisible, setPickerVisible] = useState(false);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      // eslint-disable-next-line react/no-unstable-nested-components -- react-navigation's own documented headerRight shape.
+      headerRight: () => (
+        <Pressable onPress={() => setPickerVisible(true)} hitSlop={8}>
+          <Icon name="plus" size={22} color={colors.text} />
+        </Pressable>
+      ),
+    });
+  }, [navigation]);
+
   const [items, setItems] = useState<DecryptedItem[] | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,9 +82,17 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
     }
   }, []);
 
-  useEffect(() => {
-    sync();
-  }, [sync]);
+  // Refreshes on every focus, not just mount, so returning here after a
+  // create/edit/delete on ItemEdit/ItemDetail shows the current server state
+  // rather than a stale in-memory list -- this app has no local item cache
+  // to invalidate instead (see vault.ts's pullItems). Wrapped rather than
+  // passed directly: useFocusEffect treats its callback's return value as an
+  // optional cleanup function, and `sync` returns a Promise.
+  useFocusEffect(
+    useCallback(() => {
+      sync();
+    }, [sync]),
+  );
 
   const visible = (items ?? []).filter(item => {
     if (typeFilter !== null && item.itemType !== typeFilter) return false;
@@ -56,66 +103,76 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
   });
 
   return (
-    <FlatList
-      style={styles.list}
-      contentContainerStyle={styles.listContent}
-      data={visible}
-      keyExtractor={item => item.id}
-      // eslint-disable-next-line react/no-unstable-nested-components -- FlatList's own documented separator shape.
-      ItemSeparatorComponent={() => <View style={styles.rowGap} />}
-      ListHeaderComponent={
-        <View>
-          <View style={styles.searchRow}>
-            <Icon name="search" size={18} color={colors.muted} />
-            <TextInput
-              style={styles.search}
-              placeholder="Search vault items"
-              placeholderTextColor={colors.muted}
-              value={query}
-              onChangeText={setQuery}
-            />
-          </View>
-          <FlatList
-            horizontal
-            data={[null, ...ITEM_TYPES]}
-            keyExtractor={type => type ?? 'all'}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipRow}
-            renderItem={({ item: type }) => (
-              <Chip
-                label={type === null ? 'All' : ITEM_TYPE_LABELS[type]}
-                active={typeFilter === type}
-                onPress={() => setTypeFilter(type)}
+    <>
+      <FlatList
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        data={visible}
+        keyExtractor={item => item.id}
+        // eslint-disable-next-line react/no-unstable-nested-components -- FlatList's own documented separator shape.
+        ItemSeparatorComponent={() => <View style={styles.rowGap} />}
+        ListHeaderComponent={
+          <View>
+            <View style={styles.searchRow}>
+              <Icon name="search" size={18} color={colors.muted} />
+              <TextInput
+                style={styles.search}
+                placeholder="Search vault items"
+                placeholderTextColor={colors.muted}
+                value={query}
+                onChangeText={setQuery}
               />
-            )}
-          />
-          {error !== null && <Text style={styles.error}>error: {error}</Text>}
-          {items !== null && visible.length === 0 && (
-            <Text style={styles.emptyState}>{items.length === 0 ? 'No items in this vault yet.' : 'No items match.'}</Text>
-          )}
-        </View>
-      }
-      renderItem={({ item }) => {
-        const name = displayName(item.itemType, item.content, item.id);
-        const secondary = text(item.content, 'username') || text(item.content, 'url') || ITEM_TYPE_LABELS[item.itemType];
-        return (
-          <Card onPress={() => navigation.navigate('ItemDetail', { item })}>
-            <View style={styles.row}>
-              <View style={styles.rowIcon}>
-                <Icon name={ITEM_TYPE_ICONS[item.itemType] ?? 'file'} size={18} color={colors.heading} />
-              </View>
-              <View style={styles.rowText}>
-                <Text style={styles.rowName}>{name}</Text>
-                <Text style={styles.secondary}>{secondary}</Text>
-              </View>
-              <Icon name="chevron-right" size={18} color={colors.muted} />
             </View>
-          </Card>
-        );
-      }}
-      refreshing={syncing}
-      onRefresh={sync}
-    />
+            <FlatList
+              horizontal
+              data={[null, ...ITEM_TYPES]}
+              keyExtractor={type => type ?? 'all'}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipRow}
+              renderItem={({ item: type }) => (
+                <Chip
+                  label={type === null ? 'All' : ITEM_TYPE_LABELS[type]}
+                  active={typeFilter === type}
+                  onPress={() => setTypeFilter(type)}
+                />
+              )}
+            />
+            {error !== null && <Text style={styles.error}>error: {error}</Text>}
+            {items !== null && visible.length === 0 && (
+              <Text style={styles.emptyState}>{items.length === 0 ? 'No items in this vault yet.' : 'No items match.'}</Text>
+            )}
+          </View>
+        }
+        renderItem={({ item }) => {
+          const name = displayName(item.itemType, item.content, item.id);
+          const secondary = text(item.content, 'username') || text(item.content, 'url') || ITEM_TYPE_LABELS[item.itemType];
+          return (
+            <Card onPress={() => navigation.navigate('ItemDetail', { item })}>
+              <View style={styles.row}>
+                <View style={styles.rowIcon}>
+                  <Icon name={ITEM_TYPE_ICONS[item.itemType] ?? 'file'} size={18} color={colors.heading} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowName}>{name}</Text>
+                  <Text style={styles.secondary}>{secondary}</Text>
+                </View>
+                <Icon name="chevron-right" size={18} color={colors.muted} />
+              </View>
+            </Card>
+          );
+        }}
+        refreshing={syncing}
+        onRefresh={sync}
+      />
+      <NewItemPicker
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        onPick={itemType => {
+          setPickerVisible(false);
+          navigation.navigate('ItemEdit', { mode: 'create', itemType });
+        }}
+      />
+    </>
   );
 }
 
@@ -180,5 +237,33 @@ const styles = StyleSheet.create({
   secondary: {
     color: colors.muted,
     fontSize: 12,
+  },
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'flex-end',
+  },
+  pickerCard: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: spacing.lg,
+    gap: spacing.xs,
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.heading,
+    marginBottom: spacing.sm,
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm + 4,
+  },
+  pickerRowText: {
+    color: colors.text,
+    fontSize: 15,
   },
 });

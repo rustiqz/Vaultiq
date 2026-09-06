@@ -1,6 +1,6 @@
 /** Shared building blocks for the styled screens (Join Vault, Unlock, Vault Home, Item Detail, Settings). */
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Icon from './icons';
 import { colors, radii, spacing } from './theme';
 
@@ -12,6 +12,8 @@ function Field(props: {
   secure?: boolean;
   error?: string;
   autoCapitalize?: 'none' | 'sentences';
+  multiline?: boolean;
+  keyboardType?: 'default' | 'number-pad';
 }) {
   const [revealed, setRevealed] = useState(false);
   return (
@@ -19,12 +21,14 @@ function Field(props: {
       <Text style={styles.label}>{props.label}</Text>
       <View style={styles.inputRow}>
         <TextInput
-          style={[styles.input, props.error !== undefined && styles.inputError]}
+          style={[styles.input, props.error !== undefined && styles.inputError, props.multiline === true && styles.inputMultiline]}
           autoCapitalize={props.autoCapitalize ?? 'sentences'}
           autoCorrect={false}
           placeholder={props.placeholder}
           placeholderTextColor={colors.muted}
           secureTextEntry={props.secure === true && !revealed}
+          multiline={props.multiline}
+          keyboardType={props.keyboardType}
           value={props.value}
           onChangeText={props.onChangeText}
         />
@@ -115,6 +119,74 @@ function Card(props: { children: React.ReactNode; onPress?: () => void }) {
   );
 }
 
+type DialogButton = {
+  text: string;
+  onPress?: () => void;
+  /** Right-most, styled in `colors.danger` -- an irreversible action. */
+  destructive?: boolean;
+};
+
+type DialogRequest = { title: string; message?: string; buttons: DialogButton[] };
+
+/**
+ * A themed stand-in for `Alert.alert`, which renders as the bare OS dialog
+ * (unstyled gray, no relation to the app's palette). Pair with
+ * `useConfirmDialog` below rather than rendering this directly.
+ */
+function ConfirmDialog(props: DialogRequest & { visible: boolean; onRequestClose: () => void }) {
+  return (
+    <Modal visible={props.visible} transparent animationType="fade" onRequestClose={props.onRequestClose}>
+      <Pressable style={styles.dialogBackdrop} onPress={props.onRequestClose}>
+        <Pressable style={styles.dialogCard}>
+          <Text style={styles.dialogTitle}>{props.title}</Text>
+          {props.message !== undefined && <Text style={styles.dialogMessage}>{props.message}</Text>}
+          <View style={styles.dialogButtons}>
+            {props.buttons.map(button => (
+              <Pressable
+                key={button.text}
+                style={styles.dialogButton}
+                onPress={() => {
+                  props.onRequestClose();
+                  button.onPress?.();
+                }}
+              >
+                <Text style={[styles.dialogButtonText, button.destructive === true && styles.dialogButtonTextDestructive]}>
+                  {button.text}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/**
+ * Imperative-feeling drop-in for `Alert.alert(title, message, buttons)`:
+ * call `show(title, message, buttons)` from an event handler, and render
+ * the returned `dialog` element anywhere in that component's tree.
+ */
+function useConfirmDialog(): { show: (title: string, message: string | undefined, buttons: DialogButton[]) => void; dialog: React.ReactNode } {
+  const [request, setRequest] = useState<DialogRequest | null>(null);
+
+  const show = (title: string, message: string | undefined, buttons: DialogButton[]) => {
+    setRequest({ title, message, buttons });
+  };
+
+  const dialog = (
+    <ConfirmDialog
+      visible={request !== null}
+      title={request?.title ?? ''}
+      message={request?.message}
+      buttons={request?.buttons ?? [{ text: 'OK' }]}
+      onRequestClose={() => setRequest(null)}
+    />
+  );
+
+  return { show, dialog };
+}
+
 const styles = StyleSheet.create({
   field: {
     gap: spacing.xs,
@@ -139,6 +211,10 @@ const styles = StyleSheet.create({
   },
   inputError: {
     borderColor: colors.danger,
+  },
+  inputMultiline: {
+    minHeight: 100,
+    textAlignVertical: 'top',
   },
   inputAction: {
     position: 'absolute',
@@ -230,6 +306,49 @@ const styles = StyleSheet.create({
     borderRadius: radii.card,
     padding: spacing.md,
   },
+  dialogBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  dialogTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.heading,
+  },
+  dialogMessage: {
+    fontSize: 14,
+    color: colors.text,
+  },
+  dialogButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
+    marginTop: spacing.sm,
+  },
+  dialogButton: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
+  dialogButtonText: {
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  dialogButtonTextDestructive: {
+    color: colors.danger,
+  },
 });
 
-export { Card, Chip, DetailField, Field, PillButton, SectionLabel };
+export { Card, Chip, ConfirmDialog, DetailField, Field, PillButton, SectionLabel, useConfirmDialog };
+export type { DialogButton };

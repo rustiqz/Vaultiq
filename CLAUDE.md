@@ -179,6 +179,59 @@ fast and clever, every time.
     Ninja's build cache survives a killed daemon, so a crashed attempt is
     not wasted work — retrying picks up from the last completed object
     file.
+  - Item **create, edit, and delete** now work, mirroring the extension's
+    design (`extension/src/background/vault.ts`) rather than inventing a
+    parallel one: every mutation is a fresh encryption at `version + 1`
+    (never an in-place field change, since `version`/`deleted` are bound
+    into the AEAD), and delete is a tombstone — content replaced with
+    `{"purged": true}`, `deleted: true` — the mobile analogue of the
+    extension's `purgeItem`. There's no separate soft-delete/trash screen
+    here, so unlike the extension's two-stage trash-then-purge, this is the
+    only kind of delete: permanent, with a confirmation dialog first.
+    Deliberately simpler than the extension in two ways: pushes happen
+    immediately per operation rather than through a debounced outbox (the
+    extension's `synced_version`-vs-`version` dirty tracking exists to
+    diff against a persisted IndexedDB cache, which this app still doesn't
+    have — see the still-true note above about `pullItems`), and a version
+    conflict from the server is surfaced as a plain error rather than the
+    extension's fork-and-keep-both-copies reconciliation, since that
+    machinery exists for two offline devices drifting apart, which doesn't
+    happen the same way when every write is a synchronous round trip.
+    Item ids: a small local UUIDv4 helper (`src/lib/id.ts`) using
+    `Math.random()`, not a new dependency — Hermes/React Native has no
+    built-in `crypto.randomUUID()` the way a browser does, and an item id
+    isn't secret (it's AAD, never key material), so it only needs to be
+    unique, not cryptographically random. `ItemEditScreen.tsx` is one form
+    for both create and edit, showing every field the type's schema
+    carries, matching how Item Detail already does it.
+  - Two bugs caught only by testing this on a physical device, not by
+    `tsc`/`eslint`: the "+" button's new-item type picker was first built
+    on `Alert.alert`, which silently caps at three buttons on Android —
+    two of the five types (and Cancel) just vanished with no error. Fixed
+    with a real themed `Modal` (`NewItemPicker` in `VaultHomeScreen.tsx`).
+    Separately, a seeded TOTP item threw on open: its secret decoded to 10
+    bytes, under this crate's 16-byte minimum (`kdf.rs`'s `MIN_SECRET_LEN`)
+    — a bad test fixture, not an app bug, but a reminder that this floor
+    exists.
+  - Every dialog in the app is now themed instead of the bare native
+    `Alert.alert` (delete confirmation, revoke-device confirmation, and
+    the "not yet available" stubs for favoriting/autofill/master-password
+    change) — a `ConfirmDialog` + `useConfirmDialog()` pair in `ui.tsx`,
+    written as a near-drop-in for `Alert.alert(title, message, buttons)`
+    so call sites barely changed. Also fixed on the way: `JoinVaultScreen`
+    and `UnlockScreen` still imported `SafeAreaView` from `'react-native'`
+    (a no-op on Android — see the fix already applied elsewhere in this
+    section) — missed when that fix landed, caught now because the Join
+    Vault heading was visibly overlapping the status bar.
+  - Verified end-to-end on a physical device: seeded one item per type
+    again (same throwaway `#[cfg(test)]`-block-in-`pw-crypto-core`
+    pattern, not committed), then created, edited, and deleted items
+    through the real UI against a real running server. 23 screenshots
+    covering every screen and dialog state were handed to a designer for
+    a redesign pass (kept outside the repo, not committed); known gap
+    flagged alongside them: there is no native splash screen, so a cold
+    start shows a brief default blank flash before the in-app loading
+    view (`App.tsx`'s `status === 'loading'` branch) pops in.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
