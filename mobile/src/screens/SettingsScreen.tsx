@@ -1,11 +1,12 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Icon from '../icons';
+import LogoMark from '../LogoMark';
 import type { SettingsStackScreenProps } from '../navigation';
 import * as storage from '../storage';
-import { colors, spacing } from '../theme';
-import { Card, PillButton, SectionLabel, useConfirmDialog } from '../ui';
+import { colors, fonts, spacing } from '../theme';
+import { Button, Card, SectionLabel, showComingSoon, useConfirmDialog } from '../ui';
 import * as vault from '../vault';
 import type { DeviceSummary } from '../syncClient';
 
@@ -43,7 +44,7 @@ export default function SettingsScreen({ navigation, onLock }: SettingsStackScre
     show('Revoke device?', `"${device.name}" will no longer be able to sync this vault.`, [
       { text: 'Cancel' },
       {
-        text: 'Revoke',
+        text: 'Revoke device',
         destructive: true,
         onPress: () =>
           vault
@@ -54,65 +55,82 @@ export default function SettingsScreen({ navigation, onLock }: SettingsStackScre
     ]);
   };
 
+  const activeDevices = (devices ?? []).filter(device => device.revokedAt === null);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {dialog}
-      <SectionLabel>Devices</SectionLabel>
       {error !== null && <Text style={styles.error}>error: {error}</Text>}
-      {(devices ?? [])
-        .filter(device => device.revokedAt === null)
-        .map(device => (
-          <Card key={device.id}>
-            <View style={styles.deviceRow}>
-              <View style={styles.deviceIcon}>
-                <Icon name={device.current ? 'smartphone' : 'monitor'} size={18} color={colors.heading} />
-              </View>
+
+      <View style={styles.section}>
+        <SectionLabel>This vault</SectionLabel>
+        <Card style={styles.vaultRow}>
+          <LogoMark size={34} color={colors.ink} />
+          <View style={styles.rowText}>
+            <Text style={styles.rowName}>{serverUrl ?? '—'}</Text>
+            <Text style={styles.mono}>{activeDevices.length} device{activeDevices.length === 1 ? '' : 's'} enrolled</Text>
+          </View>
+          <View style={styles.syncDot} />
+        </Card>
+      </View>
+
+      <View style={styles.section}>
+        <SectionLabel>Security</SectionLabel>
+        <Card style={styles.group}>
+          <Pressable style={styles.groupRow} onPress={() => navigation.navigate('AutoLock')}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowLabel}>Auto-lock timeout</Text>
+              <Text style={styles.mono}>{AUTO_LOCK_LABELS[autoLockMinutes] ?? `${autoLockMinutes}m`}</Text>
+            </View>
+            <Icon name="chevronRight" size={16} color={colors.ink} />
+          </Pressable>
+          <Pressable style={[styles.groupRow, styles.groupRowDivider]} onPress={() => showComingSoon(show, 'Fingerprint unlock')}>
+            <Text style={[styles.rowLabel, styles.groupRowFlex]}>Unlock with fingerprint</Text>
+            <View style={styles.toggleOff}>
+              <View style={styles.toggleThumb} />
+            </View>
+          </Pressable>
+          <Pressable
+            style={[styles.groupRow, styles.groupRowDivider]}
+            onPress={() => showComingSoon(show, 'Changing the master password')}
+          >
+            <Text style={[styles.rowLabel, styles.groupRowFlex]}>Change master password</Text>
+            <Icon name="chevronRight" size={16} color={colors.ink} />
+          </Pressable>
+        </Card>
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.sectionHeaderRow}>
+          <SectionLabel>{`Devices · ${activeDevices.length}`}</SectionLabel>
+          <View style={styles.sectionRule} />
+        </View>
+        <Card style={styles.group}>
+          {activeDevices.map((device, index) => (
+            <View key={device.id} style={[styles.deviceRow, index > 0 && styles.groupRowDivider]}>
+              <Icon name={device.current ? 'smartphone' : 'monitor'} size={20} color={colors.ink} />
               <View style={styles.rowText}>
                 <View style={styles.deviceNameRow}>
-                  <Text style={styles.rowName}>{device.name}</Text>
+                  <Text style={styles.rowLabel}>{device.name}</Text>
                   {device.current && (
                     <View style={styles.badge}>
                       <Text style={styles.badgeText}>This device</Text>
                     </View>
                   )}
                 </View>
-                <Text style={styles.secondary}>Enrolled {new Date(device.enrolledAt).toLocaleDateString()}</Text>
+                <Text style={styles.mono}>Enrolled {new Date(device.enrolledAt).toLocaleDateString()}</Text>
               </View>
               {!device.current && (
-                <Text style={styles.revoke} onPress={() => confirmRevoke(device)}>
-                  Revoke
-                </Text>
+                <Pressable style={styles.revokeButton} onPress={() => confirmRevoke(device)}>
+                  <Text style={styles.revokeButtonText}>Revoke</Text>
+                </Pressable>
               )}
             </View>
-          </Card>
-        ))}
+          ))}
+        </Card>
+      </View>
 
-      <SectionLabel>Security</SectionLabel>
-      <Card onPress={() => navigation.navigate('AutoLock')}>
-        <View style={styles.navRow}>
-          <View style={styles.rowText}>
-            <Text style={styles.rowName}>Auto-lock timeout</Text>
-            <Text style={styles.secondary}>{AUTO_LOCK_LABELS[autoLockMinutes] ?? `${autoLockMinutes}m`}</Text>
-          </View>
-          <Icon name="chevron-right" size={18} color={colors.muted} />
-        </View>
-      </Card>
-      <Card onPress={() => show('Not yet available', "Changing the master password isn't implemented yet.", [{ text: 'OK' }])}>
-        <View style={styles.navRow}>
-          <Text style={styles.rowName}>Change master password</Text>
-          <Icon name="chevron-right" size={18} color={colors.muted} />
-        </View>
-      </Card>
-
-      <SectionLabel>Server Settings</SectionLabel>
-      <Card>
-        <View style={styles.infoRow}>
-          <Text style={styles.rowName}>Server URL</Text>
-          <Text style={styles.secondary}>{serverUrl ?? '—'}</Text>
-        </View>
-      </Card>
-
-      <PillButton title="Lock Vault" variant="outline" onPress={onLock} />
+      <Button title="Lock vault now" variant="outline" onPress={onLock} />
     </ScrollView>
   );
 }
@@ -124,24 +142,95 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.lg,
-    gap: spacing.sm,
+    gap: spacing.lg - 4,
   },
   error: {
-    color: colors.danger,
+    fontFamily: fonts.body,
+    color: colors.rust,
     fontSize: 12,
   },
-  deviceRow: {
+  section: {
+    gap: spacing.sm + 2,
+  },
+  sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
-  deviceIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.badge,
+  sectionRule: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(103, 70, 54, 0.16)',
+  },
+  vaultRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 14,
+    padding: 16,
+  },
+  group: {
+    overflow: 'hidden',
+  },
+  groupRow: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+  },
+  groupRowFlex: {
+    flex: 1,
+  },
+  groupRowDivider: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(103, 70, 54, 0.1)',
+  },
+  rowText: {
+    flex: 1,
+    gap: 3,
+  },
+  rowName: {
+    fontFamily: fonts.semiCondensedSemiBold,
+    fontSize: 15,
+    color: colors.ink,
+  },
+  rowLabel: {
+    fontFamily: fonts.body,
+    fontSize: 15,
+    color: colors.ink,
+  },
+  mono: {
+    fontFamily: fonts.mono,
+    fontSize: 11.5,
+    color: colors.ink,
+  },
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: colors.sage,
+  },
+  toggleOff: {
+    width: 46,
+    height: 27,
+    borderRadius: 999,
+    backgroundColor: colors.ink,
     justifyContent: 'center',
+    alignItems: 'flex-end',
+    padding: 3,
+  },
+  toggleThumb: {
+    width: 21,
+    height: 21,
+    borderRadius: 999,
+    backgroundColor: colors.background,
+  },
+  deviceRow: {
+    minHeight: 68,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
   },
   deviceNameRow: {
     flexDirection: 'row',
@@ -149,37 +238,32 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   badge: {
-    backgroundColor: colors.badge,
-    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderRadius: 999,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
   },
   badgeText: {
-    color: colors.heading,
+    fontFamily: fonts.condensedBold,
+    color: colors.ink,
     fontSize: 11,
-    fontWeight: '600',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
-  rowText: {
-    flex: 1,
-  },
-  rowName: {
-    color: colors.text,
-    fontWeight: '600',
-  },
-  secondary: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  revoke: {
-    color: colors.danger,
-    fontWeight: '600',
-  },
-  navRow: {
-    flexDirection: 'row',
+  revokeButton: {
+    height: 44,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.rust,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
   },
-  infoRow: {
-    gap: spacing.xs,
+  revokeButtonText: {
+    fontFamily: fonts.semiCondensedBold,
+    fontSize: 12,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: colors.rust,
   },
 });

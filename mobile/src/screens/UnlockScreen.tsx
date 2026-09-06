@@ -2,35 +2,39 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import Icon from '../icons';
-import { colors, radii, spacing } from '../theme';
-import { Field, PillButton } from '../ui';
+import LogoMark from '../LogoMark';
+import { colors, fonts, spacing } from '../theme';
+import { Button, SecretField, showComingSoon, useConfirmDialog } from '../ui';
 
 export default function UnlockScreen(props: { busy: boolean; error: string | null; onSubmit: (password: string) => void }) {
   const [password, setPassword] = useState('');
+  const { show, dialog } = useConfirmDialog();
 
   return (
     <SafeAreaView style={styles.container}>
       {props.error !== null && (
         <View style={styles.errorBanner}>
-          <Icon name="alert-triangle" size={16} color={colors.danger} />
+          <Icon name="alertTriangle" size={16} color={colors.rust} />
           <Text style={styles.errorBannerText}>Unable to unlock vault</Text>
         </View>
       )}
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.brand}>
-          <View style={styles.brandMark}>
-            <Icon name="shield" size={28} color={colors.onPrimary} />
+          <LogoMark variant="detailed" size={72} color={colors.ink} tickColor={colors.sage} />
+          <View style={styles.brandText}>
+            <Text style={styles.brandTitle}>Vaultiq</Text>
+            <Text style={styles.brandSubtitle}>Locked</Text>
           </View>
-          <Text style={styles.brandTitle}>Vaultiq</Text>
         </View>
-        <Field label="Master Password" placeholder="Enter master password" secure value={password} onChangeText={setPassword} />
-        <PillButton title={props.busy ? 'Unlocking…' : 'Unlock'} disabled={props.busy} onPress={() => props.onSubmit(password)} />
+        <SecretField label="Master password" value={password} onChangeText={setPassword} />
+        <Button title={props.busy ? 'Unlocking…' : 'Unlock'} disabled={props.busy} onPress={() => props.onSubmit(password)} />
+        <Button title="Use fingerprint" variant="outline" onPress={() => showComingSoon(show, 'Fingerprint unlock')} />
         <View style={styles.infoBox}>
-          <Icon name="info" size={16} color={colors.muted} />
+          <Icon name="info" size={17} color={colors.ink} />
           <Text style={styles.infoBoxText}>Zero-knowledge vault — no password recovery is possible.</Text>
         </View>
       </ScrollView>
-      <Text style={styles.link}>Learn more about zero-knowledge security</Text>
+      {dialog}
     </SafeAreaView>
   );
 }
@@ -44,56 +48,59 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     padding: spacing.lg,
-    gap: spacing.sm,
+    gap: spacing.sm + 6,
   },
   brand: {
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 18,
     marginBottom: spacing.md,
   },
-  brandMark: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: colors.primary,
+  brandText: {
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 6,
   },
   brandTitle: {
+    fontFamily: fonts.semiCondensedBold,
     fontSize: 22,
-    fontWeight: '700',
-    color: colors.text,
+    letterSpacing: 1.3,
+    textTransform: 'uppercase',
+    color: colors.ink,
+  },
+  brandSubtitle: {
+    fontFamily: fonts.condensedBold,
+    fontSize: 12,
+    letterSpacing: 1.7,
+    textTransform: 'uppercase',
+    color: colors.ink,
   },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    backgroundColor: colors.dangerTint,
+    backgroundColor: colors.surface,
     padding: spacing.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.rust,
   },
   errorBannerText: {
-    color: colors.danger,
-    fontWeight: '600',
+    fontFamily: fonts.semiCondensedSemiBold,
+    color: colors.rust,
   },
   infoBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: spacing.sm,
-    backgroundColor: colors.badge,
-    borderRadius: radii.input,
-    padding: spacing.sm + 4,
-    marginTop: spacing.md,
+    gap: spacing.sm + 3,
+    backgroundColor: colors.surface,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.sage,
+    padding: 14,
+    marginTop: spacing.sm,
   },
   infoBoxText: {
     flex: 1,
-    color: colors.muted,
-    fontSize: 12,
-  },
-  link: {
-    color: colors.primary,
-    textDecorationLine: 'underline',
-    textAlign: 'center',
+    fontFamily: fonts.body,
+    color: colors.ink,
     fontSize: 13,
-    paddingBottom: spacing.lg,
+    lineHeight: 19,
   },
 });

@@ -1,34 +1,36 @@
 /**
- * Fall/autumn palette, light mode only for now -- the colors are ours (the
- * Figma set uses teal), but layout/spacing/components now follow the real
- * Figma exports (~/Downloads/screen-*.svg, rasterized and reviewed) rather
- * than approximated screenshots. A dark variant is a deliberate later
- * addition, not attempted here: RN has no built-in theme provider, and
- * building one is its own piece of work.
+ * Vaultiq mobile redesign v2 palette/type system, light mode only for now --
+ * see CLAUDE.md §0. Sourced from the design canvas project ("Vaultiq Mobile
+ * Redesign v2.dc.html"), not approximated from screenshots.
+ *
+ * There is no separate "muted" text color here (design rule 5: hierarchy
+ * rides on size, not shade) -- secondary text is the same `ink`, just
+ * smaller. Faded ink (`inkAlpha`) is for structural lines/borders only.
  */
 export const colors = {
   background: '#FFF8E8',
-  surface: '#FFFDF6',
-  // Card rows sit on `surface`-tinted `background`, one step lighter than
-  // both, matching the Figma set's white-cards-on-off-white pattern.
+  surface: '#F7EED3',
   card: '#FFFFFF',
-  badge: '#F1E7D3',
-  border: '#E4D5B7',
-  text: '#3A2A20',
-  heading: '#674636',
-  muted: '#8A7060',
-  primary: '#674636',
-  onPrimary: '#FFF8E8',
-  secondary: '#AAB396',
-  danger: '#B3492F',
-  dangerTint: '#F6D9CE',
+  ink: '#674636',
+  onInk: '#FFF8E8',
+  // State color, not decoration -- see design rule 7.
+  sage: '#AAB396', // healthy/in-progress. Never carries text.
+  amber: '#B98332', // needs attention, not urgent. Border/icon only, text stays ink.
+  rust: '#A63D22', // compromised. Always paired with one action.
 } as const;
 
+/** Ink at reduced opacity, for borders and dividers -- never for text. */
+export function inkAlpha(opacity: number): string {
+  return `rgba(103, 70, 54, ${opacity})`;
+}
+
 export const radii = {
-  input: 10,
-  button: 24,
-  chip: 16,
-  card: 16,
+  input: 12,
+  button: 12,
+  pill: 999,
+  card: 14,
+  sheet: 22,
+  dialog: 18,
 } as const;
 
 export const spacing = {
@@ -36,4 +38,25 @@ export const spacing = {
   sm: 8,
   md: 16,
   lg: 24,
+} as const;
+
+/**
+ * Archivo is used as a variable font in the design (continuous `wdth`/`wght`
+ * axes); React Native's TextStyle has no `fontVariationSettings` axis, so
+ * each combination actually used is bundled as its own pre-instanced static
+ * file instead (fetched from Google Fonts' legacy static-instance endpoint,
+ * not hand-instanced) -- see android/app/src/main/assets/fonts. This is an
+ * approximation of the two width steps the design uses (wdth 79 and 88),
+ * not true continuous interpolation.
+ */
+export const fonts = {
+  body: 'SpaceGrotesk-Regular',
+  mono: 'IBMPlexMono-Regular',
+  // wdth 79, wght 640/700 -- screen titles, section rules, tab/button chrome.
+  condensedSemiBold: 'ArchivoCondensed-SemiBold',
+  condensedBold: 'ArchivoCondensed-Bold',
+  // wdth 88, wght 600/640/700 (640 collapsed into the 600 file -- visually
+  // indistinguishable at UI text sizes) -- row names, field labels, wordmark.
+  semiCondensedSemiBold: 'ArchivoSemiCondensed-SemiBold',
+  semiCondensedBold: 'ArchivoSemiCondensed-Bold',
 } as const;
