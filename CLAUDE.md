@@ -232,6 +232,91 @@ fast and clever, every time.
     flagged alongside them: there is no native splash screen, so a cold
     start shows a brief default blank flash before the in-app loading
     view (`App.tsx`'s `status === 'loading'` branch) pops in.
+  - **Redesign v2, part 1of 2 (foundation + app shell).** The designer's
+    redesign came back as a Claude Design canvas project (33 mockups plus a
+    written design-system doc), read via the `DesignSync` MCP tool rather
+    than screenshots. This first half replaces the visual system everywhere
+    and completes the IA restructure the design backlog called for; item
+    create/edit/detail's own layout is part two.
+    - **Palette**: cream `#FFF8E8` background, `#674636` ink (there is no
+      separate muted-text color anymore — hierarchy is size, not shade),
+      sage/amber/rust as real state colors (healthy/needs-attention/
+      compromised), never decoration.
+    - **Type**: Space Grotesk (body), IBM Plex Mono (secrets/codes), and
+      Archivo — used as a *variable* font in the design (continuous
+      `wdth`/`wght` axes) that React Native's `TextStyle` cannot express
+      (no `fontVariationSettings`). Approximated with pre-instanced static
+      files at the two width steps actually used, fetched from Google
+      Fonts' legacy static-instance endpoint (an old User-Agent trick: an
+      old/simple UA gets already-instanced static TTFs back instead of the
+      variable font blob) rather than hand-instanced with `fonttools` — this
+      machine has neither `pip` nor `fonttools` installed, and reaching for
+      `pacman`/`sudo` to fix that was ruled out (see the "no sudo" note
+      elsewhere in this file's history). Not true continuous interpolation,
+      so not pixel-identical to the mockups. Bundled directly under
+      `android/app/src/main/assets/fonts` (committed binaries, like the
+      launcher icons — nothing to generate, so no linking step).
+    - **Icons**: the design's whole hand-drawn icon set, hand-extracted into
+      `src/icons.tsx` (a first attempt at delegating this extraction to a
+      subagent produced nothing usable — see the retrospective below),
+      replacing `@react-native-vector-icons/feather` entirely. The "reveal
+      password" toggle reuses one eye glyph for both states; the design has
+      no separate closed-eye icon.
+    - **Logo**: the three-spoke dial (`src/LogoMark.tsx`), replacing the
+      shield glyph on Unlock/Settings/the loading view.
+    - **IA restructure** (design backlog, now done): Vault Home is
+      Logins-only with three Browse tiles (Cards/Identities/Notes), each
+      opening its own list screen (`TypeListScreen.tsx`, one component for
+      all three types). Bottom tab renamed Authenticator → Codes.
+    - **Sort**: Vault Home's logins default to last-used-first (explicit
+      ask, not what the mockup itself defaults to — its own toggle affordance
+      is kept, just re-defaulted). Device-local only (`storage.ts`'s
+      `recordItemUsed`/`readLastUsed`) — the extension has a real
+      cross-device usage record for this (and for password-reuse detection);
+      building that properly is a later, deliberate addition, not parity
+      lost by accident.
+    - **Codes tab**: groups live TOTP codes by account (design backlog),
+      factored through the same `useTotpCode` hook Item Detail's ring uses.
+    - Restyled: delete/revoke confirmation dialogs and the "not yet
+      available" stub (now "Not built yet", matching the mockup's copy and
+      icon exactly — `showComingSoon` in `ui.tsx`), Settings, the auto-lock
+      picker (now a bottom sheet, `presentation: 'transparentModal'`),
+      Join Vault (now a 3-step flow: welcome → device details → master
+      password, with a paste button on the token field), Unlock.
+    - **Native splash**: `MainActivity`'s own `windowBackground` (a
+      layer-list drawable: ink fill plus a hand-ported vector-drawable copy
+      of the dial), so there's no default blank flash before `App.tsx`'s
+      loading view — which shows the same dial, so the handoff between
+      native and JS reads as one screen. No `react-native-bootsplash`
+      dependency; this is the older, dependency-free technique, sufficient
+      for a static splash with no interaction.
+    - Item Detail and the create/edit form (`ItemDetailScreen.tsx`,
+      `ItemEditScreen.tsx`) got a **light-touch pass only** — old color/font
+      token names swapped for new ones so the app compiles and looks
+      consistent, `DetailField` carried over as-is — not the deeper
+      per-mockup rework (the real card graphic, the every-time/sometimes
+      field system, the identity wizard). That's part two.
+    - **Assumed by the design, not built** (flagged per-mockup as
+      encountered, not silently designed around): biometric unlock
+      (Settings shows the toggle; tapping it is a stub), QR-code scanning
+      for adding an authenticator, clipboard auto-clear after copying a
+      secret, a real Android `AutofillService` (the "autofill picker"
+      mockup is the actual OS-level suggestion overlay, not an app screen —
+      nothing to build here without that native integration), and vault
+      import. One is a bigger deal than the others: the mockups include a
+      breach-checked/compromised-password state, which isn't just unbuilt —
+      it's explicitly on this file's forever-deferred list (§1.3: "Sharing,
+      recovery flows, passkeys, import, breach checking — not now, not
+      partially"). Deliberately not building even the visual component for
+      that one until the scope call gets revisited on purpose.
+    - **Retrospective**: a subagent forked off to extract the icon set ran
+      for several minutes and, on completion, confidently reported having
+      written `theme.ts`, `LogoMark.tsx`, and `storage.ts`'s usage tracking
+      — all files it never touched (verified after the fact by content
+      hash: nothing on disk had changed). Its actual deliverable,
+      `icons.tsx`, was untouched, still the old Feather wrapper. The
+      report was pure confabulation, not a race or an overwrite. Redone
+      directly instead of re-delegated.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
