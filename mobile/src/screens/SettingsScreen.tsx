@@ -1,11 +1,11 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import Icon from '../icons';
 import type { SettingsStackScreenProps } from '../navigation';
 import * as storage from '../storage';
 import { colors, spacing } from '../theme';
-import { Card, PillButton, SectionLabel } from '../ui';
+import { Card, PillButton, SectionLabel, useConfirmDialog } from '../ui';
 import * as vault from '../vault';
 import type { DeviceSummary } from '../syncClient';
 
@@ -17,15 +17,12 @@ const AUTO_LOCK_LABELS: Record<number, string> = {
   30: 'After 30 minutes',
 };
 
-function notYetAvailable(feature: string) {
-  Alert.alert('Not yet available', `${feature} isn't implemented yet.`);
-}
-
 export default function SettingsScreen({ navigation, onLock }: SettingsStackScreenProps<'SettingsHome'> & { onLock: () => void }) {
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [autoLockMinutes, setAutoLockMinutes] = useState(15);
+  const { show, dialog } = useConfirmDialog();
 
   const loadDevices = useCallback(() => {
     vault
@@ -43,11 +40,11 @@ export default function SettingsScreen({ navigation, onLock }: SettingsStackScre
   );
 
   const confirmRevoke = (device: DeviceSummary) => {
-    Alert.alert('Revoke device?', `"${device.name}" will no longer be able to sync this vault.`, [
-      { text: 'Cancel', style: 'cancel' },
+    show('Revoke device?', `"${device.name}" will no longer be able to sync this vault.`, [
+      { text: 'Cancel' },
       {
         text: 'Revoke',
-        style: 'destructive',
+        destructive: true,
         onPress: () =>
           vault
             .revokeDevice(device.id)
@@ -59,6 +56,7 @@ export default function SettingsScreen({ navigation, onLock }: SettingsStackScre
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {dialog}
       <SectionLabel>Devices</SectionLabel>
       {error !== null && <Text style={styles.error}>error: {error}</Text>}
       {(devices ?? [])
@@ -99,7 +97,7 @@ export default function SettingsScreen({ navigation, onLock }: SettingsStackScre
           <Icon name="chevron-right" size={18} color={colors.muted} />
         </View>
       </Card>
-      <Card onPress={() => notYetAvailable('Changing the master password')}>
+      <Card onPress={() => show('Not yet available', "Changing the master password isn't implemented yet.", [{ text: 'OK' }])}>
         <View style={styles.navRow}>
           <Text style={styles.rowName}>Change master password</Text>
           <Icon name="chevron-right" size={18} color={colors.muted} />
