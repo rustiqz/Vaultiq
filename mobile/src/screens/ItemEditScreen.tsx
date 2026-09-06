@@ -4,7 +4,7 @@ import type { ItemContent } from '../itemContent';
 import { emptyContent } from '../itemContent';
 import type { VaultStackScreenProps } from '../navigation';
 import { colors, spacing } from '../theme';
-import { Field, PillButton } from '../ui';
+import { Field, SecretField, Button } from '../ui';
 import * as vault from '../vault';
 
 const TITLES: Record<ItemContent['type'], string> = {
@@ -77,7 +77,7 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
         <>
           <Field label="URL" value={value('url')} onChangeText={set('url')} autoCapitalize="none" />
           <Field label="Username" value={value('username')} onChangeText={set('username')} autoCapitalize="none" />
-          <Field label="Password" value={value('password')} onChangeText={set('password')} secure autoCapitalize="none" />
+          <SecretField label="Password" value={value('password')} onChangeText={set('password')} />
           <Field label="Email" value={value('email')} onChangeText={set('email')} autoCapitalize="none" />
           <Field label="Mobile" value={value('mobile')} onChangeText={set('mobile')} autoCapitalize="none" />
         </>
@@ -86,11 +86,11 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
       {itemType === 'card' && (
         <>
           <Field label="Cardholder Name" value={value('cardholder')} onChangeText={set('cardholder')} />
-          <Field label="Card Number" value={value('number')} onChangeText={set('number')} secure keyboardType="number-pad" />
+          <SecretField label="Card Number" value={value('number')} onChangeText={set('number')} />
           <Field label="Expiry Month" value={value('expiryMonth')} onChangeText={set('expiryMonth')} keyboardType="number-pad" />
           <Field label="Expiry Year" value={value('expiryYear')} onChangeText={set('expiryYear')} keyboardType="number-pad" />
-          <Field label="CVV" value={value('securityCode')} onChangeText={set('securityCode')} secure keyboardType="number-pad" />
-          <Field label="PIN" value={value('pin')} onChangeText={set('pin')} secure keyboardType="number-pad" />
+          <SecretField label="CVV" value={value('securityCode')} onChangeText={set('securityCode')} />
+          <SecretField label="PIN" value={value('pin')} onChangeText={set('pin')} />
         </>
       )}
 
@@ -108,7 +108,7 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
           <Field label="Country" value={value('country')} onChangeText={set('country')} />
           <Field label="Company" value={value('company')} onChangeText={set('company')} />
           <Field label="Date of Birth" value={value('dateOfBirth')} onChangeText={set('dateOfBirth')} />
-          <Field label="National ID" value={value('nationalId')} onChangeText={set('nationalId')} secure />
+          <SecretField label="National ID" value={value('nationalId')} onChangeText={set('nationalId')} />
         </>
       )}
 
@@ -116,7 +116,7 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
         <>
           <Field label="Issuer" value={value('issuer')} onChangeText={set('issuer')} />
           <Field label="Account" value={value('account')} onChangeText={set('account')} autoCapitalize="none" />
-          <Field label="Secret" value={value('secret')} onChangeText={set('secret')} secure autoCapitalize="none" />
+          <SecretField label="Secret" value={value('secret')} onChangeText={set('secret')} />
           <Field label="Algorithm" value={value('algorithm') || 'SHA1'} onChangeText={set('algorithm')} autoCapitalize="none" />
           <Field label="Digits" value={String(num(content, 'digits', 6))} onChangeText={set('digits')} keyboardType="number-pad" />
           <Field label="Period (seconds)" value={String(num(content, 'period', 30))} onChangeText={set('period')} keyboardType="number-pad" />
@@ -131,7 +131,7 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
       />
 
       {error !== null && <Text style={styles.error}>error: {error}</Text>}
-      <PillButton title={busy ? 'Saving…' : 'Save'} disabled={busy} onPress={save} />
+      <Button title={busy ? 'Saving…' : 'Save'} disabled={busy} onPress={save} />
     </ScrollView>
   );
 }
@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   error: {
-    color: colors.danger,
+    color: colors.rust,
     fontSize: 12,
   },
 });

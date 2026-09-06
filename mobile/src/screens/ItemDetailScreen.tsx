@@ -29,7 +29,7 @@ function TotpCode(props: { secretB32: string; algorithm: string; digits: number;
             cx={RING_SIZE / 2}
             cy={RING_SIZE / 2}
             r={RING_RADIUS}
-            stroke={colors.badge}
+            stroke={colors.surface}
             strokeWidth={RING_STROKE}
             fill="none"
           />
@@ -37,7 +37,7 @@ function TotpCode(props: { secretB32: string; algorithm: string; digits: number;
             cx={RING_SIZE / 2}
             cy={RING_SIZE / 2}
             r={RING_RADIUS}
-            stroke={colors.primary}
+            stroke={colors.ink}
             strokeWidth={RING_STROKE}
             strokeLinecap="round"
             strokeDasharray={`${RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
@@ -180,17 +180,17 @@ const styles = StyleSheet.create({
   ringSeconds: {
     fontSize: 32,
     fontWeight: '700',
-    color: colors.heading,
+    color: colors.ink,
   },
   ringSecondsLabel: {
     fontSize: 11,
-    color: colors.muted,
+    color: colors.ink,
     letterSpacing: 1,
   },
   totpCode: {
     fontSize: 32,
     fontWeight: '700',
-    color: colors.heading,
+    color: colors.ink,
     letterSpacing: 4,
     marginTop: spacing.sm,
   },
@@ -201,12 +201,12 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   secondary: {
-    color: colors.muted,
+    color: colors.ink,
     fontSize: 11,
     letterSpacing: 0.5,
   },
   timestamps: {
-    color: colors.muted,
+    color: colors.ink,
     fontSize: 11,
     textAlign: 'center',
     paddingBottom: spacing.md,

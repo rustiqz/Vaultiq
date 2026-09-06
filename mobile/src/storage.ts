@@ -55,5 +55,32 @@ async function writeAutoLockMinutes(minutes: number): Promise<void> {
   await AsyncStorage.setItem(AUTO_LOCK_KEY, String(minutes));
 }
 
-export { clearEnrollment, readAutoLockMinutes, readEnrollment, writeAutoLockMinutes, writeEnrollment };
+// Device-local "last opened" timestamps, for Vault Home's login sort. Not
+// synced -- the extension has a real cross-device usage record
+// (extension/src/lib/vault-db.ts's per-device `usage` blob, pushed to
+// /sync) that also drives password-reuse detection; this is a smaller,
+// local-only stand-in for the one thing this redesign needs from it. A full
+// synced usage record is a later, deliberate addition, not an oversight.
+const LAST_USED_KEY = 'vaultiq:lastUsed';
+
+async function readLastUsed(): Promise<Record<string, number>> {
+  const raw = await AsyncStorage.getItem(LAST_USED_KEY);
+  return raw === null ? {} : (JSON.parse(raw) as Record<string, number>);
+}
+
+async function recordItemUsed(itemId: string): Promise<void> {
+  const lastUsed = await readLastUsed();
+  lastUsed[itemId] = Date.now();
+  await AsyncStorage.setItem(LAST_USED_KEY, JSON.stringify(lastUsed));
+}
+
+export {
+  clearEnrollment,
+  readAutoLockMinutes,
+  readEnrollment,
+  readLastUsed,
+  recordItemUsed,
+  writeAutoLockMinutes,
+  writeEnrollment,
+};
 export type { EnrollmentState, VaultRecord };

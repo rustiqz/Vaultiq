@@ -6,4 +6,11 @@
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     </style>
 
+    <!-- Cold-start splash (CLAUDE.md §0): MainActivity's own window background
+         until the RN root view paints over it, so there's no default blank
+         flash before App.tsx's loading view pops in. -->
+    <style name="SplashTheme" parent="AppTheme">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+
 </resources>

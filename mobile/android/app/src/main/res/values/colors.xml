@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Redesign v2 ink, used for the native splash background. See src/theme.ts. -->
+    <color name="splash_background">#674636</color>
+</resources>
