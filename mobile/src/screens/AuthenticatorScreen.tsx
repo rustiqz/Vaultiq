@@ -1,12 +1,15 @@
-import Clipboard from '@react-native-clipboard/clipboard';
 import { useCallback, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 import Icon from '../icons';
+import { copyForAWhile } from '../lib/clipboard';
 import { text } from '../itemContent';
+import type { RootTabParamList } from '../navigation';
 import { colors, fonts, spacing } from '../theme';
-import { SearchBar, showComingSoon, useConfirmDialog } from '../ui';
+import { SearchBar } from '../ui';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 import { useTotpCode } from '../useTotpCode';
@@ -25,7 +28,7 @@ export default function AuthenticatorScreen() {
   const [items, setItems] = useState<DecryptedItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const { show, dialog } = useConfirmDialog();
+  const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList, 'Codes'>>();
 
   const sync = useCallback(async () => {
     setError(null);
@@ -55,10 +58,13 @@ export default function AuthenticatorScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appBar}>
         <Text style={styles.title}>Codes</Text>
-        <Pressable onPress={() => showComingSoon(show, 'Adding an authenticator from here')} hitSlop={8}>
+        <Pressable
+          onPress={() => navigation.navigate('Vault', { screen: 'ItemEdit', params: { mode: 'create', itemType: 'totp' } })}
+          hitSlop={8}
+        >
           <Icon name="plus" size={21} color={colors.ink} />
         </Pressable>
       </View>
@@ -92,8 +98,7 @@ export default function AuthenticatorScreen() {
           </View>
         )}
       />
-      {dialog}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -110,7 +115,7 @@ function AuthenticatorRow(props: { item: DecryptedItem }) {
   const progress = secondsLeft === null ? 0 : secondsLeft / period;
 
   return (
-    <Pressable style={styles.row} onPress={code === null ? undefined : () => Clipboard.setString(code)}>
+    <Pressable style={styles.row} onPress={code === null ? undefined : () => copyForAWhile(code)}>
       <View style={styles.ringWrap}>
         <Svg width={RING_SIZE} height={RING_SIZE} viewBox="0 0 42 42">
           <Circle cx={21} cy={21} r={RING_RADIUS} fill="none" stroke="rgba(103, 70, 54, 0.16)" strokeWidth={4} />

@@ -8,6 +8,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import uniffi.pw_crypto_core.EncryptedItemFfi
 import uniffi.pw_crypto_core.FfiException
@@ -23,6 +24,7 @@ import uniffi.pw_crypto_core.generateSalt as generateSaltFfi
 import uniffi.pw_crypto_core.totpCodeFfi
 import uniffi.pw_crypto_core.totpSecondsRemainingFfi
 import uniffi.pw_crypto_core.unwrapVaultKey
+import uniffi.pw_crypto_core.wrapVaultKey
 
 /**
  * Bridge into `pw-crypto-core`'s uniffi bindings.
@@ -162,6 +164,77 @@ class CryptoCoreModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    /**
+     * Verifies the current password by unwrapping the *persisted* vault key
+     * under it (independent of whatever [unlock] already holds -- same
+     * reasoning as extension/src/background/vault.ts's
+     * `changeMasterPassword`, which re-derives from the stored record rather
+     * than trusting session state), then wraps that key under a fresh salt
+     * and the new password. Doesn't touch [vaultKey]; the caller pushes the
+     * result to the server and local storage itself. Costs are carried over
+     * unchanged rather than raised to "today's recommended" ones on
+     * rotation -- a reasonable follow-up, not done here.
+     */
+    @ReactMethod
+    fun rewrapVaultKey(
+        currentPassword: String,
+        currentSaltB64: String,
+        currentMemoryKib: Double,
+        currentIterations: Double,
+        currentParallelism: Double,
+        currentWrappedVaultKey: ReadableMap,
+        newPassword: String,
+        newSaltB64: String,
+        newMemoryKib: Double,
+        newIterations: Double,
+        newParallelism: Double,
+        promise: Promise,
+    ) {
+        try {
+            val currentMasterKey =
+                deriveMasterKey(
+                    currentPassword,
+                    currentSaltB64,
+                    currentMemoryKib.toInt().toUInt(),
+                    currentIterations.toInt().toUInt(),
+                    currentParallelism.toInt().toUInt(),
+                )
+            val wrapped =
+                WrappedVaultKeyFfi(
+                    version = currentWrappedVaultKey.getInt("version").toUByte(),
+                    ciphertext = readByteArray(requireNotNull(currentWrappedVaultKey.getArray("ciphertext"))),
+                    nonce = readByteArray(requireNotNull(currentWrappedVaultKey.getArray("nonce"))),
+                )
+            val unwrapped =
+                try {
+                    unwrapVaultKey(wrapped, currentMasterKey)
+                } finally {
+                    currentMasterKey.close()
+                }
+            try {
+                val newMasterKey =
+                    deriveMasterKey(
+                        newPassword,
+                        newSaltB64,
+                        newMemoryKib.toInt().toUInt(),
+                        newIterations.toInt().toUInt(),
+                        newParallelism.toInt().toUInt(),
+                    )
+                val rewrapped =
+                    try {
+                        wrapVaultKey(unwrapped, newMasterKey)
+                    } finally {
+                        newMasterKey.close()
+                    }
+                promise.resolve(writeWrappedVaultKey(rewrapped))
+            } finally {
+                unwrapped.close()
+            }
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
+    }
+
     /** Scrubs the held vault key and forgets it. */
     @ReactMethod
     fun lock(promise: Promise) {
@@ -266,6 +339,20 @@ class CryptoCoreModule(reactContext: ReactApplicationContext) :
     private fun readByteArrayB64(value: String): ByteArray = Base64.decode(value, Base64.NO_WRAP)
 
     private fun writeByteArrayB64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
+
+    // Ints in the 0..255 range, matching the wire shape [unlock]'s
+    // wrappedVaultKey argument already reads (wasm's default Vec<u8>
+    // serialization) -- a rewrap must produce a record any device, mobile or
+    // extension, can read back later.
+    private fun writeIntArray(bytes: ByteArray): WritableArray =
+        Arguments.createArray().apply { for (byte in bytes) pushInt(byte.toInt() and 0xFF) }
+
+    private fun writeWrappedVaultKey(wrapped: WrappedVaultKeyFfi): WritableMap =
+        Arguments.createMap().apply {
+            putInt("version", wrapped.version.toInt())
+            putArray("ciphertext", writeIntArray(wrapped.ciphertext))
+            putArray("nonce", writeIntArray(wrapped.nonce))
+        }
 
     private fun writeEncryptedItem(item: EncryptedItemFfi): WritableMap =
         Arguments.createMap().apply {
