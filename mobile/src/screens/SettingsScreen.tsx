@@ -6,7 +6,7 @@ import LogoMark from '../LogoMark';
 import type { SettingsStackScreenProps } from '../navigation';
 import * as storage from '../storage';
 import { colors, fonts, spacing } from '../theme';
-import { Button, Card, SectionLabel, showComingSoon, useConfirmDialog } from '../ui';
+import { Button, Card, SectionLabel, useConfirmDialog } from '../ui';
 import * as vault from '../vault';
 import type { DeviceSummary } from '../syncClient';
 
@@ -23,6 +23,8 @@ export default function SettingsScreen({ navigation, onLock }: SettingsStackScre
   const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [autoLockMinutes, setAutoLockMinutes] = useState(15);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
   const { show, dialog } = useConfirmDialog();
 
   const loadDevices = useCallback(() => {
@@ -36,9 +38,30 @@ export default function SettingsScreen({ navigation, onLock }: SettingsStackScre
     useCallback(() => {
       vault.serverUrl().then(setServerUrl);
       storage.readAutoLockMinutes().then(setAutoLockMinutes);
+      vault.biometricAvailable().then(setBiometricAvailable);
+      vault.biometricEnabled().then(setBiometricEnabled);
       loadDevices();
     }, [loadDevices]),
   );
+
+  const toggleBiometric = () => {
+    if (biometricEnabled) {
+      show('Turn off fingerprint unlock?', 'Your cached password is forgotten. You can turn it back on any time.', [
+        { text: 'Cancel' },
+        {
+          text: 'Turn off',
+          destructive: true,
+          onPress: () =>
+            vault
+              .disableBiometric()
+              .then(() => setBiometricEnabled(false))
+              .catch(thrown => setError(thrown instanceof Error ? thrown.message : String(thrown))),
+        },
+      ]);
+      return;
+    }
+    navigation.navigate('EnableBiometric');
+  };
 
   const confirmRevoke = (device: DeviceSummary) => {
     show('Revoke device?', `"${device.name}" will no longer be able to sync this vault.`, [
@@ -84,16 +107,15 @@ export default function SettingsScreen({ navigation, onLock }: SettingsStackScre
             </View>
             <Icon name="chevronRight" size={16} color={colors.ink} />
           </Pressable>
-          <Pressable style={[styles.groupRow, styles.groupRowDivider]} onPress={() => showComingSoon(show, 'Fingerprint unlock')}>
-            <Text style={[styles.rowLabel, styles.groupRowFlex]}>Unlock with fingerprint</Text>
-            <View style={styles.toggleOff}>
-              <View style={styles.toggleThumb} />
-            </View>
-          </Pressable>
-          <Pressable
-            style={[styles.groupRow, styles.groupRowDivider]}
-            onPress={() => showComingSoon(show, 'Changing the master password')}
-          >
+          {biometricAvailable && (
+            <Pressable style={[styles.groupRow, styles.groupRowDivider]} onPress={toggleBiometric}>
+              <Text style={[styles.rowLabel, styles.groupRowFlex]}>Unlock with fingerprint</Text>
+              <View style={[styles.toggleOff, biometricEnabled && styles.toggleOn]}>
+                <View style={styles.toggleThumb} />
+              </View>
+            </Pressable>
+          )}
+          <Pressable style={[styles.groupRow, styles.groupRowDivider]} onPress={() => navigation.navigate('ChangeMasterPassword')}>
             <Text style={[styles.rowLabel, styles.groupRowFlex]}>Change master password</Text>
             <Icon name="chevronRight" size={16} color={colors.ink} />
           </Pressable>
@@ -214,10 +236,16 @@ const styles = StyleSheet.create({
     width: 46,
     height: 27,
     borderRadius: 999,
-    backgroundColor: colors.ink,
+    borderWidth: 1.5,
+    borderColor: colors.ink,
     justifyContent: 'center',
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
     padding: 3,
+  },
+  toggleOn: {
+    backgroundColor: colors.ink,
+    borderWidth: 0,
+    alignItems: 'flex-end',
   },
   toggleThumb: {
     width: 21,

@@ -11,6 +11,8 @@ import { Card, SearchBar } from '../ui';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 
+const SEARCH_PLURAL: Record<'card' | 'identity' | 'note', string> = { card: 'cards', identity: 'identities', note: 'notes' };
+
 /** Cards, Identities and Secure Notes each get this same list screen -- one Browse tile per type, per the redesign's IA (Vault Home stays Logins-only). */
 export default function TypeListScreen({ route, navigation }: VaultStackScreenProps<'TypeList'>) {
   const { itemType } = route.params;
@@ -51,7 +53,7 @@ export default function TypeListScreen({ route, navigation }: VaultStackScreenPr
       ItemSeparatorComponent={() => <View style={styles.rowGap} />}
       ListHeaderComponent={
         <View style={styles.header}>
-          <SearchBar value={query} onChangeText={setQuery} placeholder={`Search ${itemType === 'note' ? 'notes' : `${itemType}s`}`} />
+          <SearchBar value={query} onChangeText={setQuery} placeholder={`Search ${SEARCH_PLURAL[itemType]}`} />
           {items !== null && visible.length === 0 && (
             <Text style={styles.emptyState}>{items.length === 0 ? 'Nothing here yet.' : 'No matches.'}</Text>
           )}

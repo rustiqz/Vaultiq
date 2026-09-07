@@ -67,6 +67,19 @@ type CryptoCoreNativeModule = {
     parallelism: number,
     wrappedVaultKey: WrappedVaultKey,
   ): Promise<void>;
+  rewrapVaultKey(
+    currentPassword: string,
+    currentSaltB64: string,
+    currentMemoryKib: number,
+    currentIterations: number,
+    currentParallelism: number,
+    currentWrappedVaultKey: WrappedVaultKey,
+    newPassword: string,
+    newSaltB64: string,
+    newMemoryKib: number,
+    newIterations: number,
+    newParallelism: number,
+  ): Promise<WrappedVaultKey>;
   lock(): Promise<void>;
   isUnlocked(): Promise<boolean>;
   encryptItem(plaintextJson: string, header: ItemHeader): Promise<EncryptedItem>;
