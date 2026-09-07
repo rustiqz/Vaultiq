@@ -86,6 +86,7 @@ export default function JoinVaultScreen(props: {
             <Text style={styles.stepTitle}>Set the master password</Text>
             <Text style={styles.stepSubtitle}>The same one used to create this vault -- it never leaves this device.</Text>
             <SecretField label="Master password" value={password} onChangeText={setPassword} />
+            {props.error !== null && <Text style={styles.error}>{props.error}</Text>}
           </View>
         )}
       </ScrollView>
@@ -197,6 +198,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: colors.ink,
     marginTop: -8,
+  },
+  error: {
+    fontFamily: fonts.body,
+    color: colors.rust,
+    fontSize: 12.5,
   },
   pasteButton: {
     position: 'absolute',

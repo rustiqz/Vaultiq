@@ -1,3 +1,4 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ItemContent } from './itemContent';
 import type { DecryptedItem } from './vault';
@@ -12,6 +13,14 @@ type VaultStackParamList = {
   TypeList: { itemType: 'card' | 'identity' | 'note' };
   ItemDetail: { item: DecryptedItem };
   ItemEdit: { mode: 'create'; itemType: ItemContent['type'] } | { mode: 'edit'; item: DecryptedItem };
+  /**
+   * Takes no params and hands its result back via lib/qrScanResult.ts's
+   * pending-callback pair rather than a route param -- React Navigation's
+   * typed `navigate({..., merge: true})` can't express "these params merge
+   * into whatever's already on the ItemEdit route" without widening every
+   * other param on that screen to optional too.
+   */
+  QrScan: undefined;
 };
 
 type VaultStackScreenProps<Screen extends keyof VaultStackParamList> = NativeStackScreenProps<
@@ -23,6 +32,8 @@ type VaultStackScreenProps<Screen extends keyof VaultStackParamList> = NativeSta
 type SettingsStackParamList = {
   SettingsHome: undefined;
   AutoLock: undefined;
+  ChangeMasterPassword: undefined;
+  EnableBiometric: undefined;
 };
 
 type SettingsStackScreenProps<Screen extends keyof SettingsStackParamList> = NativeStackScreenProps<
@@ -30,4 +41,16 @@ type SettingsStackScreenProps<Screen extends keyof SettingsStackParamList> = Nat
   Screen
 >;
 
-export type { SettingsStackParamList, SettingsStackScreenProps, VaultStackParamList, VaultStackScreenProps };
+/**
+ * The bottom-tab shell, typed so a screen outside the Vault tab (the Codes
+ * tab's "add an authenticator" button) can navigate into it --
+ * `NavigatorScreenParams` is React Navigation's own shape for addressing a
+ * nested navigator's screen from outside it.
+ */
+type RootTabParamList = {
+  Vault: NavigatorScreenParams<VaultStackParamList>;
+  Codes: undefined;
+  Settings: NavigatorScreenParams<SettingsStackParamList>;
+};
+
+export type { RootTabParamList, SettingsStackParamList, SettingsStackScreenProps, VaultStackParamList, VaultStackScreenProps };

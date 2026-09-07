@@ -1,6 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ItemContent } from '../itemContent';
 import Icon from '../icons';
 import ItemAvatar from '../ItemAvatar';
@@ -110,7 +111,7 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
   const isEmptyVault = items !== null && items.length === 0;
 
   return (
-    <>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.appBar}>
         <View style={styles.brandRow}>
           <LogoMark size={26} color={colors.ink} />
@@ -186,7 +187,7 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
           navigation.navigate('ItemEdit', { mode: 'create', itemType });
         }}
       />
-    </>
+    </SafeAreaView>
   );
 }
 
@@ -221,6 +222,10 @@ function EmptyVault(props: { onAddFirst: () => void }) {
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   appBar: {
     height: 56,
     flexDirection: 'row',
