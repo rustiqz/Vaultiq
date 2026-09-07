@@ -87,14 +87,22 @@ const ICONS = {
 
 type IconName = keyof typeof ICONS;
 
-function Icon(props: { name: IconName; size?: number; color?: string; strokeWidth?: number }) {
+function Icon(props: { name: IconName; size?: number; color?: string; strokeWidth?: number; filled?: boolean }) {
   const size = props.size ?? 20;
   const color = props.color ?? colors.ink;
   const shape: IconShape = ICONS[props.name];
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       {shape.paths?.map(d => (
-        <Path key={d} d={d} stroke={color} strokeWidth={props.strokeWidth ?? shape.strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path
+          key={d}
+          d={d}
+          fill={props.filled === true ? color : 'none'}
+          stroke={color}
+          strokeWidth={props.strokeWidth ?? shape.strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       ))}
       {shape.circles?.map(c => (
         <Circle

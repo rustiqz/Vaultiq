@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ItemContent } from '../itemContent';
 import { emptyContent } from '../itemContent';
 import Icon from '../icons';
+import { awaitQrScan } from '../lib/qrScanResult';
 import IdentityWizard from './IdentityWizard';
 import type { VaultStackScreenProps } from '../navigation';
 import { colors, fonts, spacing } from '../theme';
@@ -107,6 +108,24 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
     content,
   );
 
+  const openScanner = () => {
+    awaitQrScan(scanned => {
+      setContent(current => ({
+        ...current,
+        issuer: scanned.issuer,
+        account: scanned.account,
+        secret: scanned.secret,
+        algorithm: scanned.algorithm,
+        digits: scanned.digits,
+        period: scanned.period,
+      }));
+      totpOptional.add('algorithm');
+      totpOptional.add('digits');
+      totpOptional.add('period');
+    });
+    navigation.navigate('QrScan');
+  };
+
   if (itemType === 'identity') {
     return <IdentityWizard route={route} navigation={navigation} />;
   }
@@ -187,11 +206,11 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
 
         {itemType === 'totp' && (
           <>
-            <Pressable style={styles.qrButton}>
+            <Pressable style={styles.qrButton} onPress={openScanner}>
               <Icon name="import" size={26} color={colors.ink} />
               <View style={styles.qrButtonText}>
                 <Text style={styles.qrButtonTitle}>Scan QR code</Text>
-                <Text style={styles.qrButtonHint}>Not available yet -- enter details manually below.</Text>
+                <Text style={styles.qrButtonHint}>Or enter the details manually below.</Text>
               </View>
             </Pressable>
             <Field label="Issuer" value={value('issuer')} onChangeText={set('issuer')} />

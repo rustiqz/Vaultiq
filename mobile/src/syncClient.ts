@@ -124,5 +124,21 @@ function revokeDevice(serverUrl: string, deviceId: string, credential: string, t
   return deleteJson(serverUrl, `devices/${encodeURIComponent(targetId)}`, `Bearer ${deviceId}.${credential}`);
 }
 
-export { enroll, enrollmentParams, listDevices, pull, push, revokeDevice, SyncServerError, vaultBootstrap };
+/**
+ * Rotates the vault's auth key and stored wrapped-key record -- the mobile
+ * analogue of extension/src/sync/client.ts's `changeMasterPassword`.
+ * `currentAuthKey` proves the caller actually knows the current password;
+ * `vault` is the already-rewrapped record other devices pick up on their
+ * next sync.
+ */
+function changeMasterPassword(
+  serverUrl: string,
+  deviceId: string,
+  credential: string,
+  body: { currentAuthKey: string; newAuthKey: string; vault: VaultBootstrap },
+): Promise<{ changed: true }> {
+  return postJson(serverUrl, 'vault/master-password', body, `Bearer ${deviceId}.${credential}`);
+}
+
+export { changeMasterPassword, enroll, enrollmentParams, listDevices, pull, push, revokeDevice, SyncServerError, vaultBootstrap };
 export type { DeviceCredential, DeviceSummary, KdfParams, PullResult, PushResult, VaultBootstrap };

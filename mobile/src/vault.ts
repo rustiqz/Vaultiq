@@ -1,3 +1,4 @@
+import Biometric from './nativeBiometric';
 import CryptoCore from './nativeCryptoCore';
 import type { EncryptedItem } from './nativeCryptoCore';
 import * as storage from './storage';
@@ -122,6 +123,135 @@ async function lock(): Promise<void> {
   credential = null;
 }
 
+/** Whether this device can even do biometric auth right now. */
+function biometricAvailable(): Promise<boolean> {
+  return Biometric.isAvailable();
+}
+
+/** Whether fingerprint unlock is turned on for this enrollment. */
+async function biometricEnabled(): Promise<boolean> {
+  return (await storage.readEnrollment())?.biometric !== undefined;
+}
+
+/**
+ * Turns fingerprint unlock on: verifies [password] the same way a normal
+ * unlock would (deliberately re-derives and re-unwraps rather than trusting
+ * that the vault is already unlocked, so a stale session can't cause a
+ * wrong password to get cached), then caches it behind one biometric
+ * prompt. See BiometricModule.kt -- this never touches the vault key.
+ */
+async function enableBiometric(password: string): Promise<void> {
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null) throw new Error('not enrolled on this device yet');
+
+  await CryptoCore.unlock(
+    password,
+    enrollment.vault.saltB64,
+    enrollment.vault.argon2.memoryKib,
+    enrollment.vault.argon2.iterations,
+    enrollment.vault.argon2.parallelism,
+    enrollment.vault.wrappedVaultKey,
+  );
+
+  const sealed = await Biometric.enable(password);
+  await storage.writeEnrollment({ ...enrollment, biometric: sealed });
+}
+
+/** `enrollment` with any cached biometric password forgotten. */
+function withoutBiometric(enrollment: EnrollmentState): EnrollmentState {
+  return { serverUrl: enrollment.serverUrl, deviceId: enrollment.deviceId, sealedCredential: enrollment.sealedCredential, vault: enrollment.vault };
+}
+
+/** Turns fingerprint unlock back off. */
+async function disableBiometric(): Promise<void> {
+  await Biometric.disable();
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null) return;
+  await storage.writeEnrollment(withoutBiometric(enrollment));
+}
+
+/**
+ * Recovers the cached master password behind one biometric prompt, then
+ * unlocks with it exactly as [unlock] would with a typed one. A device
+ * whose enrolled biometrics changed since [enableBiometric] surfaces as
+ * `biometric_key_invalidated` (BiometricModule.kt) -- caught here and
+ * turned into forgetting the cached password rather than a confusing
+ * crypto error, since it can never be recovered again regardless.
+ */
+async function unlockWithBiometric(): Promise<void> {
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null) throw new Error('not enrolled on this device yet');
+  if (enrollment.biometric === undefined) throw new Error('fingerprint unlock is not turned on');
+
+  let password: string;
+  try {
+    password = await Biometric.unlock(enrollment.biometric.ciphertextB64, enrollment.biometric.ivB64);
+  } catch (thrown) {
+    // React Native's native-module bridge attaches the code passed to
+    // Promise.reject(code, message, ...) as `.code` on the resulting JS
+    // error -- distinct from `.message`, which is BiometricModule.kt's
+    // human-readable string.
+    const code = thrown !== null && typeof thrown === 'object' && 'code' in thrown ? (thrown as { code?: unknown }).code : undefined;
+    if (code === 'biometric_key_invalidated') {
+      await storage.writeEnrollment(withoutBiometric(enrollment));
+      throw new Error('Your device’s fingerprints changed. Unlock with your password once to turn this back on.');
+    }
+    throw thrown;
+  }
+
+  await unlock(password);
+}
+
+/**
+ * Rotates the master password -- the mobile analogue of
+ * extension/src/background/vault.ts's `changeMasterPassword`. A fresh salt,
+ * the same Argon2 costs the vault already had (see
+ * CryptoCoreModule.kt::rewrapVaultKey). The vault key itself never changes,
+ * so no item is re-encrypted and the sealed device credential (wrapped
+ * under the vault key, not the master key) needs no resealing either.
+ *
+ * The server is written first, deliberately: it holds the record every
+ * other device reads, so if only one of the two writes lands it should be
+ * that one -- this device would still open with the old password and adopt
+ * the new record on its next sync, rather than the reverse (this device on
+ * the new password, every other device silently handed back the old one).
+ */
+async function changeMasterPassword(currentPassword: string, newPassword: string): Promise<void> {
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null) throw new Error('not enrolled on this device yet');
+  if (newPassword === '') throw new Error('Choose a new master password.');
+
+  const { vault } = enrollment;
+  const newSaltB64 = await CryptoCore.generateSalt();
+
+  const newWrappedVaultKey = await CryptoCore.rewrapVaultKey(
+    currentPassword,
+    vault.saltB64,
+    vault.argon2.memoryKib,
+    vault.argon2.iterations,
+    vault.argon2.parallelism,
+    vault.wrappedVaultKey,
+    newPassword,
+    newSaltB64,
+    vault.argon2.memoryKib,
+    vault.argon2.iterations,
+    vault.argon2.parallelism,
+  );
+
+  const [currentAuthKey, newAuthKey] = await Promise.all([
+    CryptoCore.deriveAuthKey(currentPassword, vault.saltB64, vault.argon2.memoryKib, vault.argon2.iterations, vault.argon2.parallelism),
+    CryptoCore.deriveAuthKey(newPassword, newSaltB64, vault.argon2.memoryKib, vault.argon2.iterations, vault.argon2.parallelism),
+  ]);
+
+  const newVault = { saltB64: newSaltB64, argon2: vault.argon2, wrappedVaultKey: newWrappedVaultKey };
+
+  await authenticated((url, deviceId, cred) =>
+    syncClient.changeMasterPassword(url, deviceId, cred, { currentAuthKey, newAuthKey, vault: { saltB64: newVault.saltB64, ...newVault.argon2, wrappedVaultKey: newVault.wrappedVaultKey } }),
+  );
+
+  await storage.writeEnrollment({ ...enrollment, vault: newVault });
+}
+
 /** The server this device is enrolled with, for display -- null if not enrolled. */
 async function serverUrl(): Promise<string | null> {
   return (await storage.readEnrollment())?.serverUrl ?? null;
@@ -227,5 +357,23 @@ async function deleteItem(id: string, version: number, itemType: string): Promis
   await pushOne(encrypted);
 }
 
-export { addItem, deleteItem, enrollAndUnlock, listDevices, lock, pullItems, revokeDevice, serverUrl, status, unlock, updateItem };
+export {
+  addItem,
+  biometricAvailable,
+  biometricEnabled,
+  changeMasterPassword,
+  deleteItem,
+  disableBiometric,
+  enableBiometric,
+  enrollAndUnlock,
+  listDevices,
+  lock,
+  pullItems,
+  revokeDevice,
+  serverUrl,
+  status,
+  unlock,
+  unlockWithBiometric,
+  updateItem,
+};
 export type { DecryptedItem, Status };

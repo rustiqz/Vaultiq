@@ -1,10 +1,10 @@
-import Clipboard from '@react-native-clipboard/clipboard';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import CardPreview from '../CardPreview';
 import Icon from '../icons';
 import ItemAvatar from '../ItemAvatar';
+import { copyForAWhile } from '../lib/clipboard';
 import type { VaultStackScreenProps } from '../navigation';
 import { colors, fonts, spacing } from '../theme';
 import { Button, DetailField, SecretField, showComingSoon, useConfirmDialog } from '../ui';
@@ -47,7 +47,7 @@ function TotpCode(props: { secretB32: string; algorithm: string; digits: number;
         </View>
       </View>
       <Text style={styles.totpCode}>{grouped}</Text>
-      <Pressable style={styles.copyCodeButton} onPress={() => Clipboard.setString(code)}>
+      <Pressable style={styles.copyCodeButton} onPress={() => copyForAWhile(code)}>
         <Icon name="copy" size={18} color={colors.onInk} />
         <Text style={styles.copyCodeText}>Copy code</Text>
       </Pressable>
@@ -62,7 +62,7 @@ function formatDate(millis: number): string {
 export default function ItemDetailScreen({ route }: VaultStackScreenProps<'ItemDetail'>) {
   const { item } = route.params;
   const c = item.content;
-  const copy = (value: string) => () => Clipboard.setString(value);
+  const copy = (value: string) => () => copyForAWhile(value);
   const createdAt = typeof c.createdAt === 'number' ? c.createdAt : null;
   const lastModifiedAt = typeof c.lastModifiedAt === 'number' ? c.lastModifiedAt : null;
   const [cardRevealed, setCardRevealed] = useState(false);
@@ -118,7 +118,7 @@ export default function ItemDetailScreen({ route }: VaultStackScreenProps<'ItemD
               masked={!cardRevealed}
             />
             <View style={styles.row}>
-              <Button title="Copy number" flex onPress={() => Clipboard.setString(text(c, 'number'))} />
+              <Button title="Copy number" flex onPress={() => copyForAWhile(text(c, 'number'))} />
               <Pressable style={styles.revealButton} onPress={() => setCardRevealed(r => !r)}>
                 <Text style={styles.revealButtonText}>{cardRevealed ? 'Hide' : 'Reveal'}</Text>
               </Pressable>
