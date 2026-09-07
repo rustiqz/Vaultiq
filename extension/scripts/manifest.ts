@@ -42,6 +42,21 @@ const manifest = {
   action: {
     default_popup: "popup.html",
     default_title: "Vaultiq",
+    default_icon: {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png",
+    },
+  },
+
+  // Same set as `action.default_icon`, generated from the mobile redesign's
+  // dial mark (mobile/src/LogoMark.tsx) via rsvg-convert -- see CLAUDE.md §0.
+  icons: {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png",
   },
 
   // WebAssembly will not instantiate without `wasm-unsafe-eval`: it is

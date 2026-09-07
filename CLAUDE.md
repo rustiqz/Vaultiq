@@ -478,6 +478,78 @@ fast and clever, every time.
     declaration, structure parsing, dataset/fill-response construction —
     not something to fold into a pass alongside four small stub wire-ups.
     Needs its own planning session.
+- **Cross-app theme parity**: the extension popup now uses the same fall
+  palette, fonts, icon set, and dial logo as the mobile redesign, so the
+  three apps read as one product — a token-level reskin, not a layout
+  redesign (there is no Figma canvas for the extension, unlike mobile's).
+  - `extension/src/popup/popup.css`'s `:root` tokens now hold mobile's
+    cream/ink/rust palette instead of the old indigo one. `--accent` is set
+    equal to `--text` (both ink) rather than a separate hue, matching
+    mobile's design rule 5 (hierarchy rides on size, not shade) — there is
+    no "brand color" distinct from ink anywhere in the mobile design.
+    `--warn`/`--good` are darkened readings of amber/sage rather than the
+    raw hues: mobile explicitly restricts amber to icon/border use and sage
+    to backgrounds, never text (design rule 7), but the extension's
+    password-strength meter needs a readable *text* color for "fair" and
+    "strong" and has no mobile equivalent to defer to — a documented,
+    deliberate exception to that rule, not an oversight.
+  - **Dark mode is kept**, unlike mobile (light-only so far): the existing
+    `prefers-color-scheme`/`data-theme` toggle machinery is untouched, only
+    the color values changed. The dark palette is derived, not sourced from
+    any mockup — the same ink/cream inversion the mobile splash screen
+    already uses (dark ground, cream text/accent), with rust/amber/sage
+    lightened enough to stay readable on it. Revisit if a real dark design
+    ever appears.
+  - **Fonts**: the same bundled TTFs as mobile (Space Grotesk body, IBM Plex
+    Mono for copyable/token values, Archivo Condensed/SemiCondensed for
+    headings and button chrome), loaded via `@font-face` in `popup.css` only
+    — never in the content-script's injected stylesheets, which stay on OS
+    system colors/fonts by design (see below). Copied straight from
+    `mobile/android/app/src/main/assets/fonts` rather than re-fetched, with
+    one exception: `ArchivoCondensed-SemiBold.ttf` there is byte-identical
+    to `ArchivoCondensed-Bold.ttf` (same MD5) — a mislabeled duplicate from
+    that redesign's font-fetch step, not a real semibold instance. Caught
+    here because Vite's build collapsed the two `@font-face` rules onto one
+    output file. Every mobile screen using `fonts.condensedSemiBold` is
+    silently getting Bold weight instead — a real bug, left unfixed on
+    mobile for now (its other on-device issues are being triaged
+    separately) and not propagated here: the extension only bundles the 5
+    fonts it actually uses, skipping the duplicate rather than shipping it
+    under a name nothing references.
+  - **Icons**: `extension/src/popup/icons.ts` ports the exact path/circle/
+    rect data from `mobile/src/icons.tsx` and `LogoMark.tsx` — same shapes,
+    a different renderer (raw DOM via `document.createElementNS`, since the
+    extension has no UI framework to mount a component into). Every icon
+    defaults to `currentColor` rather than a fixed hex: the browser resolves
+    CSS custom properties for us, which React Native cannot do. Wired into
+    the popup at low-risk, additive spots only — the dial next to "Vaultiq
+    is locked"/"Create your vault", copy/reveal glyphs on every `copyable()`
+    value, and icons on the Lock/Add/Generate/trash-toggle buttons — without
+    restructuring `index.ts`'s single-file, no-framework architecture, which
+    this task didn't need touching.
+  - **Toolbar/manifest icons**: `scripts/manifest.ts` set no `icons` or
+    `action.default_icon` before this — the extension shipped with none.
+    Now generated from the dial mark (simple variant, ink-on-transparent) at
+    16/32/48/128px via `rsvg-convert`, the same tool already used for the
+    mobile splash asset, into `extension/public/icons/` (Vite's default
+    `publicDir`, copied to `dist/` root on build — nothing in
+    `vite.config.ts` needed to change).
+  - **Deliberately untouched**: the content-script's autofill dropdown and
+    save-password prompt (`extension/src/content/dropdown.ts`, `prompt.ts`)
+    stay on OS system colors (`Canvas`/`CanvasText`) in their isolated
+    shadow roots — an existing trust-boundary decision (they inject into
+    arbitrary third-party pages), not something this reskin should override
+    by shipping custom fonts onto every page a user visits. `sync-panel.ts`
+    also wasn't touched beyond inheriting the new tokens automatically: its
+    buttons swap their own `textContent` between a label and "Working…", so
+    adding a persistent icon would mean restructuring that pattern for
+    uncertain benefit — out of scope for a reskin.
+  - **Verified visually**, not just by `tsc`/`eslint`/`vitest`: the real
+    built `popup.js`/`popup.css` (not a hand-approximated markup copy),
+    loaded in headless Chromium against a `window.browser.runtime
+    .sendMessage` stub returning fixture data, screenshotted for the empty/
+    locked/unlocked states — including the weak/reused-password badges,
+    copy/reveal icons, and the settings and password-generator panels.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the

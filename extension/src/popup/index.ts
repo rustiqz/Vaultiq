@@ -8,6 +8,7 @@ import { parseOtpauth, TOTP_DEFAULTS } from "../lib/otpauth.js";
 import { CLIPBOARD_SECONDS, copyForAWhile } from "../lib/clipboard.js";
 import { el } from "./dom.js";
 import { ago } from "./format.js";
+import { icon, logoMark } from "./icons.js";
 import { syncPanel } from "./sync-panel.js";
 import {
   send,
@@ -71,15 +72,20 @@ function copyable(
   // to a function property reads as an unbound method to the linter.
   const { masked, onCopy } = options;
   const hidden = masked === true;
-  const button = el("button", {
-    className: "copyable",
-    type: "button",
-    title: `Copy — cleared after ${String(CLIPBOARD_SECONDS)} seconds`,
-  });
+  const label = el("span");
+  const button = el(
+    "button",
+    {
+      className: "copyable",
+      type: "button",
+      title: `Copy — cleared after ${String(CLIPBOARD_SECONDS)} seconds`,
+    },
+    [icon("copy", { size: 13 }), label],
+  );
 
   let shown = !hidden;
-  const paint = (label?: string): void => {
-    button.textContent = label ?? (shown ? value : "•".repeat(Math.min(value.length, 12)));
+  const paint = (text?: string): void => {
+    label.textContent = text ?? (shown ? value : "•".repeat(Math.min(value.length, 12)));
   };
   paint();
 
@@ -101,10 +107,10 @@ function copyable(
 
   if (!hidden) return button;
 
-  const reveal = el("button", { className: "inline", type: "button", textContent: "Show" });
+  const reveal = el("button", { className: "inline icon-button", type: "button", title: "Show" }, [icon("reveal", { size: 14 })]);
   reveal.addEventListener("click", () => {
     shown = !shown;
-    reveal.textContent = shown ? "Hide" : "Show";
+    reveal.title = shown ? "Hide" : "Show";
     paint();
   });
 
@@ -161,7 +167,7 @@ function passwordForm(label: string, action: (value: string) => Promise<void>): 
 function renderEmpty(): void {
   root.replaceChildren(
     el("main", {}, [
-    el("h1", { textContent: "Create your vault" }),
+    el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Create your vault" })]),
     el("p", {
       className: "muted",
       textContent:
@@ -301,7 +307,7 @@ function settingsPanel(): HTMLElement {
  */
 function generatorPanel(): HTMLElement {
   const output = el("div", { className: "muted", textContent: "—" });
-  const make = el("button", { className: "inline", type: "button", textContent: "Generate one" });
+  const make = el("button", { className: "inline", type: "button" }, [icon("regenerate", { size: 12 }), "Generate one"]);
 
   make.addEventListener("click", () => {
     make.disabled = true;
@@ -362,7 +368,7 @@ function renderQuick(): void {
 
   root.replaceChildren(
     el("main", {}, [
-      el("h1", { textContent: "Vaultiq is locked" }),
+      el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Vaultiq is locked" })]),
       el("p", {
         className: "muted",
         textContent: "Your PIN lasts until the browser closes.",
@@ -378,7 +384,7 @@ function renderQuick(): void {
 function renderLocked(): void {
   root.replaceChildren(
     el("main", {}, [
-      el("h1", { textContent: "Vaultiq is locked" }),
+      el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Vaultiq is locked" })]),
       passwordForm("Unlock", async (value) => {
         unwrap(await send({ kind: "unlock", masterPassword: value }));
       }),
@@ -442,11 +448,7 @@ function itemForm(
     // Generation happens in the background; the popup never loads the crypto
     // module. Revealing the field on generate is deliberate — a password you
     // cannot see is one you cannot check against the site's own rules.
-    const generate = el("button", {
-      type: "button",
-      className: "inline",
-      textContent: "Generate",
-    });
+    const generate = el("button", { type: "button", className: "inline" }, [icon("regenerate", { size: 12 }), "Generate"]);
     generate.addEventListener("click", () => {
       generate.disabled = true;
       void send({ kind: "generatePassword" })
@@ -1122,8 +1124,8 @@ async function renderUnlocked(): Promise<void> {
     void renderUnlocked();
   });
 
-  const add = el("button", { className: "primary", type: "button", textContent: "Add" });
-  const lock = el("button", { type: "button", textContent: "Lock" });
+  const add = el("button", { className: "primary", type: "button" }, [icon("plus", { size: 13 }), "Add"]);
+  const lock = el("button", { type: "button" }, [icon("lock", { size: 13 }), "Lock"]);
   lock.addEventListener("click", () => {
     void send({ kind: "lock" }).then(refresh);
   });
@@ -1167,11 +1169,10 @@ async function renderUnlocked(): Promise<void> {
   );
 
   if (trashed.length) {
-    const toggle = el("button", {
-      className: "inline",
-      type: "button",
-      textContent: `${showTrash ? "Hide" : "Show"} trash (${String(trashed.length)})`,
-    });
+    const toggle = el("button", { className: "inline", type: "button" }, [
+      icon(showTrash ? "chevronDown" : "chevronRight", { size: 12 }),
+      `${showTrash ? "Hide" : "Show"} trash (${String(trashed.length)})`,
+    ]);
     toggle.addEventListener("click", () => {
       showTrash = !showTrash;
       void renderUnlocked();
