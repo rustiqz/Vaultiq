@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Argon2Params, EncryptedItem, WrappedVaultKey } from './nativeCryptoCore';
+import type { SealedPassword } from './nativeBiometric';
 
 /**
  * Persisted, plain (non-secret) local state -- the mobile analogue of the
@@ -23,6 +24,14 @@ type EnrollmentState = {
   deviceId: string;
   sealedCredential: EncryptedItem;
   vault: VaultRecord;
+  /**
+   * The master password, encrypted under a Keystore key that only decrypts
+   * behind biometric auth (BiometricModule.kt) -- absent when fingerprint
+   * unlock is off. Storing ciphertext here is no different from
+   * `sealedCredential` above: it's only as sensitive as any other
+   * AEAD-protected blob, and this one is gated by hardware besides.
+   */
+  biometric?: SealedPassword;
 };
 
 const STORAGE_KEY = 'vaultiq:enrollment';

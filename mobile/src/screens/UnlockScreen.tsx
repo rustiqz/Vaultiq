@@ -4,11 +4,16 @@ import { useState } from 'react';
 import Icon from '../icons';
 import LogoMark from '../LogoMark';
 import { colors, fonts, spacing } from '../theme';
-import { Button, SecretField, showComingSoon, useConfirmDialog } from '../ui';
+import { Button, SecretField } from '../ui';
 
-export default function UnlockScreen(props: { busy: boolean; error: string | null; onSubmit: (password: string) => void }) {
+export default function UnlockScreen(props: {
+  busy: boolean;
+  error: string | null;
+  biometricEnabled: boolean;
+  onSubmit: (password: string) => void;
+  onBiometric: () => void;
+}) {
   const [password, setPassword] = useState('');
-  const { show, dialog } = useConfirmDialog();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -28,13 +33,14 @@ export default function UnlockScreen(props: { busy: boolean; error: string | nul
         </View>
         <SecretField label="Master password" value={password} onChangeText={setPassword} />
         <Button title={props.busy ? 'Unlocking…' : 'Unlock'} disabled={props.busy} onPress={() => props.onSubmit(password)} />
-        <Button title="Use fingerprint" variant="outline" onPress={() => showComingSoon(show, 'Fingerprint unlock')} />
+        {props.biometricEnabled && (
+          <Button title="Use fingerprint" variant="outline" disabled={props.busy} onPress={props.onBiometric} />
+        )}
         <View style={styles.infoBox}>
           <Icon name="info" size={17} color={colors.ink} />
           <Text style={styles.infoBoxText}>Zero-knowledge vault — no password recovery is possible.</Text>
         </View>
       </ScrollView>
-      {dialog}
     </SafeAreaView>
   );
 }

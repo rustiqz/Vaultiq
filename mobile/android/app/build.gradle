@@ -116,6 +116,11 @@ dependencies {
     // pw-crypto-core's .so through JNA rather than a hand-written JNI layer.
     implementation("net.java.dev.jna:jna:5.19.1@aar")
 
+    // BiometricModule.kt's BiometricPrompt/Keystore integration -- Google's
+    // own library for exactly this (a hardware-backed key gated by
+    // biometric auth), not a hand-rolled prompt/Keystore wrapper.
+    implementation("androidx.biometric:biometric:1.1.0")
+
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {

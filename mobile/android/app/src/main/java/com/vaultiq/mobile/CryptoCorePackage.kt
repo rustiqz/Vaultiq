@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class CryptoCorePackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
-        listOf(CryptoCoreModule(reactContext))
+        listOf(CryptoCoreModule(reactContext), BiometricModule(reactContext))
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
         emptyList()
