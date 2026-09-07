@@ -20,22 +20,26 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Icon, { type IconName } from './src/icons';
+import type { ItemContent } from './src/itemContent';
 import LogoMark from './src/LogoMark';
 import * as storage from './src/storage';
 import { colors, fonts } from './src/theme';
-import { showComingSoon, useConfirmDialog } from './src/ui';
+import { useConfirmDialog } from './src/ui';
 import * as vault from './src/vault';
 import type { DecryptedItem, Status } from './src/vault';
-import type { SettingsStackParamList, VaultStackParamList, VaultStackScreenProps } from './src/navigation';
+import type { RootTabParamList, SettingsStackParamList, VaultStackParamList, VaultStackScreenProps } from './src/navigation';
 import JoinVaultScreen from './src/screens/JoinVaultScreen';
 import UnlockScreen from './src/screens/UnlockScreen';
 import VaultHomeScreen from './src/screens/VaultHomeScreen';
 import TypeListScreen from './src/screens/TypeListScreen';
 import ItemDetailScreen from './src/screens/ItemDetailScreen';
 import ItemEditScreen from './src/screens/ItemEditScreen';
+import QrScanScreen from './src/screens/QrScanScreen';
 import AuthenticatorScreen from './src/screens/AuthenticatorScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import AutoLockScreen from './src/screens/AutoLockScreen';
+import ChangeMasterPasswordScreen from './src/screens/ChangeMasterPasswordScreen';
+import EnableBiometricScreen from './src/screens/EnableBiometricScreen';
 
 const navigationTheme: Theme = {
   dark: false,
@@ -69,14 +73,31 @@ const TYPE_LIST_TITLES: Record<'card' | 'identity' | 'note', string> = {
   note: 'Secure notes',
 };
 
-/** Favorite stays visual fidelity only (see file header); edit/delete are real. */
 function ItemDetailHeaderActions(props: { item: DecryptedItem; navigation: VaultStackScreenProps<'ItemDetail'>['navigation'] }) {
   const { show, dialog } = useConfirmDialog();
+  const [favorite, setFavorite] = useState(props.item.content.favorite === true);
+  const [togglingFavorite, setTogglingFavorite] = useState(false);
+
+  const toggleFavorite = async () => {
+    if (togglingFavorite) return;
+    setTogglingFavorite(true);
+    const next = !favorite;
+    try {
+      await vault.updateItem(props.item.id, props.item.version, { ...props.item.content, favorite: next } as ItemContent);
+      setFavorite(next);
+    } catch (thrown) {
+      show('Could not update', thrown instanceof Error ? thrown.message : String(thrown), [{ text: 'OK' }]);
+    } finally {
+      setTogglingFavorite(false);
+    }
+  };
 
   return (
     <View style={styles.headerActions}>
-      <Pressable onPress={() => showComingSoon(show, 'Favoriting')} hitSlop={8}>
-        <Icon name="heart" size={20} color={colors.ink} />
+      {/* Filled vs outline only -- no color change. Rust/amber/sage are reserved
+          state colors (design rule 7); favoriting isn't one of those states. */}
+      <Pressable onPress={toggleFavorite} hitSlop={8} disabled={togglingFavorite}>
+        <Icon name="heart" size={20} color={colors.ink} filled={favorite} />
       </Pressable>
       <Pressable onPress={() => props.navigation.navigate('ItemEdit', { mode: 'edit', item: props.item })} hitSlop={8}>
         <Icon name="edit" size={20} color={colors.ink} />
@@ -133,6 +154,7 @@ function VaultTab() {
         component={ItemEditScreen}
         options={{ headerShown: false }}
       />
+      <VaultStack.Screen name="QrScan" component={QrScanScreen} options={{ headerShown: false }} />
     </VaultStack.Navigator>
   );
 }
@@ -150,12 +172,14 @@ function SettingsTab(props: { onLock: () => void }) {
         component={AutoLockScreen}
         options={{ headerShown: false, presentation: 'transparentModal', animation: 'fade' }}
       />
+      <SettingsStack.Screen name="ChangeMasterPassword" component={ChangeMasterPasswordScreen} options={{ headerShown: false }} />
+      <SettingsStack.Screen name="EnableBiometric" component={EnableBiometricScreen} options={{ headerShown: false }} />
     </SettingsStack.Navigator>
   );
 }
 
-const Tab = createBottomTabNavigator();
-const TAB_ICONS: Record<string, IconName> = {
+const Tab = createBottomTabNavigator<RootTabParamList>();
+const TAB_ICONS: Record<keyof RootTabParamList, IconName> = {
   Vault: 'grid',
   Codes: 'totp',
   Settings: 'settingsGear',
@@ -166,12 +190,33 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [autoLockMinutes, setAutoLockMinutes] = useState(15);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     vault.status().then(setStatus);
     storage.readAutoLockMinutes().then(setAutoLockMinutes);
   }, []);
+
+  useEffect(() => {
+    if (status === 'locked') vault.biometricEnabled().then(setBiometricEnabled);
+  }, [status]);
+
+  const runBiometricUnlock = () => {
+    setError(null);
+    setBusy(true);
+    vault
+      .unlockWithBiometric()
+      .then(() => setStatus('unlocked'))
+      .catch((thrown: unknown) => {
+        // React Native attaches the native Promise.reject code as `.code` --
+        // a user simply backing out of the fingerprint prompt isn't an error
+        // worth a red banner, unlike every other unlock failure.
+        const code = thrown !== null && typeof thrown === 'object' && 'code' in thrown ? (thrown as { code?: unknown }).code : undefined;
+        if (code !== 'biometric_cancelled') setError(thrown instanceof Error ? thrown.message : String(thrown));
+      })
+      .finally(() => setBusy(false));
+  };
 
   const run = (task: () => Promise<void>) => async () => {
     setError(null);
@@ -238,6 +283,8 @@ function App() {
           <UnlockScreen
             busy={busy}
             error={error}
+            biometricEnabled={biometricEnabled}
+            onBiometric={runBiometricUnlock}
             onSubmit={password =>
               run(async () => {
                 await vault.unlock(password);

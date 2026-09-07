@@ -366,6 +366,118 @@ fast and clever, every time.
       placeholder also naively pluralized `identity` to "identitys";
       fixed with an explicit map, the same approach already used for its
       screen title.
+- **All six "not yet available" mobile stubs are now real** (favoriting,
+  adding an authenticator from the Codes tab, changing the master password,
+  clipboard auto-clear, fingerprint unlock, TOTP QR-code scanning). None of
+  this needed any server change: every gap identified while building the
+  mobile redesign turned out to be either pure client/OS integration or
+  buildable entirely on the sync API the extension already uses (item
+  content is opaque ciphertext to the server either way).
+  - **Favoriting**: `favorite?: boolean` on `itemContent.ts`'s
+    `CommonContent` — mobile-only, no extension or server equivalent,
+    needed none since content is arbitrary client-encrypted JSON. The
+    heart icon (`App.tsx`'s `ItemDetailHeaderActions`) toggles it via the
+    existing `vault.updateItem`. Deliberately minimal: filled-vs-outline on
+    the icon itself, no color change (rust/amber/sage are reserved state
+    colors, design rule 7, and favoriting isn't one of those states), and
+    no new "Favorites" view or Vault Home section — nothing in the design
+    backlog calls for one, so this makes the existing stub real without
+    inventing UI beyond it. `icons.tsx`'s `Icon` grew a `filled` prop for
+    this (fills path shapes with `color` instead of stroking them; the
+    heart glyph is a closed path already, so no new path data was needed).
+  - **Add authenticator from the Codes tab**: navigates into the Vault
+    tab's existing `ItemEdit` (create, `totp`) rather than building a
+    second entry point to the same form. Needed `RootTabParamList`
+    (`navigation.ts`) so cross-tab navigation (`Codes` → `Vault`'s nested
+    stack) is typed, since the bottom-tab navigator had none before.
+  - **Clipboard auto-clear**: `mobile/src/lib/clipboard.ts`'s
+    `copyForAWhile`, ported line-for-line from
+    `extension/src/lib/clipboard.ts` onto
+    `@react-native-clipboard/clipboard` (already a dependency) instead of
+    the web Clipboard API — same 30-second window, same "only clear if
+    nothing else was copied since" check. Replaces every direct
+    `Clipboard.setString` call in `ItemDetailScreen.tsx` and
+    `AuthenticatorScreen.tsx`.
+  - **Changing the master password**: mirrors
+    `extension/src/background/vault.ts`'s `changeMasterPassword` exactly —
+    verify the current password by unwrapping the *persisted* wrapped
+    vault key under it (not whatever `unlock` already holds in session),
+    then wrap that same key under a fresh salt and the new password, push
+    the rewrapped record to the existing `POST vault/master-password`
+    server route (already used by the extension — no server change), and
+    only then update local storage. The vault key itself never changes, so
+    nothing is re-encrypted and the sealed device credential (wrapped
+    under the vault key, not the master key) needs no resealing.
+    Everything this needed already existed in `pw-crypto-core`'s FFI layer
+    (`wrap_vault_key`/`unwrap_vault_key`/`derive_master_key`, exported
+    since uniffi mirrors `wasm.rs` 1:1) — the only new code is
+    `CryptoCoreModule.kt`'s `rewrapVaultKey`, exposing a wrap the Kotlin
+    bridge had never called before. No Rust changes, no NDK rebuild.
+    Costs (`memoryKib`/`iterations`/`parallelism`) carry over unchanged
+    rather than being raised to "today's recommended" ones on rotation, the
+    one place this doesn't fully mirror the extension — a reasonable
+    follow-up, not done here. New screen: `ChangeMasterPasswordScreen.tsx`,
+    pushed from Settings. **Verified**: `tsc`, `eslint`, and
+    `:app:assembleDebug` all pass; **not yet verified on-device** — no
+    device was connected this session, so the actual unwrap→wrap→push→sync
+    round trip hasn't been exercised against a real server yet.
+  - **Fingerprint unlock** protects a *cached master password*, not
+    anything pw-crypto-core derives -- a fingerprint can't re-run Argon2id.
+    After confirming the password once (`EnableBiometricScreen.tsx`), it's
+    encrypted under an Android Keystore AES/GCM key that requires biometric
+    auth for every single use (`setUserAuthenticationRequired`, no validity
+    window) and is invalidated the moment the device's enrolled biometrics
+    change (`setInvalidatedByBiometricEnrollment`) — a new fingerprint added
+    to the device doesn't inherit access to an old cached password. New
+    native module `BiometricModule.kt` (AndroidX Biometric,
+    `androidx.biometric:biometric:1.1.0`, the standard library for exactly
+    this — Google's own BiometricPrompt+Keystore pairing, not a hand-rolled
+    prompt) does the encrypt/decrypt behind one `BiometricPrompt`; JS
+    (`vault.ts`'s `enableBiometric`/`unlockWithBiometric`/`disableBiometric`)
+    owns storing the ciphertext (`storage.ts`'s `EnrollmentState.biometric`)
+    and re-running the normal `unlock()` once the password comes back. A
+    device whose biometrics changed surfaces as a specific rejection code
+    (`biometric_key_invalidated`) so JS forgets the cached password and asks
+    for it again, rather than showing a raw crypto error; a cancelled prompt
+    (`biometric_cancelled`) is treated as "nothing happened," not a failed
+    unlock. This is a different, simpler problem from mobile's earlier
+    decision to defer PIN quick-unlock (session-only design not mapping
+    onto Android's process lifecycle) — biometric unlock re-derives the
+    real vault key through the normal path every time, it just skips typing
+    the password to get there.
+  - **TOTP QR-code scanning**: `QrScanScreen.tsx`, a full-screen camera view
+    using `react-native-vision-camera`'s built-in `useCodeScanner` (no
+    separate frame-processor plugin, no Reanimated/Skia/worklets-core --
+    those are optional peers only needed for custom frame processors, which
+    this doesn't use; confirmed by the "Frame Processors: OFF!" line in its
+    own CMake build output). Pinned to `4.7.3` rather than the current
+    `5.x` line, which requires an additional required peer,
+    `react-native-nitro-modules` (a newer native-binding architecture) --
+    not worth the extra dependency for one QR scan. `lib/otpauth.ts` is
+    `extension/src/lib/otpauth.ts`'s `parseOtpauth` ported verbatim (pure
+    string/URL logic, no browser-specific API). The scan result crosses
+    back to `ItemEditScreen.tsx` via a plain module-level pending-callback
+    (`lib/qrScanResult.ts`), not a route param: React Navigation's typed
+    `navigate({..., merge: true})` can't express "these params merge into
+    ItemEdit's existing route" without widening every other param on that
+    screen to optional too.
+  - **Verified**: `tsc`, `eslint`, and `:app:assembleDebug` all pass for
+    both (the vision-camera native build in particular, since it compiles
+    real C++/CMake code, not just Kotlin). **Neither is verified on a real
+    device** — no device was connected this session, so the actual
+    fingerprint-prompt round trip and camera/QR-decode path haven't been
+    exercised.
+  - **Explicitly declined**: breach-checking. It's on §1.3's forever-deferred
+    list ("not now, not partially, not 'just the types for later'") — not
+    revisited here even though a mockup assumes it, per that rule.
+  - **Explicitly out of scope for this pass**: a real Android
+    `AutofillService` (the "Autofill this identity" stub and the OS-level
+    autofill picker mockup both need it). This is native-Android work
+    comparable in size to the original FFI-bridge phase — a new
+    `AutofillService` subclass, manifest `BIND_AUTOFILL_SERVICE` service
+    declaration, structure parsing, dataset/fill-response construction —
+    not something to fold into a pass alongside four small stub wire-ups.
+    Needs its own planning session.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the

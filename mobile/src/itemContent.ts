@@ -9,6 +9,13 @@
 type CommonContent = {
   name?: string;
   notes?: string;
+  /**
+   * Mobile-only field: no mockup or extension equivalent exists for this
+   * (the extension has no favoriting concept at all). Content is fully
+   * client-encrypted and arbitrary, so this needed no server or extension
+   * change -- just a field this app writes and reads.
+   */
+  favorite?: boolean;
 };
 
 type LoginContent = CommonContent & {
