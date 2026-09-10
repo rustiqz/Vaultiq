@@ -21,6 +21,7 @@ const ICONS = {
   chevronLeft: { paths: ["M15 5l-7 7 7 7"], strokeWidth: 1.9 },
   close: { paths: ["M6 6l12 12", "M18 6L6 18"], strokeWidth: 1.9 },
   plus: { paths: ["M4 12h16", "M12 4v16"], strokeWidth: 1.8 },
+  fill: { paths: ["M14 5h5v14h-5", "M10 8l4 4-4 4", "M14 12H4"], strokeWidth: 1.8 },
   search: { paths: ["M15.5 15.5L21 21"], circles: [{ cx: 10.5, cy: 10.5, r: 6.8 }], strokeWidth: 1.8 },
   chevronRight: { paths: ["M9 5l7 7-7 7"], strokeWidth: 1.8 },
   chevronDown: { paths: ["M6 9.5l6 6 6-6"], strokeWidth: 1.8 },
