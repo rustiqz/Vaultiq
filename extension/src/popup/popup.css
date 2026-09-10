@@ -306,3 +306,7 @@ li .row { margin-top: 8px; flex-wrap: wrap; }
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+
+.enrollment-invite { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); text-align: center; }
+.enrollment-invite[hidden] { display: none; }
+.enrollment-qr { display: block; width: min(220px, 100%); height: auto; margin: 0 auto 8px; border-radius: 7px; }

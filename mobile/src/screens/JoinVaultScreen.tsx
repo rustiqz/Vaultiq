@@ -4,7 +4,9 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DEV_DEVICE_NAME, DEV_SERVER_URL } from '../devConfig';
 import Icon from '../icons';
-import { colors, fonts, spacing } from '../theme';
+import { parseEnrollmentQr } from '../lib/enrollmentQr';
+import QrScannerView from '../QrScannerView';
+import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, Field, SecretField } from '../ui';
 
 type Step = 'welcome' | 'device' | 'password';
@@ -20,17 +22,35 @@ export default function JoinVaultScreen(props: {
   const [token, setToken] = useState('');
   const [deviceName, setDeviceName] = useState(DEV_DEVICE_NAME);
   const [password, setPassword] = useState('');
+  const [scanning, setScanning] = useState(false);
+
+  if (scanning) {
+    return (
+      <QrScannerView
+        title="Scan enrollment QR"
+        invalidMessage="That QR code is not a Vaultiq enrollment invite."
+        onCancel={() => setScanning(false)}
+        onScan={value => {
+          const invite = parseEnrollmentQr(value);
+          if (invite === null) return false;
+          setServerUrl(invite.serverUrl);
+          setToken(invite.token);
+          setScanning(false);
+          return true;
+        }}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.appBar}>
-        {step !== 'welcome' && (
+      {step !== 'welcome' && (
+        <View style={styles.appBar}>
           <Pressable style={styles.back} onPress={() => setStep(step === 'password' ? 'device' : 'welcome')} hitSlop={8}>
             <Icon name="chevronLeft" size={22} color={colors.ink} />
           </Pressable>
-        )}
-        <Text style={styles.appBarTitle}>Join vault</Text>
-      </View>
+        </View>
+      )}
 
       {step !== 'welcome' && (
         <View style={styles.progressWrap}>
@@ -62,7 +82,14 @@ export default function JoinVaultScreen(props: {
         {step === 'device' && (
           <View style={styles.stepBody}>
             <Text style={styles.stepTitle}>Connect this device</Text>
-            <Text style={styles.stepSubtitle}>Paste the invite token from your server admin.</Text>
+            <Text style={styles.stepSubtitle}>Scan the invite from a trusted device, or enter its details below.</Text>
+            <Pressable style={styles.scanButton} onPress={() => setScanning(true)}>
+              <Icon name="scan" size={23} color={colors.ink} />
+              <View style={styles.scanButtonText}>
+                <Text style={styles.scanButtonTitle}>Scan enrollment QR</Text>
+                <Text style={styles.scanButtonHint}>Fills the server URL and token.</Text>
+              </View>
+            </Pressable>
             <Field label="Server URL" placeholder="https://vault.example.com" autoCapitalize="none" value={serverUrl} onChangeText={setServerUrl} />
             <View>
               <Field
@@ -83,9 +110,9 @@ export default function JoinVaultScreen(props: {
 
         {step === 'password' && (
           <View style={styles.stepBody}>
-            <Text style={styles.stepTitle}>Set the master password</Text>
-            <Text style={styles.stepSubtitle}>The same one used to create this vault -- it never leaves this device.</Text>
-            <SecretField label="Master password" value={password} onChangeText={setPassword} />
+            <Text style={styles.stepTitle}>Enter your master password</Text>
+            <Text style={styles.stepSubtitle}>Use the existing password that opens this vault. It never leaves this device.</Text>
+            <SecretField label="Existing master password" value={password} onChangeText={setPassword} />
             {props.error !== null && <Text style={styles.error}>{props.error}</Text>}
           </View>
         )}
@@ -95,7 +122,7 @@ export default function JoinVaultScreen(props: {
         {step === 'welcome' && <Button title="Get started" onPress={() => setStep('device')} />}
         {step === 'device' && (
           <>
-            <Button title="Continue" onPress={() => setStep('password')} disabled={serverUrl === '' || token === '' || deviceName === ''} />
+            <Button title="Continue" onPress={() => setStep('password')} disabled={serverUrl.trim() === '' || token.trim() === '' || deviceName.trim() === ''} />
             <Text style={styles.footNote}>Next · set master password</Text>
           </>
         )}
@@ -146,7 +173,7 @@ const styles = StyleSheet.create({
   progressSegment: {
     flex: 1,
     height: 4,
-    backgroundColor: 'rgba(103, 70, 54, 0.18)',
+    backgroundColor: inkAlpha(0.18),
   },
   progressSegmentFilled: {
     backgroundColor: colors.ink,
@@ -204,6 +231,20 @@ const styles = StyleSheet.create({
     color: colors.rust,
     fontSize: 12.5,
   },
+  scanButton: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.ink,
+    borderRadius: 12,
+  },
+  scanButtonText: { flex: 1, gap: 2 },
+  scanButtonTitle: { fontFamily: fonts.semiCondensedBold, fontSize: 15, color: colors.ink },
+  scanButtonHint: { fontFamily: fonts.body, fontSize: 12.5, color: colors.ink },
   pasteButton: {
     position: 'absolute',
     right: 0,
@@ -217,7 +258,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingTop: spacing.sm + 2,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.12)',
+    borderTopColor: inkAlpha(0.12),
     gap: spacing.sm + 2,
   },
   footNote: {
