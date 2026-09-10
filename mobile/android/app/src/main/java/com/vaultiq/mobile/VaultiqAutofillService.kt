@@ -35,6 +35,13 @@ import android.widget.RemoteViews
  * (Bitwarden/1Password's own services work the same way) -- there is no
  * personalized suggestion to offer before that pipeline runs. [onSaveRequest]
  * follows the identical shape in the other direction.
+ *
+ * Neither path trusts the requesting form's own claim about who it is: any
+ * app can render fields that merely *look* like a familiar login screen, so
+ * [callerFor] always resolves a real identifier -- a browser-verified
+ * `webDomain` when there is one, otherwise the actual requesting app's
+ * package (never the vault's own guess) -- and passes it through for
+ * [AutofillActivity] to show plainly, flagged when it isn't browser-verified.
  */
 class VaultiqAutofillService : AutofillService() {
 
@@ -46,6 +53,35 @@ class VaultiqAutofillService : AutofillService() {
         var email: Field? = null
         var lastFreeText: Field? = null
         var domain: String? = null
+    }
+
+    /**
+     * What to actually show the user as "who is asking" -- shown regardless
+     * of mode, since neither fill nor save should ever hand over or record a
+     * credential against an unlabeled requester. A `webDomain` is
+     * browser-verified (a page cannot lie about it; the browser reports the
+     * real URL-bar domain, not whatever the page's own HTML claims) and gets
+     * treated as trustworthy. A bare native app has no such guarantee --
+     * anyone can build an app whose fields merely *look* like a familiar
+     * login screen -- so [verifiedWebDomain] being false is meant to change
+     * how the picker/save screen presents this, not just what it prints.
+     */
+    private class Caller(val label: String, val verifiedWebDomain: Boolean)
+
+    private fun callerFor(structure: AssistStructure, webDomain: String?): Caller {
+        if (!webDomain.isNullOrEmpty()) return Caller(webDomain, true)
+
+        val callerPackage = structure.activityComponent?.packageName
+        if (callerPackage == null) return Caller("an unidentified app", false)
+
+        val label =
+            try {
+                val info = packageManager.getApplicationInfo(callerPackage, 0)
+                "${packageManager.getApplicationLabel(info)} ($callerPackage)"
+            } catch (error: Exception) {
+                callerPackage
+            }
+        return Caller(label, false)
     }
 
     override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
@@ -67,10 +103,13 @@ class VaultiqAutofillService : AutofillService() {
             return
         }
 
+        val caller = callerFor(structure, fields.domain)
         val intent =
             Intent(this, AutofillActivity::class.java).apply {
                 putExtra(AutofillActivity.EXTRA_MODE, AutofillActivity.MODE_FILL)
                 putExtra(AutofillActivity.EXTRA_DOMAIN, fields.domain ?: "")
+                putExtra(AutofillActivity.EXTRA_CALLER_LABEL, caller.label)
+                putExtra(AutofillActivity.EXTRA_CALLER_VERIFIED, caller.verifiedWebDomain)
                 fields.username?.id?.let { putExtra(AutofillActivity.EXTRA_USERNAME_FIELD, it) }
                 fields.password?.id?.let { putExtra(AutofillActivity.EXTRA_PASSWORD_FIELD, it) }
                 fields.email?.id?.let { putExtra(AutofillActivity.EXTRA_EMAIL_FIELD, it) }
@@ -122,12 +161,15 @@ class VaultiqAutofillService : AutofillService() {
             return
         }
 
+        val caller = callerFor(structure, fields.domain)
         pendingSaveCallback = callback
         val intent =
             Intent(this, AutofillActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 putExtra(AutofillActivity.EXTRA_MODE, AutofillActivity.MODE_SAVE)
                 putExtra(AutofillActivity.EXTRA_DOMAIN, fields.domain ?: "")
+                putExtra(AutofillActivity.EXTRA_CALLER_LABEL, caller.label)
+                putExtra(AutofillActivity.EXTRA_CALLER_VERIFIED, caller.verifiedWebDomain)
                 putExtra(AutofillActivity.EXTRA_USERNAME, fields.username?.value ?: "")
                 putExtra(AutofillActivity.EXTRA_PASSWORD, fields.password?.value ?: "")
             }

@@ -44,7 +44,15 @@ import AutofillFillScreen from './src/screens/AutofillFillScreen';
 import AutofillSaveScreen from './src/screens/AutofillSaveScreen';
 
 /** Present only when launched via AutofillActivity (see its getLaunchOptions). */
-type AutofillRequest = { mode: 'fill' | 'save'; domain: string; username?: string; password?: string };
+type AutofillRequest = {
+  mode: 'fill' | 'save';
+  domain: string;
+  /** Browser-verified webDomain when there is one, otherwise the requesting app's label -- see VaultiqAutofillService.kt's callerFor. */
+  caller: string;
+  callerVerified: boolean;
+  username?: string;
+  password?: string;
+};
 
 const ITEM_TYPE_TITLES: Record<string, string> = {
   login: 'Login',
@@ -327,10 +335,18 @@ function App(props: { autofillRequest?: AutofillRequest }) {
             }
           />
         )}
-        {status === 'unlocked' && props.autofillRequest?.mode === 'fill' && <AutofillFillScreen domain={props.autofillRequest.domain} />}
+        {status === 'unlocked' && props.autofillRequest?.mode === 'fill' && (
+          <AutofillFillScreen
+            domain={props.autofillRequest.domain}
+            caller={props.autofillRequest.caller}
+            callerVerified={props.autofillRequest.callerVerified}
+          />
+        )}
         {status === 'unlocked' && props.autofillRequest?.mode === 'save' && (
           <AutofillSaveScreen
             domain={props.autofillRequest.domain}
+            caller={props.autofillRequest.caller}
+            callerVerified={props.autofillRequest.callerVerified}
             username={props.autofillRequest.username ?? ''}
             password={props.autofillRequest.password ?? ''}
           />
