@@ -4,9 +4,11 @@
 // the auth key is derived from it. It goes straight to the background and is
 // never held: the field is cleared as soon as the request is sent.
 
+import QRCode from 'qrcode';
 import { el } from "./dom.js";
 import { ago } from "./format.js";
 import { send, type RemoteDevice, type Response, type SyncSummary } from "../lib/messages.js";
+import { enrollmentQrPayload } from '../lib/enrollment-qr.js';
 
 type Fail = (message: string) => void;
 
@@ -189,6 +191,12 @@ function connected(panel: HTMLElement, sync: SyncSummary, fail: Fail): HTMLEleme
   }
 
   const token = el("p", { className: "muted token", textContent: "" });
+  const qrImage = el('img', { className: 'enrollment-qr', alt: 'Vaultiq enrollment QR code' });
+  const invite = el('div', { className: 'enrollment-invite', hidden: true }, [
+    qrImage,
+    token,
+    el('p', { className: 'muted', textContent: 'Scan in Vaultiq on the new device. Expires in 15 minutes.' }),
+  ]);
 
   body.append(
     el("div", { className: "field" }, [
@@ -210,9 +218,15 @@ function connected(panel: HTMLElement, sync: SyncSummary, fail: Fail): HTMLEleme
         async () => {
           const response = unwrap(await send({ kind: "newEnrollmentToken" }));
           if (response.kind !== "newEnrollmentToken") return "Failed";
-          // Shown rather than copied silently: it has to be read onto another
-          // machine, and a clipboard that clears itself would lose it.
+          if (sync.server === undefined) throw new Error('Server address is missing.');
+          qrImage.src = await QRCode.toDataURL(enrollmentQrPayload(sync.server, response.token), {
+            width: 220,
+            margin: 2,
+            errorCorrectionLevel: 'M',
+            color: { dark: '#674636', light: '#FFF8E8' },
+          });
           token.textContent = `Token (15 min): ${response.token}`;
+          invite.hidden = false;
           return "Token made";
         },
         fail,
@@ -227,7 +241,7 @@ function connected(panel: HTMLElement, sync: SyncSummary, fail: Fail): HTMLEleme
         fail,
       ),
     ]),
-    token,
+    invite,
     el("h3", { textContent: "Devices" }),
     devices(fail),
   );
