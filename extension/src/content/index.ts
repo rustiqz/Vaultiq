@@ -19,6 +19,7 @@ import {
   fillField,
   fillScopeFor,
   isNewPasswordForm,
+  loginForms,
   newPasswordFields,
   sectionOf,
   tokenFor,
@@ -125,16 +126,49 @@ async function fillFrom(id: string, target: HTMLInputElement): Promise<void> {
 /** The password offered in the current picker, if one was. */
 let suggested: string | undefined;
 
-async function fill(id: string, fields: LoginFields): Promise<void> {
+async function fill(id: string, fields: LoginFields): Promise<boolean> {
   // The password crosses into the page only here, only for the item just
   // clicked, and goes straight into the field.
   const response = await ask({ kind: "credentialForFill", id });
-  if (!response.ok || response.kind !== "credentialForFill") return;
+  if (!response.ok || response.kind !== "credentialForFill") return false;
 
   if (fields.username && response.username) fillField(fields.username, response.username);
   fillField(fields.password, response.password);
   fields.password.focus();
+  return true;
 }
+
+/**
+ * Fills from an explicit popup click.
+ *
+ * Opening a browser-action popup can move focus out of the page, so the
+ * focused input is preferred but the first visible login form is the safe
+ * fallback. The credential still comes through `credentialForFill`, whose
+ * background-side site check rejects an id belonging to another origin.
+ */
+async function fillActiveLogin(id: string): Promise<boolean> {
+  const focused = document.activeElement;
+  const fields = focused instanceof HTMLInputElement
+    ? fieldsFor(focused)
+    : loginForms(document)[0];
+  if (!fields) return false;
+  return fill(id, fields);
+}
+
+browser.runtime.onMessage.addListener((message: unknown) => {
+  if (
+    typeof message !== "object" ||
+    message === null ||
+    !("kind" in message) ||
+    message.kind !== "vaultiqFillActiveLogin" ||
+    !("id" in message) ||
+    typeof message.id !== "string"
+  ) {
+    return undefined;
+  }
+
+  return fillActiveLogin(message.id).then((filled) => ({ filled }));
+});
 
 /** Writes a suggested password into every field meant to receive it. */
 function useSuggestion(target: HTMLInputElement, password: string): void {

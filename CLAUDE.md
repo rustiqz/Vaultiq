@@ -500,13 +500,11 @@ fast and clever, every time.
     password-strength meter needs a readable *text* color for "fair" and
     "strong" and has no mobile equivalent to defer to — a documented,
     deliberate exception to that rule, not an oversight.
-  - **Dark mode is kept**, unlike mobile (light-only so far): the existing
-    `prefers-color-scheme`/`data-theme` toggle machinery is untouched, only
-    the color values changed. The dark palette is derived, not sourced from
-    any mockup — the same ink/cream inversion the mobile splash screen
-    already uses (dark ground, cream text/accent), with rust/amber/sage
-    lightened enough to stay readable on it. Revisit if a real dark design
-    ever appears.
+  - **Dark mode is kept**: the existing
+    `prefers-color-scheme`/`data-theme` toggle machinery is untouched. Its
+    tokens now match `mobile/src/theme.ts` exactly: mobile background maps to
+    the popup ground, mobile surface to tinted chrome, and mobile card to
+    inputs/list cards, with the same ink/rust/amber/sage values.
   - **Fonts**: the same bundled TTFs as mobile (Space Grotesk body, IBM Plex
     Mono for copyable/token values, Archivo Condensed/SemiCondensed for
     headings and button chrome), loaded via `@font-face` in `popup.css` only
@@ -575,6 +573,32 @@ fast and clever, every time.
   could fire against a not-yet-resumed `FragmentActivity` when the lock
   screen mounts, so it's now also gated on `vault.biometricAvailable()` (not
   just `biometricEnabled`) and delayed 80ms past mount.
+- **Extension popup redesign ("Match Desk") and active-tab fill.** The popup
+  moves from a single scrolling list (inline rows, settings/sync/generator/
+  trash always stacked below it) to a master-detail layout: a header
+  (brand, search, add, overflow menu), a sidebar (This site/All items scope
+  tabs plus the row list), and a detail pane for the selected item.
+  Settings, Sync, the password generator, Trash, and New/Edit are now
+  separate screens reached from the overflow menu rather than permanent
+  panels. Source design: an AI image-generation exploration named "Match
+  Desk" (a wide master/detail concept using a Proton Pass screenshot only as
+  *structural* reference, explicitly instructed not to copy its palette,
+  branding, or exact component shapes) — kept outside the repo, the same as
+  other design handoffs (see the redesign v2 screenshot note above).
+  - **Active-tab fill**: the detail pane's dominant action is "Fill on
+    `<site>`", wired through a new `fillActiveLogin` request
+    (`lib/messages.ts`). The popup never receives the credential itself —
+    background asks the *active tab's* content script to do the fill, and
+    the content script requests the credential directly from background
+    (`content/index.ts`'s new `vaultiqFillActiveLogin` listener), so the
+    existing sender-tab site check in `credentialForFill` stays the final
+    gate regardless of which context initiated the fill.
+  - **Physical footprint**: a browser toolbar popup has far less screen
+    budget than the 720×520 concept was designed at, so the whole shell
+    renders at its native size and is scaled down 30% (`transform: scale
+    (0.7)`, popup.css) to a 504×364 footprint, keeping every measurement,
+    scroll pane, and overlay proportional rather than redrawing the layout
+    at the smaller size.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
