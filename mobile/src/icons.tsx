@@ -80,6 +80,10 @@ const ICONS = {
     paths: ['M12 16V4', 'M7.5 8.5L12 4l4.5 4.5', 'M4.5 15v3.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V15'],
     strokeWidth: 1.8,
   },
+  scan: {
+    paths: ['M9 4H5a1 1 0 0 0-1 1v4', 'M15 4h4a1 1 0 0 1 1 1v4', 'M20 15v4a1 1 0 0 1-1 1h-4', 'M9 20H5a1 1 0 0 1-1-1v-4', 'M7 12h10'],
+    strokeWidth: 1.8,
+  },
   smartphone: { paths: ['M10.5 18h3'], rects: [{ x: 7, y: 3, width: 10, height: 18, rx: 2 }], strokeWidth: 1.7 },
   monitor: { paths: ['M9 20h6'], rects: [{ x: 2.5, y: 5, width: 19, height: 12, rx: 2 }], strokeWidth: 1.7 },
   lock: { paths: ['M8 10.5V8a4 4 0 0 1 8 0v2.5'], rects: [{ x: 4.5, y: 10.5, width: 15, height: 10, rx: 2 }], strokeWidth: 1.8 },
