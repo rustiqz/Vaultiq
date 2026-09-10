@@ -92,7 +92,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   listContent: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.screen,
   },
   header: {
     gap: spacing.md,
