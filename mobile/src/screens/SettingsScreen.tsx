@@ -5,7 +5,7 @@ import Icon from '../icons';
 import LogoMark from '../LogoMark';
 import type { SettingsStackScreenProps } from '../navigation';
 import * as storage from '../storage';
-import { colors, fonts, spacing } from '../theme';
+import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, Card, SectionLabel, useConfirmDialog } from '../ui';
 import * as vault from '../vault';
 import type { DeviceSummary } from '../syncClient';
@@ -182,7 +182,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.screen,
     gap: spacing.lg - 4,
   },
   error: {
@@ -201,7 +203,7 @@ const styles = StyleSheet.create({
   sectionRule: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(103, 70, 54, 0.16)',
+    backgroundColor: inkAlpha(0.16),
   },
   vaultRow: {
     flexDirection: 'row',
@@ -224,7 +226,7 @@ const styles = StyleSheet.create({
   },
   groupRowDivider: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.1)',
+    borderTopColor: inkAlpha(0.1),
   },
   rowText: {
     flex: 1,
