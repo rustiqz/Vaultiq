@@ -52,6 +52,8 @@ class AutofillActivity : ReactActivity() {
                     Bundle().apply {
                         putString("mode", if (saveMode) "save" else "fill")
                         putString("domain", intent.getStringExtra(EXTRA_DOMAIN) ?: "")
+                        putString("caller", intent.getStringExtra(EXTRA_CALLER_LABEL) ?: "")
+                        putBoolean("callerVerified", intent.getBooleanExtra(EXTRA_CALLER_VERIFIED, false))
                         if (saveMode) {
                             putString("username", intent.getStringExtra(EXTRA_USERNAME) ?: "")
                             putString("password", intent.getStringExtra(EXTRA_PASSWORD) ?: "")
@@ -129,6 +131,8 @@ class AutofillActivity : ReactActivity() {
         const val MODE_FILL = "fill"
         const val MODE_SAVE = "save"
         const val EXTRA_DOMAIN = "com.vaultiq.mobile.autofill.DOMAIN"
+        const val EXTRA_CALLER_LABEL = "com.vaultiq.mobile.autofill.CALLER_LABEL"
+        const val EXTRA_CALLER_VERIFIED = "com.vaultiq.mobile.autofill.CALLER_VERIFIED"
         const val EXTRA_USERNAME_FIELD = "com.vaultiq.mobile.autofill.USERNAME_FIELD"
         const val EXTRA_PASSWORD_FIELD = "com.vaultiq.mobile.autofill.PASSWORD_FIELD"
         const val EXTRA_EMAIL_FIELD = "com.vaultiq.mobile.autofill.EMAIL_FIELD"

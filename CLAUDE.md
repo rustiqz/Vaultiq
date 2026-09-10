@@ -638,25 +638,80 @@ fast and clever, every time.
   - **New files**: `VaultiqAutofillService.kt`, `AutofillActivity.kt`,
     `AutofillModule.kt`, `res/layout/autofill_suggestion.xml` (the one
     suggestion row), `res/xml/autofill_service_config.xml` (required
-    service metadata), `nativeAutofill.ts`, `AutofillFillScreen.tsx`
-    (reuses `pullItems`, `SearchBar`, `Card`, `ItemAvatar` exactly like
-    every other list screen; a loose domain-substring sort is a
-    convenience only, not a security boundary — the extension's `tldts`
-    dependency is what full public-suffix-list correctness would need, not
-    worth pulling into mobile for this), `AutofillSaveScreen.tsx`.
+    service metadata), `nativeAutofill.ts`, `AutofillFillScreen.tsx`,
+    `AutofillSaveScreen.tsx`.
+  - **Matches mockup 6aa exactly**, checked against the actual design
+    handoff file rather than approximated from the shared component kit
+    (the first pass got this wrong — see the retrospective below): a
+    *bottom sheet* over the dimmed third-party form, not a full screen.
+    `AutofillActivity` gets its own translucent window
+    (`AutofillSheetTheme` in `styles.xml` —
+    `windowIsTranslucent`/transparent `windowBackground`) so the calling
+    app's own activity, still on the back stack underneath and never
+    finished, shows through wherever the RN content doesn't paint over it;
+    the RN side renders only a `colors.scrim` backdrop and a
+    bottom-anchored cream sheet (3px ink top border, 20px corner radius) —
+    the same conceptual pattern `AutoLockScreen.tsx` already uses for its
+    own bottom sheet, just at the Activity/window level here since this
+    screen isn't hosted inside the normal navigation tree. Header: the
+    `compact` `LogoMark` variant + "VAULTIQ" wordmark + a mono subtitle,
+    a close (×) button. Up to three direct matches show as compact rows
+    (`ItemAvatar`'s existing single-letter login-avatar square + name/
+    username + a solid-ink "FILL" button per row, not a whole-row tap);
+    two escape-hatch buttons below them, "Search vault" (reveals a
+    `SearchBar` + the full login list, still inside the sheet) and
+    "Save new" (an inline quick-create form for this exact site, calling
+    `vault.addItem` then completing the fill immediately with the
+    just-created values — no need to re-pull and pick it back out).
+    `AutofillSaveScreen.tsx` has no reference mockup (only the fill picker
+    was designed) but was built to match the same sheet language rather
+    than stay a full-screen form, on request.
+  - **Caller identity is never guessed, and always shown** — added after a
+    direct question surfaced a real gap: `onFillRequest` originally only
+    ever read the browser-verified `webDomain`, which is empty for a
+    native app, so a malicious app faking a familiar login screen would
+    have shown *no identifying signal at all* in the picker, only an
+    empty domain hint, while still letting a fooled user hand it real
+    credentials. `VaultiqAutofillService.callerFor` now always resolves a
+    real identifier: the `webDomain` when there is one (a page cannot lie
+    about this; the browser reports the true URL-bar domain, not whatever
+    the page's own HTML claims), otherwise `AssistStructure
+    .activityComponent`'s actual requesting package name and label —
+    never blank, never the vault's own guess. The sheet shows this
+    unmissably in both fill and save mode: a plain "*N* matches for
+    *domain*" when verified, or an amber alert-triangle icon (design rule
+    7: amber is icon/border-only, text stays ink) next to "Not a verified
+    website — *caller*" when it isn't. This doesn't eliminate the risk — a
+    convincingly-named fake app could still fool an inattentive user, and
+    nothing here blocks the fill, it only surfaces the signal — but it
+    closes the "shows literally nothing to check" gap the first pass had.
   - **`MainActivity` gained `android:importantForAutofill=
     "noExcludeDescendants"`**: Vaultiq's own unlock/master-password fields
     must never be offered autofill suggestions, by our own service or any
     other — both a UX nonsense-loop and a mild security smell worth closing
     explicitly.
+  - **Retrospective**: the first implementation pass built a full-screen
+    picker using the shared UI kit for visual consistency, without
+    checking it against the actual mockup — reasonable-looking, but not
+    what was asked for, and the sheet-vs-full-screen difference isn't
+    cosmetic (it's *why* the design shows the third-party form dimmed
+    underneath at all). Caught only because the user asked directly
+    whether the screen matched the stored designs; this project's own
+    `claude_design` MCP connection wasn't available in-session to check
+    proactively, and the mismatch would not have been caught otherwise.
+    Worth checking design fidelity explicitly for any future screen this
+    session didn't source through that MCP tool.
   - **Verified**: `tsc`, `eslint`, `:app:compileDebugKotlin`, and
     `:app:assembleDebug` all pass, including a full manifest-merge check
-    (the new `<service>`/`<activity>` and `importantForAutofill` all landed
-    correctly in the merged manifest). **Not verified on a real device** —
-    none was connected while building this, same caveat as the biometric/
-    QR-scan/master-password-change work. Enabling Vaultiq as the system
-    autofill service, triggering a real fill against a third-party app, and
-    the save-prompt round trip all still need that.
+    (the new `<service>`/`<activity>`, `importantForAutofill`, and
+    `AutofillSheetTheme` all landed correctly in the merged manifest).
+    **Not verified on a real device** — none was connected while building
+    this, same caveat as the biometric/QR-scan/master-password-change
+    work. Enabling Vaultiq as the system autofill service, confirming the
+    translucent sheet actually shows the calling app dimmed underneath
+    (a real device/window-manager behavior no static check can confirm),
+    triggering a real fill, and the save-prompt round trip all still need
+    that.
   - **Deliberately out of scope**: identity/card autofill (login only, per
     the same design-rule-scoping this session applied elsewhere) and
     breach-checking (§1.3, forever-deferred, unrelated to this feature but
