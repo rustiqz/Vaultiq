@@ -1,9 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The Vaultiq dial (LogoMark.tsx "detailed" variant), hand-ported to a
-     vector drawable for the native splash. See CLAUDE.md §0. Approximate,
-     not pixel-exact: this is shown for a fraction of a second at cold
-     start, so hand-porting it once here is worth it, but chasing perfect
-     fidelity in XML path data isn't. -->
+<!-- The Vaultiq primary dial, ported directly from mark-reversed.svg. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="104dp"
     android:height="104dp"
@@ -14,8 +10,7 @@
   <path
       android:pathData="M3,60 a57,57 0 1,0 114,0 a57,57 0 1,0 -114,0"
       android:strokeColor="#FFF8E8"
-      android:strokeAlpha="0.6"
-      android:strokeWidth="1.6"
+      android:strokeWidth="1.5"
       android:fillColor="#00000000" />
 
   <!-- Outer ring -->

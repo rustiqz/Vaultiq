@@ -22,6 +22,8 @@ type VaultRecord = {
 type EnrollmentState = {
   serverUrl: string;
   deviceId: string;
+  /** Human-readable name chosen during enrollment. Optional for older installs. */
+  deviceName?: string;
   sealedCredential: EncryptedItem;
   vault: VaultRecord;
   /**
@@ -55,6 +57,9 @@ async function clearEnrollment(): Promise<void> {
 const AUTO_LOCK_KEY = 'vaultiq:autoLockMinutes';
 const DEFAULT_AUTO_LOCK_MINUTES = 15;
 
+const THEME_MODE_KEY = 'vaultiq:themeMode';
+type ThemeMode = 'system' | 'light' | 'dark';
+
 async function readAutoLockMinutes(): Promise<number> {
   const raw = await AsyncStorage.getItem(AUTO_LOCK_KEY);
   return raw === null ? DEFAULT_AUTO_LOCK_MINUTES : Number(raw);
@@ -62,6 +67,15 @@ async function readAutoLockMinutes(): Promise<number> {
 
 async function writeAutoLockMinutes(minutes: number): Promise<void> {
   await AsyncStorage.setItem(AUTO_LOCK_KEY, String(minutes));
+}
+
+async function readThemeMode(): Promise<ThemeMode> {
+  const raw = await AsyncStorage.getItem(THEME_MODE_KEY);
+  return raw === 'light' || raw === 'dark' ? raw : 'system';
+}
+
+async function writeThemeMode(mode: ThemeMode): Promise<void> {
+  await AsyncStorage.setItem(THEME_MODE_KEY, mode);
 }
 
 // Device-local "last opened" timestamps, for Vault Home's login sort. Not
@@ -88,8 +102,10 @@ export {
   readAutoLockMinutes,
   readEnrollment,
   readLastUsed,
+  readThemeMode,
   recordItemUsed,
   writeAutoLockMinutes,
+  writeThemeMode,
   writeEnrollment,
 };
-export type { EnrollmentState, VaultRecord };
+export type { EnrollmentState, ThemeMode, VaultRecord };

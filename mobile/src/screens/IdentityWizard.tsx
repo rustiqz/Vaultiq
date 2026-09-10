@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { emptyContent, type IdentityContent } from '../itemContent';
 import Icon from '../icons';
 import type { VaultStackScreenProps } from '../navigation';
-import { colors, fonts, spacing } from '../theme';
+import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, Chip, Field } from '../ui';
 import * as vault from '../vault';
 
@@ -288,7 +288,7 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   progressWrap: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.screen,
     paddingBottom: spacing.md,
     gap: 9,
   },
@@ -299,7 +299,7 @@ const styles = StyleSheet.create({
   progressSegment: {
     flex: 1,
     height: 4,
-    backgroundColor: 'rgba(103, 70, 54, 0.18)',
+    backgroundColor: inkAlpha(0.18),
   },
   progressSegmentFilled: {
     backgroundColor: colors.ink,
@@ -320,7 +320,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
+    paddingBottom: spacing.screen,
     paddingTop: 0,
   },
   stepBody: {
@@ -364,7 +365,7 @@ const styles = StyleSheet.create({
   sectionRule: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(103, 70, 54, 0.16)',
+    backgroundColor: inkAlpha(0.16),
   },
   reviewGroup: {
     gap: spacing.sm + 1,
@@ -398,7 +399,7 @@ const styles = StyleSheet.create({
   reviewCard: {
     backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: 'rgba(103, 70, 54, 0.14)',
+    borderColor: inkAlpha(0.14),
     borderRadius: 14,
     overflow: 'hidden',
   },
@@ -411,7 +412,7 @@ const styles = StyleSheet.create({
   },
   reviewRowDivider: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.08)',
+    borderTopColor: inkAlpha(0.08),
   },
   reviewLabel: {
     width: 104,
@@ -432,10 +433,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   footer: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
     paddingTop: spacing.sm + 2,
+    paddingBottom: 22,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.12)',
+    borderTopColor: inkAlpha(0.12),
     gap: spacing.sm + 2,
   },
   skipText: {

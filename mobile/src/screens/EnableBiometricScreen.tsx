@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '../icons';
 import type { SettingsStackScreenProps } from '../navigation';
-import { colors, fonts, spacing } from '../theme';
+import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, SecretField } from '../ui';
 import * as vault from '../vault';
 
@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 6,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(103, 70, 54, 0.12)',
+    borderBottomColor: inkAlpha(0.12),
   },
   back: {
     width: 44,
@@ -100,6 +100,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingTop: spacing.sm + 2,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.12)',
+    borderTopColor: inkAlpha(0.12),
   },
 });

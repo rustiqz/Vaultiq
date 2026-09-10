@@ -55,6 +55,9 @@ async function enrollAndUnlock(
   deviceName: string,
   password: string,
 ): Promise<void> {
+  const normalizedDeviceName = deviceName.trim();
+  if (normalizedDeviceName === '') throw new Error('Choose a name for this device.');
+
   const params = await syncClient.enrollmentParams(url, token);
   const authKey = await CryptoCore.deriveAuthKey(
     password,
@@ -63,7 +66,7 @@ async function enrollAndUnlock(
     params.iterations,
     params.parallelism,
   );
-  const device = await syncClient.enroll(url, token, authKey, deviceName);
+  const device = await syncClient.enroll(url, token, authKey, normalizedDeviceName);
   const bootstrap = await syncClient.vaultBootstrap(url, device.deviceId, device.credential);
 
   await CryptoCore.unlock(
@@ -83,6 +86,7 @@ async function enrollAndUnlock(
   const enrollment: EnrollmentState = {
     serverUrl: url,
     deviceId: device.deviceId,
+    deviceName: normalizedDeviceName,
     sealedCredential,
     vault: {
       saltB64: bootstrap.saltB64,
@@ -159,7 +163,13 @@ async function enableBiometric(password: string): Promise<void> {
 
 /** `enrollment` with any cached biometric password forgotten. */
 function withoutBiometric(enrollment: EnrollmentState): EnrollmentState {
-  return { serverUrl: enrollment.serverUrl, deviceId: enrollment.deviceId, sealedCredential: enrollment.sealedCredential, vault: enrollment.vault };
+  return {
+    serverUrl: enrollment.serverUrl,
+    deviceId: enrollment.deviceId,
+    deviceName: enrollment.deviceName,
+    sealedCredential: enrollment.sealedCredential,
+    vault: enrollment.vault,
+  };
 }
 
 /** Turns fingerprint unlock back off. */
@@ -255,6 +265,11 @@ async function changeMasterPassword(currentPassword: string, newPassword: string
 /** The server this device is enrolled with, for display -- null if not enrolled. */
 async function serverUrl(): Promise<string | null> {
   return (await storage.readEnrollment())?.serverUrl ?? null;
+}
+
+/** The name chosen for this device during enrollment, when locally known. */
+async function enrolledDeviceName(): Promise<string | null> {
+  return (await storage.readEnrollment())?.deviceName ?? null;
 }
 
 /** Fails the same way pullItems does if called before unlock. */
@@ -363,6 +378,7 @@ export {
   biometricEnabled,
   changeMasterPassword,
   deleteItem,
+  enrolledDeviceName,
   disableBiometric,
   enableBiometric,
   enrollAndUnlock,

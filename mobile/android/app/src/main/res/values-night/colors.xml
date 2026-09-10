@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="vaultiq_background">#211915</color>
+    <color name="vaultiq_surface">#30241E</color>
+    <color name="vaultiq_card">#3A2B24</color>
+    <color name="vaultiq_ink">#FFF1D6</color>
+    <color name="vaultiq_on_ink">#211915</color>
+    <color name="vaultiq_sage">#B8C1A5</color>
+    <color name="vaultiq_amber">#E0AE62</color>
+    <color name="vaultiq_rust">#E17B60</color>
+    <color name="vaultiq_ink_alpha_08">#14FFF1D6</color>
+    <color name="vaultiq_ink_alpha_10">#1AFFF1D6</color>
+    <color name="vaultiq_ink_alpha_12">#1FFFF1D6</color>
+    <color name="vaultiq_ink_alpha_14">#24FFF1D6</color>
+    <color name="vaultiq_ink_alpha_16">#29FFF1D6</color>
+    <color name="vaultiq_ink_alpha_18">#2EFFF1D6</color>
+    <color name="vaultiq_ink_alpha_20">#33FFF1D6</color>
+    <color name="vaultiq_ink_alpha_30">#4DFFF1D6</color>
+    <color name="vaultiq_ink_alpha_45">#73FFF1D6</color>
+    <color name="vaultiq_ink_alpha_55">#8CFFF1D6</color>
+</resources>

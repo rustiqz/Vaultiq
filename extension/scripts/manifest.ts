@@ -50,8 +50,8 @@ const manifest = {
     },
   },
 
-  // Same set as `action.default_icon`, generated from the mobile redesign's
-  // dial mark (mobile/src/LogoMark.tsx) via rsvg-convert -- see CLAUDE.md §0.
+  // Same set as `action.default_icon`, generated from the production
+  // favicon artwork via rsvg-convert -- see CLAUDE.md §0.
   icons: {
     "16": "icons/16.png",
     "32": "icons/32.png",
