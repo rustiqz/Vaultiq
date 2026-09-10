@@ -107,11 +107,12 @@ fast and clever, every time.
     untouched, which this covers.
   - Join Vault, Unlock and Vault Home are now styled against real mockups —
     `mobile/src/theme.ts` holds a fall/autumn palette (cream background, deep
-    brown primary, sage secondary, rust danger), light mode only; a dark
-    variant is a deliberate later addition, not attempted, since RN has no
-    built-in theme provider and building one is its own piece of work. Built
-    from exported screenshots, not a live Figma connection, so spacing and
-    type scale are approximate. `mobile/src/devConfig.ts` (gitignored,
+    brown primary, sage secondary, rust danger) plus a warm, system-aware
+    dark palette. iOS uses `DynamicColorIOS`; Android resolves the same
+    tokens through `values`/`values-night` resources. Branded artwork such
+    as the splash and payment-card face keeps the exact supplied brown/cream
+    colors in both modes. Built from exported screenshots, not a live Figma
+    connection, so spacing and type scale are approximate. `mobile/src/devConfig.ts` (gitignored,
     `.example` committed, same pattern as the repo-root `.env`) prefills the
     Join Vault server URL and device name for local testing — never the
     enrollment token, which is single-use and expires in 15 minutes, so
@@ -137,10 +138,9 @@ fast and clever, every time.
     default header shadow and tab-bar top border for a flatter, borderless
     look (`headerShadowVisible: false`, `tabBarStyle` with no border/
     elevation, header `card` color matched to the page background), and
-    restored an explicit `<StatusBar barStyle="dark-content" />` that had
-    been dropped in the navigation rewrite — without it Android defaulted to
-    light (white) status bar content, unreadable against the cream
-    background.
+    restored an explicit mode-aware `<StatusBar>` that had been dropped in
+    the navigation rewrite — without it Android can choose unreadable status
+    bar content against the app background.
   - The above was screenshot-approximate; screens now follow the real Figma
     exports instead (delivered as `~/Downloads/screen-*.svg`, rasterized
     with `rsvg-convert` and reviewed visually — the SVGs export selectable
@@ -527,13 +527,17 @@ fast and clever, every time.
     value, and icons on the Lock/Add/Generate/trash-toggle buttons — without
     restructuring `index.ts`'s single-file, no-framework architecture, which
     this task didn't need touching.
-  - **Toolbar/manifest icons**: `scripts/manifest.ts` set no `icons` or
-    `action.default_icon` before this — the extension shipped with none.
-    Now generated from the dial mark (simple variant, ink-on-transparent) at
-    16/32/48/128px via `rsvg-convert`, the same tool already used for the
-    mobile splash asset, into `extension/public/icons/` (Vite's default
-    `publicDir`, copied to `dist/` root on build — nothing in
-    `vite.config.ts` needed to change).
+  - **Production logo pass**: the mobile dial component now carries the
+    supplied primary, compact, micro, mono, locked, and syncing geometries;
+    the native splash matches the reversed primary mark; and Android/iOS
+    launcher assets come from the supplied platform artwork. The extension's
+    toolbar/manifest icons use the supplied small-size favicon geometry at
+    16/32/48/128px under `extension/public/icons/` (Vite's default
+    `publicDir`, copied to `dist/` root).
+  - **Lock-screen identity**: enrollment now retains the user-entered device
+    name in the local enrollment record and shows it under the locked mark.
+    The field is optional in the stored type so existing installations remain
+    readable and show "This device" until they enroll again.
   - **Deliberately untouched**: the content-script's autofill dropdown and
     save-password prompt (`extension/src/content/dropdown.ts`, `prompt.ts`)
     stay on OS system colors (`Canvas`/`CanvasText`) in their isolated
@@ -550,6 +554,20 @@ fast and clever, every time.
     .sendMessage` stub returning fixture data, screenshotted for the empty/
     locked/unlocked states — including the weak/reused-password badges,
     copy/reveal icons, and the settings and password-generator panels.
+- **Mobile: a manual dark-theme toggle, and a lock-screen biometric race
+  fix.** The app already followed the OS light/dark setting through
+  `theme.ts`'s system-aware `colors` (`DynamicColorIOS` on iOS,
+  `PlatformColor` reading `values`/`values-night` on Android); Settings gains
+  an explicit System/Light/Dark override (`storage.ts`'s `ThemeMode`,
+  persisted under `vaultiq:themeMode`). Choosing one calls
+  `Appearance.setColorScheme` so native-resolved colors flip immediately, not
+  just RN-styled ones. `App.tsx` remounts the unlocked tab tree on
+  `key={theme-${themeMode}-${colorScheme}}` because some nested native
+  components (the tab bar) don't otherwise repaint on the state change alone.
+  Separately, on-device testing surfaced a real bug: the fingerprint prompt
+  could fire against a not-yet-resumed `FragmentActivity` when the lock
+  screen mounts, so it's now also gated on `vault.biometricAvailable()` (not
+  just `biometricEnabled`) and delayed 80ms past mount.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the

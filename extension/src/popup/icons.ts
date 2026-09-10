@@ -125,7 +125,7 @@ export function logoMark(options: { size?: number; color?: string; tickColor?: s
 
   if (options.variant === "detailed") {
     svg.append(
-      svgEl("circle", { cx: 60, cy: 60, r: 57, fill: "none", stroke: tickColor, "stroke-width": 1.6, opacity: 0.6 }),
+      svgEl("circle", { cx: 60, cy: 60, r: 57, fill: "none", stroke: tickColor, "stroke-width": 1.5 }),
       svgEl("circle", { cx: 60, cy: 60, r: 49, fill: "none", stroke: color, "stroke-width": 6 }),
       svgEl("circle", { cx: 60, cy: 60, r: 33, fill: "none", stroke: color, "stroke-width": 3 }),
     );

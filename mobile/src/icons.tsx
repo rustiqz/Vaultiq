@@ -1,3 +1,4 @@
+import type { ColorValue } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { colors } from './theme';
 
@@ -87,7 +88,7 @@ const ICONS = {
 
 type IconName = keyof typeof ICONS;
 
-function Icon(props: { name: IconName; size?: number; color?: string; strokeWidth?: number; filled?: boolean }) {
+function Icon(props: { name: IconName; size?: number; color?: ColorValue; strokeWidth?: number; filled?: boolean }) {
   const size = props.size ?? 20;
   const color = props.color ?? colors.ink;
   const shape: IconShape = ICONS[props.name];
