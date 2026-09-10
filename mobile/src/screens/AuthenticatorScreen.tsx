@@ -8,7 +8,7 @@ import Icon from '../icons';
 import { copyForAWhile } from '../lib/clipboard';
 import { text } from '../itemContent';
 import type { RootTabParamList } from '../navigation';
-import { colors, fonts, spacing } from '../theme';
+import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { SearchBar } from '../ui';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
@@ -62,8 +62,8 @@ export default function AuthenticatorScreen() {
       <View style={styles.appBar}>
         <Text style={styles.title}>Codes</Text>
         <Pressable
+          style={styles.appBarAction}
           onPress={() => navigation.navigate('Vault', { screen: 'ItemEdit', params: { mode: 'create', itemType: 'totp' } })}
-          hitSlop={8}
         >
           <Icon name="plus" size={21} color={colors.ink} />
         </Pressable>
@@ -118,7 +118,7 @@ function AuthenticatorRow(props: { item: DecryptedItem }) {
     <Pressable style={styles.row} onPress={code === null ? undefined : () => copyForAWhile(code)}>
       <View style={styles.ringWrap}>
         <Svg width={RING_SIZE} height={RING_SIZE} viewBox="0 0 42 42">
-          <Circle cx={21} cy={21} r={RING_RADIUS} fill="none" stroke="rgba(103, 70, 54, 0.16)" strokeWidth={4} />
+          <Circle cx={21} cy={21} r={RING_RADIUS} fill="none" stroke={inkAlpha(0.16)} strokeWidth={4} />
           <Circle
             cx={21}
             cy={21}
@@ -151,7 +151,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
+    paddingLeft: spacing.screen,
+    paddingRight: 12,
+  },
+  appBarAction: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     fontFamily: fonts.condensedBold,
@@ -162,7 +169,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
+    paddingBottom: spacing.screen,
     paddingTop: spacing.xs,
   },
   header: {
@@ -199,7 +207,7 @@ const styles = StyleSheet.create({
   groupRule: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(103, 70, 54, 0.16)',
+    backgroundColor: inkAlpha(0.16),
   },
   groupRows: {
     gap: spacing.sm,
@@ -208,7 +216,7 @@ const styles = StyleSheet.create({
     minHeight: 82,
     backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: 'rgba(103, 70, 54, 0.14)',
+    borderColor: inkAlpha(0.14),
     borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',

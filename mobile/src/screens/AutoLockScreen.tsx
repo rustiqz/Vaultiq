@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as storage from '../storage';
-import { colors, fonts } from '../theme';
+import { colors, fonts, inkAlpha } from '../theme';
 import type { SettingsStackScreenProps } from '../navigation';
 import { useState, useEffect } from 'react';
 
@@ -50,7 +50,7 @@ export default function AutoLockScreen({ navigation }: SettingsStackScreenProps<
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(103, 70, 54, 0.34)',
+    backgroundColor: colors.scrim,
     justifyContent: 'flex-end',
   },
   sheet: {
@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 999,
-    backgroundColor: 'rgba(103, 70, 54, 0.3)',
+    backgroundColor: inkAlpha(0.3),
     alignSelf: 'center',
     marginBottom: 12,
   },
@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingHorizontal: 6,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.1)',
+    borderTopColor: inkAlpha(0.1),
   },
   radio: {
     width: 22,

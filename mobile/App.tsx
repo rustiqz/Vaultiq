@@ -16,14 +16,14 @@
 import { NavigationContainer, getFocusedRouteNameFromRoute, type Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useEffect, useRef, useState } from 'react';
-import { Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Appearance, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Icon, { type IconName } from './src/icons';
 import type { ItemContent } from './src/itemContent';
 import LogoMark from './src/LogoMark';
 import * as storage from './src/storage';
-import { colors, fonts } from './src/theme';
+import { brandColors, colors, darkColors, fonts, inkAlpha, lightColors } from './src/theme';
 import { useConfirmDialog } from './src/ui';
 import * as vault from './src/vault';
 import type { DecryptedItem, Status } from './src/vault';
@@ -40,24 +40,6 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import AutoLockScreen from './src/screens/AutoLockScreen';
 import ChangeMasterPasswordScreen from './src/screens/ChangeMasterPasswordScreen';
 import EnableBiometricScreen from './src/screens/EnableBiometricScreen';
-
-const navigationTheme: Theme = {
-  dark: false,
-  colors: {
-    primary: colors.ink,
-    background: colors.background,
-    card: colors.background,
-    text: colors.ink,
-    border: colors.background,
-    notification: colors.rust,
-  },
-  fonts: {
-    regular: { fontFamily: fonts.body, fontWeight: '400' },
-    medium: { fontFamily: fonts.body, fontWeight: '500' },
-    bold: { fontFamily: fonts.semiCondensedBold, fontWeight: '700' },
-    heavy: { fontFamily: fonts.semiCondensedBold, fontWeight: '700' },
-  },
-};
 
 const ITEM_TYPE_TITLES: Record<string, string> = {
   login: 'Login',
@@ -96,13 +78,14 @@ function ItemDetailHeaderActions(props: { item: DecryptedItem; navigation: Vault
     <View style={styles.headerActions}>
       {/* Filled vs outline only -- no color change. Rust/amber/sage are reserved
           state colors (design rule 7); favoriting isn't one of those states. */}
-      <Pressable onPress={toggleFavorite} hitSlop={8} disabled={togglingFavorite}>
+      <Pressable style={styles.headerAction} onPress={toggleFavorite} disabled={togglingFavorite}>
         <Icon name="heart" size={20} color={colors.ink} filled={favorite} />
       </Pressable>
-      <Pressable onPress={() => props.navigation.navigate('ItemEdit', { mode: 'edit', item: props.item })} hitSlop={8}>
+      <Pressable style={styles.headerAction} onPress={() => props.navigation.navigate('ItemEdit', { mode: 'edit', item: props.item })}>
         <Icon name="edit" size={20} color={colors.ink} />
       </Pressable>
       <Pressable
+        style={styles.headerAction}
         onPress={() =>
           show('Delete this item?', 'This permanently removes it. It cannot be recovered.', [
             { text: 'Keep it' },
@@ -120,7 +103,6 @@ function ItemDetailHeaderActions(props: { item: DecryptedItem; navigation: Vault
             },
           ])
         }
-        hitSlop={8}
       >
         <Icon name="trash" size={20} color={colors.ink} />
       </Pressable>
@@ -132,8 +114,9 @@ function ItemDetailHeaderActions(props: { item: DecryptedItem; navigation: Vault
 const VaultStack = createNativeStackNavigator<VaultStackParamList>();
 
 function VaultTab() {
+  const palette = useColorScheme() === 'dark' ? darkColors : lightColors;
   return (
-    <VaultStack.Navigator screenOptions={{ headerTintColor: colors.ink, headerShadowVisible: false, headerTitleStyle: { fontFamily: fonts.condensedBold, fontSize: 24 } }}>
+    <VaultStack.Navigator screenOptions={{ headerTintColor: palette.ink, headerShadowVisible: false, headerTitleStyle: { fontFamily: fonts.condensedBold, fontSize: 24 } }}>
       <VaultStack.Screen name="VaultHome" component={VaultHomeScreen} options={{ headerShown: false }} />
       <VaultStack.Screen
         name="TypeList"
@@ -161,11 +144,12 @@ function VaultTab() {
 
 const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
 
-function SettingsTab(props: { onLock: () => void }) {
+function SettingsTab(props: { onLock: () => void; themeMode: storage.ThemeMode; onThemeChange: (mode: storage.ThemeMode) => void }) {
+  const palette = useColorScheme() === 'dark' ? darkColors : lightColors;
   return (
-    <SettingsStack.Navigator screenOptions={{ headerTintColor: colors.ink, headerShadowVisible: false, headerTitleStyle: { fontFamily: fonts.condensedBold, fontSize: 24 } }}>
+    <SettingsStack.Navigator screenOptions={{ headerTintColor: palette.ink, headerShadowVisible: false, headerTitleStyle: { fontFamily: fonts.condensedBold, fontSize: 24 } }}>
       <SettingsStack.Screen name="SettingsHome" options={{ title: 'Settings' }}>
-        {screenProps => <SettingsScreen {...screenProps} onLock={props.onLock} />}
+        {screenProps => <SettingsScreen {...screenProps} onLock={props.onLock} themeMode={props.themeMode} onThemeChange={props.onThemeChange} />}
       </SettingsStack.Screen>
       <SettingsStack.Screen
         name="AutoLock"
@@ -186,36 +170,78 @@ const TAB_ICONS: Record<keyof RootTabParamList, IconName> = {
 };
 
 function App() {
+  const colorScheme = useColorScheme();
+  const activePalette = colorScheme === 'dark' ? darkColors : lightColors;
+  const navigationTheme = useMemo<Theme>(() => {
+    const palette = colorScheme === 'dark' ? darkColors : lightColors;
+    return {
+      dark: colorScheme === 'dark',
+      colors: {
+        primary: palette.ink,
+        background: palette.background,
+        card: palette.background,
+        text: palette.ink,
+        border: palette.background,
+        notification: palette.rust,
+      },
+      fonts: {
+        regular: { fontFamily: fonts.body, fontWeight: '400' },
+        medium: { fontFamily: fonts.body, fontWeight: '500' },
+        bold: { fontFamily: fonts.semiCondensedBold, fontWeight: '700' },
+        heavy: { fontFamily: fonts.semiCondensedBold, fontWeight: '700' },
+      },
+    };
+  }, [colorScheme]);
   const [status, setStatus] = useState<Status | 'loading'>('loading');
+  const [enrolledDeviceName, setEnrolledDeviceName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [autoLockMinutes, setAutoLockMinutes] = useState(15);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [themeMode, setThemeMode] = useState<storage.ThemeMode>('system');
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     vault.status().then(setStatus);
+    vault.enrolledDeviceName().then(setEnrolledDeviceName);
     storage.readAutoLockMinutes().then(setAutoLockMinutes);
+    storage.readThemeMode().then(mode => {
+      setThemeMode(mode);
+      Appearance.setColorScheme(mode === 'system' ? 'unspecified' : mode);
+    });
   }, []);
 
+  const changeTheme = (mode: storage.ThemeMode) => {
+    setThemeMode(mode);
+    Appearance.setColorScheme(mode === 'system' ? 'unspecified' : mode);
+    storage.writeThemeMode(mode).catch(() => undefined);
+  };
+
   useEffect(() => {
-    if (status === 'locked') vault.biometricEnabled().then(setBiometricEnabled);
+    if (status === 'locked') {
+      Promise.all([vault.biometricEnabled(), vault.biometricAvailable()]).then(([enabled, available]) => setBiometricEnabled(enabled && available));
+    }
   }, [status]);
 
   const runBiometricUnlock = () => {
     setError(null);
     setBusy(true);
-    vault
-      .unlockWithBiometric()
-      .then(() => setStatus('unlocked'))
-      .catch((thrown: unknown) => {
-        // React Native attaches the native Promise.reject code as `.code` --
-        // a user simply backing out of the fingerprint prompt isn't an error
-        // worth a red banner, unlike every other unlock failure.
-        const code = thrown !== null && typeof thrown === 'object' && 'code' in thrown ? (thrown as { code?: unknown }).code : undefined;
-        if (code !== 'biometric_cancelled') setError(thrown instanceof Error ? thrown.message : String(thrown));
-      })
-      .finally(() => setBusy(false));
+    // The locked screen can be mounted in the same frame as a native activity
+    // resume. Waiting for the transition to settle prevents the first prompt
+    // from being launched against a not-yet-resumed FragmentActivity.
+    setTimeout(() => {
+      vault
+        .unlockWithBiometric()
+        .then(() => setStatus('unlocked'))
+        .catch((thrown: unknown) => {
+          // React Native attaches the native Promise.reject code as `.code` --
+          // a user simply backing out of the fingerprint prompt isn't an error
+          // worth a red banner, unlike every other unlock failure.
+          const code = thrown !== null && typeof thrown === 'object' && 'code' in thrown ? (thrown as { code?: unknown }).code : undefined;
+          if (code !== 'biometric_cancelled') setError(thrown instanceof Error ? thrown.message : String(thrown));
+        })
+        .finally(() => setBusy(false));
+    }, 80);
   };
 
   const run = (task: () => Promise<void>) => async () => {
@@ -256,24 +282,26 @@ function App() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle={status === 'loading' || colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
       <NavigationContainer theme={navigationTheme}>
         {status === 'loading' && (
           // Matches the native splash (6a) exactly, and continues it rather
           // than popping in something different -- no spinner, per the
           // design's own note on that mockup.
           <View style={styles.loading}>
-            <LogoMark variant="detailed" size={104} color={colors.onInk} tickColor={colors.sage} />
+            <LogoMark variant="primary" size={104} color={brandColors.paper} stateColor={brandColors.sage} />
             <Text style={styles.loadingWordmark}>Vaultiq</Text>
+            <Text style={styles.loadingTagline}>Zero-knowledge</Text>
           </View>
         )}
         {status === 'not-enrolled' && (
           <JoinVaultScreen
             busy={busy}
             error={error}
-            onSubmit={(serverUrl, token, deviceName, password) =>
+            onSubmit={(serverUrl, token, submittedDeviceName, password) =>
               run(async () => {
-                await vault.enrollAndUnlock(serverUrl, token, deviceName, password);
+                await vault.enrollAndUnlock(serverUrl, token, submittedDeviceName, password);
+                setEnrolledDeviceName(submittedDeviceName.trim());
                 setStatus('unlocked');
               })()
             }
@@ -284,6 +312,7 @@ function App() {
             busy={busy}
             error={error}
             biometricEnabled={biometricEnabled}
+            deviceName={enrolledDeviceName}
             onBiometric={runBiometricUnlock}
             onSubmit={password =>
               run(async () => {
@@ -294,12 +323,12 @@ function App() {
           />
         )}
         {status === 'unlocked' && (
-          <View style={styles.tabRoot} onTouchStart={resetIdleTimer}>
+            <View key={`theme-${themeMode}-${colorScheme ?? 'light'}`} style={styles.tabRoot} onTouchStart={resetIdleTimer}>
             <Tab.Navigator
               screenOptions={({ route }) => ({
                 headerShown: false,
-                tabBarActiveTintColor: colors.ink,
-                tabBarInactiveTintColor: colors.ink,
+                tabBarActiveTintColor: activePalette.ink,
+                tabBarInactiveTintColor: activePalette.ink,
                 tabBarLabelStyle: styles.tabLabel,
                 tabBarStyle: styles.tabBar,
                 // eslint-disable-next-line react/no-unstable-nested-components -- React Navigation's own documented tabBarIcon shape.
@@ -322,7 +351,7 @@ function App() {
                 })}
               />
               <Tab.Screen name="Codes" component={AuthenticatorScreen} />
-              <Tab.Screen name="Settings">{() => <SettingsTab onLock={doLock} />}</Tab.Screen>
+              <Tab.Screen name="Settings">{() => <SettingsTab onLock={doLock} themeMode={themeMode} onThemeChange={changeTheme} />}</Tab.Screen>
             </Tab.Navigator>
           </View>
         )}
@@ -334,7 +363,7 @@ function App() {
 const styles = StyleSheet.create({
   loading: {
     flex: 1,
-    backgroundColor: colors.ink,
+    backgroundColor: brandColors.ink,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 26,
@@ -344,7 +373,16 @@ const styles = StyleSheet.create({
     fontSize: 30,
     letterSpacing: 1.8,
     textTransform: 'uppercase',
-    color: colors.onInk,
+    color: brandColors.paper,
+  },
+  loadingTagline: {
+    position: 'absolute',
+    bottom: 56,
+    fontFamily: fonts.condensedBold,
+    fontSize: 12,
+    letterSpacing: 2.16,
+    textTransform: 'uppercase',
+    color: brandColors.paper,
   },
   tabRoot: {
     flex: 1,
@@ -352,7 +390,7 @@ const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: colors.background,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.12)',
+    borderTopColor: inkAlpha(0.12),
     elevation: 0,
     height: 68,
   },
@@ -374,8 +412,13 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: 'row',
-    gap: 16,
-    paddingRight: 4,
+    marginRight: -8,
+  },
+  headerAction: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

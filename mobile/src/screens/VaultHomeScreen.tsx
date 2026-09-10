@@ -1,15 +1,16 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ItemContent } from '../itemContent';
 import Icon from '../icons';
 import ItemAvatar from '../ItemAvatar';
+import { copyForAWhile } from '../lib/clipboard';
 import { displayName, text } from '../itemContent';
 import LogoMark from '../LogoMark';
 import type { VaultStackScreenProps } from '../navigation';
 import * as storage from '../storage';
-import { colors, fonts, spacing } from '../theme';
+import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Card, SearchBar } from '../ui';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
@@ -66,6 +67,8 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
   const [items, setItems] = useState<DecryptedItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sort, setSort] = useState<LoginSort>('recent');
   const [lastUsed, setLastUsed] = useState<Record<string, number>>({});
 
@@ -90,9 +93,20 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
     }, [sync]),
   );
 
+  useEffect(() => () => {
+    if (copiedTimer.current !== null) clearTimeout(copiedTimer.current);
+  }, []);
+
   const openItem = async (item: DecryptedItem) => {
     await storage.recordItemUsed(item.id);
     navigation.navigate('ItemDetail', { item });
+  };
+
+  const copyPassword = (item: DecryptedItem) => {
+    copyForAWhile(text(item.content, 'password'));
+    setCopiedId(item.id);
+    if (copiedTimer.current !== null) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopiedId(null), 1600);
   };
 
   const logins = (items ?? []).filter(item => item.itemType === 'login');
@@ -117,7 +131,7 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
           <LogoMark size={26} color={colors.ink} />
           <Text style={styles.brandWordmark}>Vaultiq</Text>
         </View>
-        <Pressable onPress={() => setPickerVisible(true)} hitSlop={8}>
+        <Pressable style={styles.appBarAction} onPress={() => setPickerVisible(true)}>
           <Icon name="plus" size={21} color={colors.ink} />
         </Pressable>
       </View>
@@ -172,7 +186,16 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
                     <Text style={styles.rowName}>{name}</Text>
                     {sub !== '' && <Text style={styles.rowSub}>{sub}</Text>}
                   </View>
-                  <Icon name="chevronRight" size={16} color={colors.ink} />
+                  <Pressable
+                    style={styles.rowCopy}
+                    accessibilityLabel={`Copy password for ${name}`}
+                    onPress={event => {
+                      event.stopPropagation();
+                      copyPassword(item);
+                    }}
+                  >
+                    {copiedId === item.id ? <Text style={styles.rowCopied}>Copied</Text> : <Icon name="copy" size={17} color={colors.ink} />}
+                  </Pressable>
                 </View>
               </Card>
             );
@@ -231,8 +254,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
+    paddingLeft: spacing.screen,
+    paddingRight: 12,
     backgroundColor: colors.background,
+  },
+  appBarAction: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   brandRow: {
     flexDirection: 'row',
@@ -251,7 +281,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   listContent: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
+    paddingBottom: spacing.screen,
     paddingTop: spacing.xs,
   },
   header: {
@@ -276,7 +307,7 @@ const styles = StyleSheet.create({
     height: 66,
     backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: 'rgba(103, 70, 54, 0.16)',
+    borderColor: inkAlpha(0.16),
     borderRadius: 14,
     paddingHorizontal: 11,
     justifyContent: 'center',
@@ -296,6 +327,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
+    paddingBottom: spacing.md,
   },
   sortToggle: {
     fontFamily: fonts.condensedBold,
@@ -316,8 +348,8 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm + 5,
-    padding: 13,
+    gap: spacing.md,
+    padding: spacing.md,
   },
   rowText: {
     flex: 1,
@@ -333,11 +365,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.ink,
   },
+  rowCopy: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowCopied: {
+    fontFamily: fonts.condensedBold,
+    fontSize: 11,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: colors.ink,
+  },
   empty: {
     flex: 1,
     justifyContent: 'center',
     gap: 26,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
     paddingBottom: 40,
   },
   emptyIntro: {
@@ -366,7 +411,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.14)',
+    borderTopColor: inkAlpha(0.14),
   },
   emptyRowLabel: {
     fontFamily: fonts.body,
@@ -391,7 +436,7 @@ const styles = StyleSheet.create({
   },
   sheetBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(103, 70, 54, 0.34)',
+    backgroundColor: colors.scrim,
     justifyContent: 'flex-end',
   },
   sheetCard: {
@@ -406,7 +451,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 999,
-    backgroundColor: 'rgba(103, 70, 54, 0.3)',
+    backgroundColor: inkAlpha(0.3),
     alignSelf: 'center',
     marginBottom: 8,
   },
@@ -424,7 +469,7 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingHorizontal: 6,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.1)',
+    borderTopColor: inkAlpha(0.1),
   },
   sheetRowIcon: {
     width: 40,

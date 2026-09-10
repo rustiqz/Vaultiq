@@ -5,7 +5,7 @@ import Icon from '../icons';
 import LogoMark from '../LogoMark';
 import type { SettingsStackScreenProps } from '../navigation';
 import * as storage from '../storage';
-import { colors, fonts, spacing } from '../theme';
+import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, Card, SectionLabel, useConfirmDialog } from '../ui';
 import * as vault from '../vault';
 import type { DeviceSummary } from '../syncClient';
@@ -18,7 +18,11 @@ const AUTO_LOCK_LABELS: Record<number, string> = {
   30: 'After 30 minutes',
 };
 
-export default function SettingsScreen({ navigation, onLock }: SettingsStackScreenProps<'SettingsHome'> & { onLock: () => void }) {
+export default function SettingsScreen({ navigation, onLock, themeMode, onThemeChange }: SettingsStackScreenProps<'SettingsHome'> & {
+  onLock: () => void;
+  themeMode: storage.ThemeMode;
+  onThemeChange: (mode: storage.ThemeMode) => void;
+}) {
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +92,7 @@ export default function SettingsScreen({ navigation, onLock }: SettingsStackScre
       <View style={styles.section}>
         <SectionLabel>This vault</SectionLabel>
         <Card style={styles.vaultRow}>
-          <LogoMark size={34} color={colors.ink} />
+          <LogoMark variant={devices === null ? 'syncing' : 'compact'} size={34} color={colors.ink} stateColor={colors.sage} />
           <View style={styles.rowText}>
             <Text style={styles.rowName}>{serverUrl ?? '—'}</Text>
             <Text style={styles.mono}>{activeDevices.length} device{activeDevices.length === 1 ? '' : 's'} enrolled</Text>
@@ -118,6 +122,21 @@ export default function SettingsScreen({ navigation, onLock }: SettingsStackScre
           <Pressable style={[styles.groupRow, styles.groupRowDivider]} onPress={() => navigation.navigate('ChangeMasterPassword')}>
             <Text style={[styles.rowLabel, styles.groupRowFlex]}>Change master password</Text>
             <Icon name="chevronRight" size={16} color={colors.ink} />
+          </Pressable>
+        </Card>
+      </View>
+
+      <View style={styles.section}>
+        <SectionLabel>Appearance</SectionLabel>
+        <Card style={styles.group}>
+          <Pressable style={styles.groupRow} onPress={() => onThemeChange(themeMode === 'dark' ? 'light' : 'dark')}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowLabel}>Dark theme</Text>
+              <Text style={styles.mono}>{themeMode === 'dark' ? 'On' : 'Off'}</Text>
+            </View>
+            <View style={[styles.toggleOff, themeMode === 'dark' && styles.toggleOn]}>
+              <View style={styles.toggleThumb} />
+            </View>
           </Pressable>
         </Card>
       </View>
@@ -163,7 +182,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.screen,
     gap: spacing.lg - 4,
   },
   error: {
@@ -182,7 +203,7 @@ const styles = StyleSheet.create({
   sectionRule: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(103, 70, 54, 0.16)',
+    backgroundColor: inkAlpha(0.16),
   },
   vaultRow: {
     flexDirection: 'row',
@@ -205,7 +226,7 @@ const styles = StyleSheet.create({
   },
   groupRowDivider: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.1)',
+    borderTopColor: inkAlpha(0.1),
   },
   rowText: {
     flex: 1,

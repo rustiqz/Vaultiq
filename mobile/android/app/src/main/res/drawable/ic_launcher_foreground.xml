@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Production adaptive-icon foreground, ported from app-icon-android-foreground.svg. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="432"
+    android:viewportHeight="432">
+  <group android:scaleX="1.8" android:scaleY="1.8" android:translateX="108" android:translateY="108">
+    <path android:pathData="M3,60 a57,57 0,1 0,114 0 a57,57 0,1 0,-114 0"
+        android:fillColor="#00000000" android:strokeColor="#AAB396" android:strokeWidth="1.5" />
+    <path android:pathData="M11,60 a49,49 0,1 0,98 0 a49,49 0,1 0,-98 0"
+        android:fillColor="#00000000" android:strokeColor="#674636" android:strokeWidth="6" />
+    <path android:pathData="M27,60 a33,33 0,1 0,66 0 a33,33 0,1 0,-66 0"
+        android:fillColor="#00000000" android:strokeColor="#674636" android:strokeWidth="3" />
+    <group android:pivotX="60" android:pivotY="60" android:rotation="60">
+      <path android:pathData="M56.5,18 L63.5,18 L63.5,42 L56.5,42 Z" android:fillColor="#674636" />
+    </group>
+    <group android:pivotX="60" android:pivotY="60" android:rotation="180">
+      <path android:pathData="M56.5,18 L63.5,18 L63.5,42 L56.5,42 Z" android:fillColor="#674636" />
+    </group>
+    <group android:pivotX="60" android:pivotY="60" android:rotation="300">
+      <path android:pathData="M56.5,18 L63.5,18 L63.5,42 L56.5,42 Z" android:fillColor="#674636" />
+    </group>
+    <path android:pathData="M47,60 a13,13 0,1 0,26 0 a13,13 0,1 0,-26 0" android:fillColor="#674636" />
+    <path android:pathData="M57.5,10 L62.5,10 L62.5,24 L57.5,24 Z" android:fillColor="#AAB396" />
+  </group>
+</vector>

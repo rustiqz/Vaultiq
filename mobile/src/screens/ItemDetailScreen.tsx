@@ -116,6 +116,7 @@ export default function ItemDetailScreen({ route }: VaultStackScreenProps<'ItemD
               expiryMonth={text(c, 'expiryMonth')}
               expiryYear={text(c, 'expiryYear')}
               masked={!cardRevealed}
+              size="detail"
             />
             <View style={styles.row}>
               <Button title="Copy number" flex onPress={() => copyForAWhile(text(c, 'number'))} />
@@ -196,7 +197,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
+    paddingBottom: spacing.screen,
     gap: spacing.md,
   },
   header: {

@@ -3,7 +3,7 @@
  * every screen is built from these rather than styling its own inputs,
  * buttons and dialogs.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import Icon from './icons';
@@ -59,12 +59,15 @@ function SecretField(props: {
   hint?: string;
 }) {
   const [revealed, setRevealed] = useState(false);
+  const { copied, markCopied } = useCopiedFeedback();
   const editable = props.editable ?? props.onChangeText !== undefined;
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{props.label}</Text>
       <View style={styles.secretBox}>
-        {editable ? (
+        {copied ? (
+          <Text style={[styles.secretInput, styles.copiedValue]}>Copied</Text>
+        ) : editable ? (
           <TextInput
             style={styles.secretInput}
             autoCapitalize="none"
@@ -83,7 +86,13 @@ function SecretField(props: {
           <Icon name="reveal" size={19} color={colors.ink} />
         </Pressable>
         {props.onCopy !== undefined && (
-          <Pressable style={[styles.secretAction, styles.secretActionFilled]} onPress={props.onCopy}>
+          <Pressable
+            style={[styles.secretAction, styles.secretActionFilled]}
+            onPress={() => {
+              props.onCopy?.();
+              markCopied();
+            }}
+          >
             <Icon name="copy" size={18} color={colors.onInk} />
           </Pressable>
         )}
@@ -135,14 +144,10 @@ function SearchBar(props: { value: string; onChangeText: (text: string) => void;
   );
 }
 
-/**
- * A read-only labelled value, optionally maskable and/or copyable --
- * pending PR2's field-system rework of Item Detail, this is a light-touch
- * carry-over of the old component onto the new tokens, not yet restyled to
- * the "every row has its own copy button" anatomy from 6m.
- */
+/** A standard 54px detail field with dedicated 44px reveal/copy targets. */
 function DetailField(props: { label: string; value: string; secure?: boolean; onCopy?: () => void; link?: boolean; multiline?: boolean }) {
   const [revealed, setRevealed] = useState(false);
+  const { copied, markCopied } = useCopiedFeedback();
   if (props.value === '') return null;
   const shown = props.secure === true && !revealed ? '•'.repeat(Math.min(props.value.length, 12)) : props.value;
   return (
@@ -150,16 +155,22 @@ function DetailField(props: { label: string; value: string; secure?: boolean; on
       <Text style={styles.label}>{props.label}</Text>
       <View style={[styles.detailRow, props.multiline === true && styles.detailRowMultiline]}>
         <Text style={[styles.detailValue, props.link === true && styles.detailValueLink]} numberOfLines={props.multiline === true ? undefined : 1}>
-          {shown}
+          {copied ? 'Copied' : shown}
         </Text>
         <View style={styles.detailActions}>
           {props.secure === true && (
-            <Pressable onPress={() => setRevealed(r => !r)}>
+            <Pressable style={styles.detailAction} onPress={() => setRevealed(r => !r)}>
               <Icon name="reveal" size={16} color={colors.ink} />
             </Pressable>
           )}
           {props.onCopy !== undefined && (
-            <Pressable onPress={props.onCopy}>
+            <Pressable
+              style={styles.detailAction}
+              onPress={() => {
+                props.onCopy?.();
+                markCopied();
+              }}
+            >
               <Icon name="copy" size={16} color={colors.ink} />
             </Pressable>
           )}
@@ -167,6 +178,23 @@ function DetailField(props: { label: string; value: string; secure?: boolean; on
       </View>
     </View>
   );
+}
+
+function useCopiedFeedback(): { copied: boolean; markCopied: () => void } {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+  }, []);
+
+  const markCopied = () => {
+    setCopied(true);
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), 1600);
+  };
+
+  return { copied, markCopied };
 }
 
 /** A small uppercase section label -- e.g. "DEVICES", "SECURITY", "LOGINS · 6". */
@@ -353,14 +381,20 @@ const styles = StyleSheet.create({
     color: colors.ink,
     textAlignVertical: 'center',
   },
+  copiedValue: {
+    fontFamily: fonts.semiCondensedSemiBold,
+    fontSize: 15.5,
+    letterSpacing: 0,
+  },
   secretAction: {
-    width: 56,
+    width: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderLeftWidth: 1,
     borderLeftColor: inkAlpha(0.16),
   },
   secretActionFilled: {
+    width: 56,
     backgroundColor: colors.ink,
     borderLeftWidth: 0,
   },
@@ -441,13 +475,14 @@ const styles = StyleSheet.create({
     borderColor: inkAlpha(0.14),
   },
   detailRow: {
+    minHeight: 54,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: inkAlpha(0.16),
     borderRadius: radii.input,
-    padding: 14,
+    paddingLeft: 14,
     backgroundColor: colors.card,
     gap: spacing.sm,
   },
@@ -457,6 +492,7 @@ const styles = StyleSheet.create({
   },
   detailValue: {
     flex: 1,
+    paddingVertical: 14,
     fontFamily: fonts.body,
     color: colors.ink,
     fontSize: 15.5,
@@ -466,12 +502,20 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   detailActions: {
+    alignSelf: 'stretch',
     flexDirection: 'row',
-    gap: spacing.md,
+  },
+  detailAction: {
+    width: 44,
+    minHeight: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderLeftWidth: 1,
+    borderLeftColor: inkAlpha(0.14),
   },
   dialogBackdrop: {
     flex: 1,
-    backgroundColor: inkAlpha(0.4),
+    backgroundColor: colors.scrim,
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.lg,

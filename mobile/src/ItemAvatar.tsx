@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import Icon, { type IconName } from './icons';
 import { displayName, text } from './itemContent';
-import { colors, fonts } from './theme';
+import { colors, fonts, inkAlpha } from './theme';
 
 const TYPE_ICON: Record<string, IconName> = {
   card: 'card',
@@ -53,10 +53,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   square: {
-    borderColor: 'rgba(103, 70, 54, 0.14)',
+    borderColor: inkAlpha(0.14),
   },
   circle: {
-    borderColor: 'rgba(103, 70, 54, 0.14)',
+    borderColor: inkAlpha(0.14),
   },
   initials: {
     fontFamily: fonts.semiCondensedBold,
