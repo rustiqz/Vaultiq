@@ -21,22 +21,25 @@ function groupDigits(number: string): string {
 }
 
 /** The real card graphic from 6h/6n -- the design backlog's "card detail, not a field list" ask. */
-function CardPreview(props: { number: string; cardholder: string; expiryMonth: string; expiryYear: string; masked?: boolean }) {
+function CardPreview(props: { number: string; cardholder: string; expiryMonth: string; expiryYear: string; masked?: boolean; size?: 'compact' | 'detail' }) {
   const brand = detectBrand(props.number);
+  const detail = props.size === 'detail';
   const shownNumber = props.masked === true
     ? `•••• •••• •••• ${props.number.replace(/\D/g, '').slice(-4) || '••••'}`
     : props.number === '' ? '•••• •••• •••• ••••' : groupDigits(props.number);
 
   return (
-    <View style={styles.card}>
-      <View style={styles.watermark}>
-        <LogoMark variant="mono" size={150} color={brandColors.paper} />
-      </View>
+    <View style={[styles.card, detail && styles.cardDetail]}>
+      {detail && (
+        <View style={styles.watermark}>
+          <LogoMark variant="mono" size={150} color={brandColors.paper} />
+        </View>
+      )}
       <View style={styles.topRow}>
-        <View style={styles.chip} />
-        {brand !== '' && <Text style={styles.brand}>{brand}</Text>}
+        <View style={[styles.chip, detail && styles.chipDetail]} />
+        {brand !== '' && <Text style={[styles.brand, detail && styles.brandDetail]}>{brand}</Text>}
       </View>
-      <Text style={styles.number}>{shownNumber}</Text>
+      <Text style={[styles.number, detail && styles.numberDetail]}>{shownNumber}</Text>
       <View style={styles.bottomRow}>
         <View>
           <Text style={styles.fieldLabel}>Cardholder</Text>
@@ -55,12 +58,17 @@ function CardPreview(props: { number: string; cardholder: string; expiryMonth: s
 
 const styles = StyleSheet.create({
   card: {
-    minHeight: 132,
+    height: 132,
     backgroundColor: brandColors.ink,
     borderRadius: 16,
     padding: 18,
     justifyContent: 'space-between',
     overflow: 'hidden',
+  },
+  cardDetail: {
+    height: 208,
+    borderRadius: 18,
+    padding: 22,
   },
   watermark: {
     position: 'absolute',
@@ -79,6 +87,11 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: brandColors.sage,
   },
+  chipDetail: {
+    width: 44,
+    height: 32,
+    borderRadius: 5,
+  },
   brand: {
     fontFamily: fonts.semiCondensedBold,
     fontSize: 13,
@@ -86,11 +99,19 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     color: brandColors.paper,
   },
+  brandDetail: {
+    fontSize: 16,
+    letterSpacing: 2.56,
+  },
   number: {
     fontFamily: fonts.mono,
     fontSize: 17,
     letterSpacing: 2,
     color: brandColors.paper,
+  },
+  numberDetail: {
+    fontSize: 21,
+    letterSpacing: 2.94,
   },
   bottomRow: {
     flexDirection: 'row',

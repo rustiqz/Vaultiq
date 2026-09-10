@@ -3,11 +3,12 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ItemContent } from '../itemContent';
 import { emptyContent } from '../itemContent';
+import CardPreview from '../CardPreview';
 import Icon from '../icons';
 import { awaitQrScan } from '../lib/qrScanResult';
 import IdentityWizard from './IdentityWizard';
 import type { VaultStackScreenProps } from '../navigation';
-import { colors, fonts, spacing } from '../theme';
+import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, Chip, Field, SecretField } from '../ui';
 import * as vault from '../vault';
 
@@ -33,7 +34,13 @@ function num(content: Record<string, unknown>, key: string, fallback: number): n
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-type OptionalField = { key: string; label: string; secure?: boolean; keyboardType?: 'default' | 'number-pad' };
+type OptionalField = {
+  key: string;
+  label: string;
+  secure?: boolean;
+  keyboardType?: 'default' | 'number-pad' | 'email-address';
+  autoCapitalize?: 'none' | 'sentences';
+};
 
 /**
  * Design rule 2: fields are asked for by how often they're actually
@@ -86,6 +93,8 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
 
   const loginOptional = useOptionalFields(
     [
+      { key: 'url', label: 'Website', autoCapitalize: 'none' },
+      { key: 'email', label: 'Email', keyboardType: 'email-address', autoCapitalize: 'none' },
       { key: 'mobile', label: 'Mobile' },
       { key: 'notes', label: 'Notes' },
     ],
@@ -93,6 +102,7 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
   );
   const cardOptional = useOptionalFields(
     [
+      { key: 'name', label: 'Card label' },
       { key: 'pin', label: 'PIN', secure: true, keyboardType: 'number-pad' },
       { key: 'notes', label: 'Notes' },
     ],
@@ -100,6 +110,7 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
   );
   const totpOptional = useOptionalFields(
     [
+      { key: 'name', label: 'Label' },
       { key: 'algorithm', label: 'Algorithm' },
       { key: 'digits', label: 'Digits', keyboardType: 'number-pad' },
       { key: 'period', label: 'Period' },
@@ -157,7 +168,14 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
     f.secure === true ? (
       <SecretField key={f.key} label={f.label} value={value(f.key)} onChangeText={set(f.key)} />
     ) : (
-      <Field key={f.key} label={f.label} value={value(f.key)} onChangeText={set(f.key)} keyboardType={f.keyboardType} />
+      <Field
+        key={f.key}
+        label={f.label}
+        value={value(f.key)}
+        onChangeText={set(f.key)}
+        keyboardType={f.keyboardType}
+        autoCapitalize={f.autoCapitalize}
+      />
     );
 
   return (
@@ -169,18 +187,23 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
         <Text style={styles.appBarTitle}>{params.mode === 'create' ? `New ${TITLES[itemType]}` : `Edit ${TITLES[itemType]}`}</Text>
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Field label="Name" value={value('name')} onChangeText={set('name')} placeholder={TITLES[itemType]} />
-
+        {itemType === 'card' && (
+          <CardPreview
+            number={value('number')}
+            cardholder={value('cardholder')}
+            expiryMonth={value('expiryMonth')}
+            expiryYear={value('expiryYear')}
+          />
+        )}
         {itemType === 'login' && (
           <>
             <View style={styles.sectionRow}>
               <Text style={styles.sectionLabel}>Every time</Text>
               <View style={styles.sectionRule} />
             </View>
-            <Field label="URL" value={value('url')} onChangeText={set('url')} autoCapitalize="none" />
+            <Field label="Name" value={value('name')} onChangeText={set('name')} placeholder="Login" hint="How it appears in your vault list." />
             <Field label="Username" value={value('username')} onChangeText={set('username')} autoCapitalize="none" />
             <SecretField label="Password" value={value('password')} onChangeText={set('password')} />
-            <Field label="Email" value={value('email')} onChangeText={set('email')} autoCapitalize="none" />
             {loginOptional.visible.map(renderOptionalField)}
             <SometimesChips fields={loginOptional.remaining} onAdd={loginOptional.add} />
           </>
@@ -188,7 +211,6 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
 
         {itemType === 'card' && (
           <>
-            <Field label="Cardholder Name" value={value('cardholder')} onChangeText={set('cardholder')} />
             <SecretField label="Card Number" value={value('number')} onChangeText={set('number')} />
             <View style={styles.row}>
               <View style={styles.half}>
@@ -199,6 +221,7 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
               </View>
             </View>
             <SecretField label="CVV" value={value('securityCode')} onChangeText={set('securityCode')} />
+            <Field label="Name on card" value={value('cardholder')} onChangeText={set('cardholder')} hint="As printed on the front." />
             {cardOptional.visible.map(renderOptionalField)}
             <SometimesChips fields={cardOptional.remaining} onAdd={cardOptional.add} />
           </>
@@ -233,7 +256,12 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
           </>
         )}
 
-        {itemType === 'note' && <Field label="Content" value={value('notes')} onChangeText={set('notes')} multiline />}
+        {itemType === 'note' && (
+          <>
+            <Field label="Name" value={value('name')} onChangeText={set('name')} placeholder="Secure note" />
+            <Field label="Content" value={value('notes')} onChangeText={set('notes')} multiline />
+          </>
+        )}
 
         {error !== null && <Text style={styles.error}>error: {error}</Text>}
       </ScrollView>
@@ -257,7 +285,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 6,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(103, 70, 54, 0.12)',
+    borderBottomColor: inkAlpha(0.12),
   },
   back: {
     width: 44,
@@ -274,7 +302,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
+    paddingTop: 18,
+    paddingBottom: spacing.screen,
     gap: spacing.md,
   },
   sectionRow: {
@@ -293,7 +323,7 @@ const styles = StyleSheet.create({
   sectionRule: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(103, 70, 54, 0.16)',
+    backgroundColor: inkAlpha(0.16),
   },
   chipRow: {
     flexDirection: 'row',
@@ -342,9 +372,10 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     gap: spacing.sm + 2,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.screen,
     paddingTop: spacing.sm + 4,
+    paddingBottom: 22,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(103, 70, 54, 0.12)',
+    borderTopColor: inkAlpha(0.12),
   },
 });
