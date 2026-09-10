@@ -15,8 +15,6 @@ import {
   type DecryptedItem,
   type DecryptedCard,
   type DecryptedIdentity,
-  type DecryptedLogin,
-  type DecryptedNote,
   type DecryptedTotp,
   type CardContent,
   type IdentityContent,
@@ -46,11 +44,6 @@ const STRENGTH_LABEL: Record<StrengthLevel, string> = {
   strong: "Strong",
   excellent: "Excellent",
 };
-
-/** Levels worth nagging about in the list. */
-function isWeak(level: StrengthLevel): boolean {
-  return level === "very-weak" || level === "weak";
-}
 
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("popup root missing");
@@ -765,22 +758,6 @@ function stamps(item: DecryptedItem): HTMLElement {
   return el("div", { className: "stamps", textContent: parts.join(" · ") });
 }
 
-/** One row, dispatched on what the item actually is. */
-function liveRow(item: DecryptedItem): HTMLLIElement {
-  switch (item.type) {
-    case "login":
-      return loginRow(item);
-    case "card":
-      return cardRow(item);
-    case "identity":
-      return identityRow(item);
-    case "totp":
-      return totpRow(item);
-    case "note":
-      return noteRow(item);
-  }
-}
-
 /** How an identity reads when it has no name of its own. */
 function identityLabel(item: DecryptedIdentity): string {
   return [item.firstName, item.lastName].filter(Boolean).join(" ");
@@ -793,151 +770,10 @@ function oneLineAddress(item: DecryptedIdentity): string {
     .join(", ");
 }
 
-function identityRow(item: DecryptedIdentity): HTMLLIElement {
-  const noteUse = (): void => {
-    void send({ kind: "recordUse", id: item.id });
-  };
-
-  const address = oneLineAddress(item);
-  const copies = [
-    copyable(item.email, { onCopy: noteUse }),
-    copyable(item.phone, { onCopy: noteUse }),
-  ];
-  if (address) copies.push(copyable(address, { onCopy: noteUse }));
-  // Only shown when there is one, and never in the clear: a passport or
-  // national ID number opens accounts by itself.
-  if (item.nationalId) {
-    copies.push(copyable(item.nationalId, { masked: true, onCopy: noteUse }));
-  }
-
-  const row = el("li", {}, [
-    el("div", { className: "name" }, [item.name?.trim() || identityLabel(item) || "(unnamed)"]),
-    el("div", {
-      className: "meta",
-      textContent: [item.company, address].filter(Boolean).join(" · ") || TYPE_LABEL.identity,
-    }),
-    el("div", { className: "row" }, copies),
-    stamps(item),
-  ]);
-  row.append(rowActions(item, row));
-  return row;
-}
-
 /** How a card reads when it has no name of its own. */
 function cardLabel(item: DecryptedCard): string {
   const scheme = item.brand ?? "Card";
   return item.last4 ? `${scheme} ···· ${item.last4}` : scheme;
-}
-
-function cardRow(item: DecryptedCard): HTMLLIElement {
-  const noteUse = (): void => {
-    void send({ kind: "recordUse", id: item.id });
-  };
-
-  const expiry =
-    item.expiryMonth && item.expiryYear
-      ? `expires ${item.expiryMonth}/${item.expiryYear.slice(-2)}`
-      : "";
-
-  const row = el("li", {}, [
-    el("div", { className: "name" }, [item.name?.trim() || cardLabel(item)]),
-    el("div", {
-      className: "meta",
-      textContent: [item.cardholder, expiry].filter(Boolean).join(" · ") || cardLabel(item),
-    }),
-    // The number and the code are the secrets; the cardholder name is not,
-    // and having it readable is what makes the row identifiable at a glance.
-    el("div", { className: "row" }, [
-      copyable(item.number, { masked: true, onCopy: noteUse }),
-      copyable(item.securityCode, { masked: true, onCopy: noteUse }),
-    ]),
-    stamps(item),
-  ]);
-  row.append(rowActions(item, row));
-  return row;
-}
-
-/** The buttons every live row ends with, and the edit form they open. */
-function rowActions(item: DecryptedItem, row: HTMLLIElement): HTMLElement {
-  const edit = el("button", { className: "inline", type: "button", textContent: "Edit" });
-  edit.addEventListener("click", () => {
-    row.replaceChildren(
-      itemForm(
-        "Save",
-        item.type,
-        item,
-        async (content) => {
-          unwrap(await send({ kind: "updateItem", id: item.id, content }));
-        },
-        () => void refresh(),
-      ),
-    );
-  });
-
-  return el("div", { className: "row" }, [
-    edit,
-    action("Delete", { kind: "trashItem", id: item.id }),
-  ]);
-}
-
-function loginRow(item: DecryptedLogin): HTMLLIElement {
-  const label = item.name?.trim();
-  const heading = el("div", { className: "name" }, [label || item.username || "(untitled)"]);
-  if (isWeak(item.strength.level)) {
-    heading.append(
-      el("span", {
-        className: `badge level-${item.strength.level}`,
-        textContent: STRENGTH_LABEL[item.strength.level],
-        title: `About ${String(item.strength.bits)} bits. Worth replacing.`,
-      }),
-    );
-  }
-  if (item.reusedBy > 0) {
-    // Flagged even when the password scores well: strength says nothing about
-    // whether a breach of one site would open the others.
-    heading.append(
-      el("span", {
-        className: "badge level-fair",
-        textContent: `Reused ×${String(item.reusedBy + 1)}`,
-        title: `This password is also on ${String(item.reusedBy)} other login(s).`,
-      }),
-    );
-  }
-
-  const noteUse = (): void => {
-    void send({ kind: "recordUse", id: item.id });
-  };
-
-  const row = el("li", {}, [
-    heading,
-    el("div", { className: "meta", textContent: item.url || "(no site)" }),
-    el("div", { className: "row" }, [
-      copyable(item.username, { onCopy: noteUse }),
-      copyable(item.password, { masked: true, onCopy: noteUse }),
-    ]),
-    stamps(item),
-  ]);
-  row.append(rowActions(item, row));
-  return row;
-}
-
-function noteRow(item: DecryptedNote): HTMLLIElement {
-  const noteUse = (): void => {
-    void send({ kind: "recordUse", id: item.id });
-  };
-
-  const row = el("li", {}, [
-    el("div", { className: "name" }, [item.name?.trim() || "(untitled note)"]),
-    el("div", { className: "meta", textContent: TYPE_LABEL.note }),
-    // Masked like a password. The body of a secure note is the secret — it
-    // has no username half that is safe to show at a glance.
-    el("div", { className: "row" }, [
-      copyable(item.notes, { masked: true, onCopy: noteUse }),
-    ]),
-    stamps(item),
-  ]);
-  row.append(rowActions(item, row));
-  return row;
 }
 
 /** How an authenticator account reads when it has no name of its own. */
@@ -953,54 +789,6 @@ function totpLabel(item: DecryptedTotp): string {
  * once a second would decrypt every item to refresh six digits. The interval
  * is cleared when the row leaves the document, which a re-render does.
  */
-function totpRow(item: DecryptedTotp): HTMLLIElement {
-  const noteUse = (): void => {
-    void send({ kind: "recordUse", id: item.id });
-  };
-
-  const code = el("div", { className: "row" });
-  const countdown = el("div", { className: "meter muted" });
-
-  let showing = { code: item.code, secondsRemaining: item.secondsRemaining };
-
-  const paint = (): void => {
-    code.replaceChildren(
-      showing.code
-        ? copyable(showing.code, { onCopy: noteUse })
-        : el("span", { className: "error", textContent: "Secret cannot be read" }),
-    );
-    countdown.textContent = showing.code ? `${String(showing.secondsRemaining)}s` : "";
-  };
-  paint();
-
-  const timer = setInterval(() => {
-    if (!row.isConnected) {
-      clearInterval(timer);
-      return;
-    }
-    if (showing.secondsRemaining > 1) {
-      showing = { ...showing, secondsRemaining: showing.secondsRemaining - 1 };
-      paint();
-      return;
-    }
-    void send({ kind: "totpCode", id: item.id }).then((response) => {
-      if (!response.ok || response.kind !== "totpCode") return;
-      showing = { code: response.code, secondsRemaining: response.secondsRemaining };
-      paint();
-    });
-  }, 1000);
-
-  const row = el("li", {}, [
-    el("div", { className: "name" }, [item.name?.trim() || totpLabel(item)]),
-    el("div", { className: "meta", textContent: item.name ? totpLabel(item) : TYPE_LABEL.totp }),
-    code,
-    countdown,
-    stamps(item),
-  ]);
-  row.append(rowActions(item, row));
-  return row;
-}
-
 function trashedRow(item: DecryptedItem): HTMLLIElement {
   const label = item.name?.trim();
   const fallback = untitled(item);
@@ -1091,7 +879,255 @@ function untitled(item: DecryptedItem): string {
 
 /** Kept across a re-render, so typing does not reset the list. */
 let query = "";
-let showTrash = false;
+let selectedId: string | undefined;
+let listScope: "site" | "all" = "site";
+let unlockedScreen: "vault" | "new" | "edit" | "settings" | "sync" | "generator" | "trash" = "vault";
+let refocusSearch = false;
+
+function itemTitle(item: DecryptedItem): string {
+  return item.name?.trim() || untitled(item) || `(untitled ${TYPE_LABEL[item.type].toLowerCase()})`;
+}
+
+function itemSummary(item: DecryptedItem): string {
+  switch (item.type) {
+    case "login":
+      return item.username || item.url || TYPE_LABEL.login;
+    case "card":
+      return [item.brand, item.last4 ? `•••• ${item.last4}` : ""].filter(Boolean).join(" · ") || TYPE_LABEL.card;
+    case "identity":
+      return item.email || oneLineAddress(item) || TYPE_LABEL.identity;
+    case "totp":
+      return [item.issuer, item.account].filter(Boolean).join(" · ") || TYPE_LABEL.totp;
+    case "note":
+      return item.notes.trim().replace(/\s+/g, " ").slice(0, 46) || TYPE_LABEL.note;
+  }
+}
+
+function itemGlyph(item: DecryptedItem): HTMLElement {
+  return el("span", { className: `item-glyph item-glyph-${item.type}` }, [
+    icon(item.type, { size: 18 }),
+  ]);
+}
+
+function recordCopy(item: DecryptedItem): void {
+  void send({ kind: "recordUse", id: item.id, event: "copied" });
+}
+
+function detailField(
+  item: DecryptedItem,
+  label: string,
+  value: string,
+  options: { masked?: boolean; multiline?: boolean } = {},
+): HTMLElement {
+  const shown = el("span", {
+    className: `detail-value${options.multiline === true ? " detail-value-multiline" : ""}`,
+  });
+  let revealed = options.masked !== true;
+  const paint = (): void => {
+    shown.textContent = revealed ? value || "—" : "•".repeat(Math.min(value.length, 12));
+  };
+  paint();
+
+  const actions: HTMLElement[] = [];
+  if (options.masked === true && value) {
+    const reveal = el("button", {
+      className: "detail-action",
+      type: "button",
+      title: "Show",
+      ariaLabel: "Show value",
+    }, [icon("reveal", { size: 17 })]);
+    reveal.addEventListener("click", () => {
+      revealed = !revealed;
+      reveal.title = revealed ? "Hide" : "Show";
+      reveal.ariaLabel = reveal.title;
+      paint();
+      if (revealed) void send({ kind: "recordUse", id: item.id, event: "revealed" });
+    });
+    actions.push(reveal);
+  }
+
+  if (value) {
+    const copy = el("button", {
+      className: "detail-action",
+      type: "button",
+      title: `Copy — cleared after ${String(CLIPBOARD_SECONDS)} seconds`,
+      ariaLabel: `Copy ${label.toLowerCase()}`,
+    }, [icon("copy", { size: 17 })]);
+    copy.addEventListener("click", () => {
+      void copyForAWhile(value)
+        .then(() => {
+          recordCopy(item);
+          copy.classList.add("copied");
+          copy.replaceChildren("Copied");
+          setTimeout(() => {
+            copy.classList.remove("copied");
+            copy.replaceChildren(icon("copy", { size: 17 }));
+          }, 1200);
+        })
+        .catch(() => showError("Could not copy."));
+    });
+    actions.push(copy);
+  }
+
+  return el("div", { className: "detail-field" }, [
+    el("div", { className: "detail-field-copy" }, [
+      el("span", { className: "detail-label", textContent: label }),
+      shown,
+    ]),
+    el("div", { className: "detail-actions" }, actions),
+  ]);
+}
+
+function detailForItem(item: DecryptedItem, currentSite: string | null, isForSite: boolean): HTMLElement {
+  const edit = el("button", { className: "quiet-button", type: "button" }, [
+    icon("edit", { size: 15 }),
+    "Edit",
+  ]);
+  edit.addEventListener("click", () => {
+    selectedId = item.id;
+    unlockedScreen = "edit";
+    void renderUnlocked();
+  });
+
+  const fields = el("div", { className: "detail-card" });
+  if (item.type === "login") {
+    fields.append(
+      detailField(item, "Username", item.username),
+      detailField(item, "Password", item.password, { masked: true }),
+      detailField(item, "Website", item.url),
+    );
+  } else if (item.type === "card") {
+    fields.append(
+      detailField(item, "Cardholder", item.cardholder),
+      detailField(item, "Card number", item.number, { masked: true }),
+      detailField(item, "Expires", [item.expiryMonth, item.expiryYear].filter(Boolean).join(" / ")),
+      detailField(item, "Security code", item.securityCode, { masked: true }),
+    );
+  } else if (item.type === "identity") {
+    fields.append(
+      detailField(item, "Name", identityLabel(item)),
+      detailField(item, "Email", item.email),
+      detailField(item, "Phone", item.phone),
+      detailField(item, "Address", oneLineAddress(item), { multiline: true }),
+    );
+    if (item.nationalId) fields.append(detailField(item, "Passport or national ID", item.nationalId, { masked: true }));
+  } else if (item.type === "totp") {
+    fields.append(
+      detailField(item, "Account", item.account),
+      detailField(item, "One-time code", item.code),
+      detailField(item, "Issuer", item.issuer),
+    );
+  } else {
+    fields.append(detailField(item, "Secure note", item.notes, { masked: true, multiline: true }));
+  }
+
+  const content: HTMLElement[] = [
+    el("div", { className: "detail-heading" }, [
+      itemGlyph(item),
+      el("div", { className: "grow" }, [
+        el("h1", { textContent: itemTitle(item) }),
+        el("p", { className: "detail-subtitle", textContent: item.type === "login" ? (currentSite ?? item.url) : TYPE_LABEL[item.type] }),
+      ]),
+      edit,
+    ]),
+  ];
+
+  if (item.type === "login" && isForSite && currentSite) {
+    const fill = el("button", { className: "primary fill-button", type: "button" }, [
+      icon("fill", { size: 18 }),
+      `Fill on ${currentSite}`,
+    ]);
+    fill.addEventListener("click", () => {
+      fill.disabled = true;
+      void send({ kind: "fillActiveLogin", id: item.id })
+        .then(unwrap)
+        .then((response) => {
+          if (response.kind !== "fillActiveLogin") throw new Error("unexpected reply");
+          fill.replaceChildren(icon("fill", { size: 18 }), "Filled");
+          setTimeout(() => window.close(), 450);
+        })
+        .catch((error: unknown) => {
+          fill.disabled = false;
+          showError(error instanceof Error ? error.message : "Could not fill this page.");
+        });
+    });
+    content.push(fill);
+  }
+
+  content.push(fields);
+  if (item.notes && item.type !== "note") {
+    content.push(detailField(item, "Note", item.notes, { multiline: true }));
+  }
+  content.push(stamps(item));
+
+  return el("section", { className: "item-detail" }, content);
+}
+
+function popupHeader(search?: HTMLInputElement): HTMLElement {
+  const brand = el("div", { className: "popup-brand" }, [
+    logoMark({ size: 30 }),
+    el("span", { textContent: "Vaultiq" }),
+  ]);
+
+  if (!search) {
+    const back = el("button", { className: "detail-action", type: "button", title: "Back", ariaLabel: "Back" }, [
+      icon("chevronLeft", { size: 18 }),
+    ]);
+    back.addEventListener("click", () => {
+      unlockedScreen = "vault";
+      void renderUnlocked();
+    });
+    return el("header", { className: "popup-header sub-header" }, [back, brand]);
+  }
+
+  const add = el("button", { className: "primary add-button", type: "button" }, [
+    icon("plus", { size: 16 }),
+    "Add item",
+  ]);
+  add.addEventListener("click", () => {
+    unlockedScreen = "new";
+    void renderUnlocked();
+  });
+
+  const more = el("button", { className: "detail-action", type: "button", title: "More", ariaLabel: "More" }, [
+    icon("moreVertical", { size: 18 }),
+  ]);
+  const menu = el("div", { className: "overflow-menu", hidden: true });
+  const destinations: { label: string; screen: typeof unlockedScreen }[] = [
+    { label: "Password generator", screen: "generator" },
+    { label: "Sync & devices", screen: "sync" },
+    { label: "Settings", screen: "settings" },
+    { label: "Trash", screen: "trash" },
+  ];
+  for (const destination of destinations) {
+    const button = el("button", { className: "menu-item", type: "button", textContent: destination.label });
+    button.addEventListener("click", () => {
+      unlockedScreen = destination.screen;
+      void renderUnlocked();
+    });
+    menu.append(button);
+  }
+  const lock = el("button", { className: "menu-item", type: "button" }, [icon("lock", { size: 14 }), "Lock vault"]);
+  lock.addEventListener("click", () => void send({ kind: "lock" }).then(refresh));
+  menu.append(lock);
+  more.addEventListener("click", () => {
+    menu.hidden = !menu.hidden;
+  });
+
+  return el("header", { className: "popup-header" }, [
+    brand,
+    el("div", { className: "header-search grow" }, [icon("search", { size: 18 }), search]),
+    add,
+    el("div", { className: "menu-wrap" }, [more, menu]),
+  ]);
+}
+
+function renderUtility(title: string, content: HTMLElement): void {
+  root.replaceChildren(
+    popupHeader(),
+    el("main", { className: "utility-screen" }, [el("h1", { textContent: title }), content]),
+  );
+}
 
 async function renderUnlocked(): Promise<void> {
   const response = unwrap(await send({ kind: "listItems" }));
@@ -1104,127 +1140,160 @@ async function renderUnlocked(): Promise<void> {
   const matches = (item: DecryptedItem): boolean =>
     needle === "" || haystack(item).includes(needle);
 
-  const matching = new Set(forSite.items.map((item) => item.id));
+  const siteIds = new Set(forSite.items.map((item) => item.id));
   const site = forSite.items.filter(matches).sort(byRecentUse);
-  const live = response.items
-    .filter((item) => !item.deleted && !matching.has(item.id) && matches(item))
-    .sort(byRecentUse);
+  const live = response.items.filter((item) => !item.deleted && matches(item)).sort(byRecentUse);
   const trashed = response.items.filter((item) => item.deleted && matches(item));
 
-  // --- header, pinned ---
+  if (unlockedScreen === "settings") return renderUtility("Settings", settingsPanel());
+  if (unlockedScreen === "sync") return renderUtility("Sync & devices", syncPanel(showError));
+  if (unlockedScreen === "generator") return renderUtility("Password generator", generatorPanel());
+  if (unlockedScreen === "trash") {
+    return renderUtility(
+      "Trash",
+      trashed.length
+        ? el("ul", { className: "trash-list" }, trashed.map(trashedRow))
+        : el("p", { className: "muted", textContent: "Trash is empty." }),
+    );
+  }
+
+  const selected = response.items.find((item) => !item.deleted && item.id === selectedId);
+  if (unlockedScreen === "edit" && selected) {
+    const form = itemForm(
+      "Save changes",
+      selected.type,
+      selected,
+      async (content) => {
+        unwrap(await send({ kind: "updateItem", id: selected.id, content }));
+        unlockedScreen = "vault";
+      },
+      () => {
+        unlockedScreen = "vault";
+        void renderUnlocked();
+      },
+    );
+    return renderUtility(`Edit ${TYPE_LABEL[selected.type].toLowerCase()}`, form);
+  }
+
+  if (unlockedScreen === "new") {
+    const chooser = el("div", { className: "type-chooser" });
+    for (const type of Object.keys(TYPE_LABEL) as ItemType[]) {
+      const button = el("button", { className: "type-choice", type: "button" }, [
+        el("span", { className: `item-glyph item-glyph-${type}` }, [icon(type, { size: 20 })]),
+        el("span", {}, [
+          el("strong", { textContent: TYPE_LABEL[type] }),
+          el("small", { textContent: type === "login" ? "Username, password and site" : type === "totp" ? "Time-based one-time code" : `New ${TYPE_LABEL[type].toLowerCase()}` }),
+        ]),
+        icon("chevronRight", { size: 16 }),
+      ]);
+      button.addEventListener("click", () => {
+        const form = itemForm(
+          "Save item",
+          type,
+          undefined,
+          async (content) => {
+            unwrap(await send({ kind: "addItem", content }));
+            unlockedScreen = "vault";
+          },
+          () => {
+            unlockedScreen = "vault";
+            void renderUnlocked();
+          },
+        );
+        renderUtility(`New ${TYPE_LABEL[type].toLowerCase()}`, form);
+      });
+      chooser.append(button);
+    }
+    return renderUtility("Add item", chooser);
+  }
 
   const search = el("input", {
     type: "search",
-    placeholder: "Search the vault",
+    placeholder: "Search vault",
     value: query,
     autocomplete: "off",
+    ariaLabel: "Search vault",
   });
   search.addEventListener("input", () => {
     query = search.value;
+    refocusSearch = true;
     void renderUnlocked();
   });
 
-  const add = el("button", { className: "primary", type: "button" }, [icon("plus", { size: 13 }), "Add"]);
-  const lock = el("button", { type: "button" }, [icon("lock", { size: 13 }), "Lock"]);
-  lock.addEventListener("click", () => {
-    void send({ kind: "lock" }).then(refresh);
+  if (site.length === 0 && listScope === "site") listScope = "all";
+  const shownItems = needle ? live : listScope === "site" ? site : live;
+  if (!shownItems.some((item) => item.id === selectedId)) selectedId = shownItems[0]?.id;
+  const active = shownItems.find((item) => item.id === selectedId);
+
+  const siteTab = el("button", { className: `scope-tab${listScope === "site" ? " active" : ""}`, type: "button" }, [
+    "This site",
+    el("span", { textContent: String(site.length) }),
+  ]);
+  siteTab.disabled = site.length === 0;
+  siteTab.addEventListener("click", () => {
+    listScope = "site";
+    selectedId = site[0]?.id;
+    void renderUnlocked();
+  });
+  const allTab = el("button", { className: `scope-tab${listScope === "all" ? " active" : ""}`, type: "button" }, [
+    "All items",
+    el("span", { textContent: String(response.items.filter((item) => !item.deleted).length) }),
+  ]);
+  allTab.addEventListener("click", () => {
+    listScope = "all";
+    selectedId = live[0]?.id;
+    void renderUnlocked();
   });
 
-  const header = el("header", {}, [
-    el("div", { className: "bar" }, [
-      el("span", { className: "grow" }, [search]),
-      add,
-      lock,
-    ]),
-  ]);
-
-  // --- body, scrolling ---
-
-  const body = el("main");
-
-  if (site.length) {
-    body.append(
-      el("div", { className: "group for-site" }, [
-        el("h2", { textContent: `For ${forSite.site ?? "this site"}` }),
-        el("ul", {}, site.map(liveRow)),
+  const rows = el("div", { className: "vault-rows" });
+  for (const item of shownItems) {
+    const row = el("button", {
+      className: `vault-row${item.id === selectedId ? " selected" : ""}`,
+      type: "button",
+    }, [
+      itemGlyph(item),
+      el("span", { className: "vault-row-copy" }, [
+        el("strong", { textContent: itemTitle(item) }),
+        el("small", { textContent: itemSummary(item) }),
       ]),
-      el("hr"),
-    );
-  }
-
-  body.append(
-    live.length
-      ? el("div", { className: "group" }, [
-          el("h2", { textContent: site.length ? "Everything else" : "All items" }),
-          el("ul", {}, live.map(liveRow)),
-        ])
-      : el("p", {
-          className: "muted",
-          textContent: needle
-            ? "Nothing matches that."
-            : site.length
-              ? "Nothing else saved."
-              : "Nothing saved yet.",
-        }),
-  );
-
-  if (trashed.length) {
-    const toggle = el("button", { className: "inline", type: "button" }, [
-      icon(showTrash ? "chevronDown" : "chevronRight", { size: 12 }),
-      `${showTrash ? "Hide" : "Show"} trash (${String(trashed.length)})`,
+      icon("chevronRight", { size: 15 }),
     ]);
-    toggle.addEventListener("click", () => {
-      showTrash = !showTrash;
+    row.addEventListener("click", () => {
+      selectedId = item.id;
       void renderUnlocked();
     });
-
-    body.append(el("hr"), toggle);
-    if (showTrash) body.append(el("ul", {}, trashed.map(trashedRow)));
+    rows.append(row);
   }
+  if (!shownItems.length) rows.append(el("p", { className: "empty-list muted", textContent: needle ? "Nothing matches that." : "Nothing saved here yet." }));
 
-  body.append(el("hr"), generatorPanel(), el("hr"), syncPanel(showError), el("hr"), settingsPanel());
+  const sidebar = el("aside", { className: "vault-sidebar" }, [
+    el("div", { className: "site-context" }, [
+      el("span", { className: "status-dot" }),
+      el("strong", { textContent: forSite.site ?? "No website detected" }),
+      el("span", { textContent: `· ${String(site.length)} ${site.length === 1 ? "match" : "matches"}` }),
+    ]),
+    el("div", { className: "scope-tabs" }, [siteTab, allTab]),
+    rows,
+  ]);
 
-  /** Opens an empty form for one type. */
-  const startNew = (type: ItemType): void => {
-    body.replaceChildren(
-      el("h2", { textContent: `New ${TYPE_LABEL[type].toLowerCase()}` }),
-      itemForm(
-        "Save item",
-        type,
-        undefined,
-        async (content) => {
-          unwrap(await send({ kind: "addItem", content }));
-        },
-        () => void refresh(),
-      ),
-    );
-  };
+  const detail = active
+    ? detailForItem(active, forSite.site, siteIds.has(active.id))
+    : el("section", { className: "item-detail detail-empty" }, [
+        logoMark({ size: 42 }),
+        el("h1", { textContent: "Choose an item" }),
+        el("p", { className: "muted", textContent: "Select a vault item to see its details and quick actions." }),
+      ]);
 
-  // Asked before the form rather than switched on it: the type is fixed for
-  // the life of an item, so it is a choice, not a field.
-  add.addEventListener("click", () => {
-    const choices = (Object.keys(TYPE_LABEL) as ItemType[]).map((type, index) => {
-      const button = el("button", {
-        ...(index === 0 ? { className: "primary" } : {}),
-        type: "button",
-        textContent: TYPE_LABEL[type],
-      });
-      button.addEventListener("click", () => {
-        startNew(type);
-      });
-      return button;
-    });
+  root.replaceChildren(
+    popupHeader(search),
+    el("div", { className: "vault-workspace" }, [sidebar, detail]),
+  );
 
-    body.replaceChildren(
-      el("h2", { textContent: "What are you saving?" }),
-      el("div", { className: "row" }, choices),
-    );
-  });
-
-  root.replaceChildren(header, body);
-  // Focus lands on search so typing filters immediately, but only on the
-  // first paint — refocusing on every keystroke would fight the caret.
-  if (document.activeElement === document.body) search.focus();
+  if (refocusSearch) {
+    search.focus();
+    search.setSelectionRange(search.value.length, search.value.length);
+    refocusSearch = false;
+  }
 }
 
 function render(status: VaultStatus): void {

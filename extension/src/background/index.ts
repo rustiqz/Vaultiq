@@ -144,6 +144,20 @@ async function handle(
       await extendAutoLock();
       return { ok: true, kind: "credentialForFill", ...credential };
     }
+    case "fillActiveLogin": {
+      const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+      const active = tab ?? (await browser.tabs.query({ active: true, currentWindow: true }))[0];
+      if (active?.id === undefined) throw new Error("No active page to fill.");
+
+      const result = (await browser.tabs.sendMessage(active.id, {
+        kind: "vaultiqFillActiveLogin",
+        id: request.id,
+      })) as { filled?: boolean } | undefined;
+      if (result?.filled !== true) throw new Error("Focus a login form on this page first.");
+
+      await extendAutoLock();
+      return { ok: true, kind: "fillActiveLogin" };
+    }
     case "fillSuggestions": {
       const offered = await fillSuggestions(request.wants, await requestOrigin(sender));
       return { ok: true, kind: "fillSuggestions", ...offered };

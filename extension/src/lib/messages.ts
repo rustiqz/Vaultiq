@@ -363,6 +363,10 @@ export type Request =
   // belongs to the sender's own site, so a compromised page cannot read
   // credentials for anywhere else.
   | { kind: "credentialForFill"; id: string }
+  // A popup click asks the active tab's content script to perform the fill.
+  // The popup never receives the credential: the content script requests it
+  // itself, so the existing sender-tab site check remains the final gate.
+  | { kind: "fillActiveLogin"; id: string }
   // What the autofill picker should list for the field just focused. Carries
   // no URL and no values: the background reads the sender tab's site itself,
   // and answers with labels only.
@@ -419,6 +423,7 @@ export type Response =
   | { ok: true; kind: "renameDevice" }
   | { ok: true; kind: "auditLog"; events: AuditEvent[]; devices: DeviceIdentity[] }
   | { ok: true; kind: "credentialForFill"; username: string; password: string }
+  | { ok: true; kind: "fillActiveLogin" }
   | { ok: true; kind: "fillSuggestions"; site: string | null; suggestions: FillSuggestion[] }
   | { ok: true; kind: "fillValues"; values: Record<string, string> }
   | { ok: true; kind: "shouldOfferToSave"; offer: false }
