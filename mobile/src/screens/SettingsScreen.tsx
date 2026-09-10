@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Icon from '../icons';
 import LogoMark from '../LogoMark';
 import type { SettingsStackScreenProps } from '../navigation';
+import Autofill from '../nativeAutofill';
 import * as storage from '../storage';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, Card, SectionLabel, useConfirmDialog } from '../ui';
@@ -29,6 +30,8 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
   const [autoLockMinutes, setAutoLockMinutes] = useState(15);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [autofillSupported, setAutofillSupported] = useState(false);
+  const [autofillEnabled, setAutofillEnabled] = useState(false);
   const { show, dialog } = useConfirmDialog();
 
   const loadDevices = useCallback(() => {
@@ -44,6 +47,10 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
       storage.readAutoLockMinutes().then(setAutoLockMinutes);
       vault.biometricAvailable().then(setBiometricAvailable);
       vault.biometricEnabled().then(setBiometricEnabled);
+      Autofill.isSupported().then(supported => {
+        setAutofillSupported(supported);
+        if (supported) Autofill.isEnabled().then(setAutofillEnabled);
+      });
       loadDevices();
     }, [loadDevices]),
   );
@@ -123,6 +130,15 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
             <Text style={[styles.rowLabel, styles.groupRowFlex]}>Change master password</Text>
             <Icon name="chevronRight" size={16} color={colors.ink} />
           </Pressable>
+          {autofillSupported && (
+            <Pressable style={[styles.groupRow, styles.groupRowDivider]} onPress={() => Autofill.openAutofillSettings()}>
+              <View style={styles.rowText}>
+                <Text style={styles.rowLabel}>Autofill service</Text>
+                <Text style={styles.mono}>{autofillEnabled ? 'Vaultiq' : 'Not set'}</Text>
+              </View>
+              <Icon name="chevronRight" size={16} color={colors.ink} />
+            </Pressable>
+          )}
         </Card>
       </View>
 

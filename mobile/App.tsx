@@ -40,6 +40,19 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import AutoLockScreen from './src/screens/AutoLockScreen';
 import ChangeMasterPasswordScreen from './src/screens/ChangeMasterPasswordScreen';
 import EnableBiometricScreen from './src/screens/EnableBiometricScreen';
+import AutofillFillScreen from './src/screens/AutofillFillScreen';
+import AutofillSaveScreen from './src/screens/AutofillSaveScreen';
+
+/** Present only when launched via AutofillActivity (see its getLaunchOptions). */
+type AutofillRequest = {
+  mode: 'fill' | 'save';
+  domain: string;
+  /** Browser-verified webDomain when there is one, otherwise the requesting app's label -- see VaultiqAutofillService.kt's callerFor. */
+  caller: string;
+  callerVerified: boolean;
+  username?: string;
+  password?: string;
+};
 
 const ITEM_TYPE_TITLES: Record<string, string> = {
   login: 'Login',
@@ -169,7 +182,7 @@ const TAB_ICONS: Record<keyof RootTabParamList, IconName> = {
   Settings: 'settingsGear',
 };
 
-function App() {
+function App(props: { autofillRequest?: AutofillRequest }) {
   const colorScheme = useColorScheme();
   const activePalette = colorScheme === 'dark' ? darkColors : lightColors;
   const navigationTheme = useMemo<Theme>(() => {
@@ -322,7 +335,23 @@ function App() {
             }
           />
         )}
-        {status === 'unlocked' && (
+        {status === 'unlocked' && props.autofillRequest?.mode === 'fill' && (
+          <AutofillFillScreen
+            domain={props.autofillRequest.domain}
+            caller={props.autofillRequest.caller}
+            callerVerified={props.autofillRequest.callerVerified}
+          />
+        )}
+        {status === 'unlocked' && props.autofillRequest?.mode === 'save' && (
+          <AutofillSaveScreen
+            domain={props.autofillRequest.domain}
+            caller={props.autofillRequest.caller}
+            callerVerified={props.autofillRequest.callerVerified}
+            username={props.autofillRequest.username ?? ''}
+            password={props.autofillRequest.password ?? ''}
+          />
+        )}
+        {status === 'unlocked' && props.autofillRequest === undefined && (
             <View key={`theme-${themeMode}-${colorScheme ?? 'light'}`} style={styles.tabRoot} onTouchStart={resetIdleTimer}>
             <Tab.Navigator
               screenOptions={({ route }) => ({

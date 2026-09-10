@@ -478,13 +478,7 @@ fast and clever, every time.
     list ("not now, not partially, not 'just the types for later'") — not
     revisited here even though a mockup assumes it, per that rule.
   - **Explicitly out of scope for this pass**: a real Android
-    `AutofillService` (the "Autofill this identity" stub and the OS-level
-    autofill picker mockup both need it). This is native-Android work
-    comparable in size to the original FFI-bridge phase — a new
-    `AutofillService` subclass, manifest `BIND_AUTOFILL_SERVICE` service
-    declaration, structure parsing, dataset/fill-response construction —
-    not something to fold into a pass alongside four small stub wire-ups.
-    Needs its own planning session.
+    `AutofillService`. Its own planning session, below.
 - **Cross-app theme parity**: the extension popup now uses the same fall
   palette, fonts, icon set, and dial logo as the mobile redesign, so the
   three apps read as one product — a token-level reskin, not a layout
@@ -599,6 +593,129 @@ fast and clever, every time.
     (0.7)`, popup.css) to a 504×364 footprint, keeping every measurement,
     scroll pane, and overlay proportional rather than redrawing the layout
     at the smaller size.
+- **Real Android `AutofillService`, login-only (fill + save), v1.** The
+  mobile analogue of the extension's autofill, and the last of the
+  mockup-assumed features that was flagged as needing its own planning
+  session rather than folding into a stub-wiring pass.
+  - **The core problem**: `AutofillService` runs as a plain Kotlin service
+    callback with no access to whatever JS/React holds in memory, and the
+    vault is very likely *locked* when some other app triggers it
+    (backgrounding already tends to kill this app's process — see
+    `CryptoCoreModule`'s held key — and there is no native item cache to
+    search even when it isn't; building one just for this would be its own
+    separate, larger project). So `onFillRequest` never tries to decrypt or
+    match anything itself: it only inspects the *form* (does it look like a
+    login?) and, if so, replies with exactly one generic, always-the-same
+    authenticated placeholder ("Fill with Vaultiq"), gated behind a
+    `PendingIntent` that opens `AutofillActivity` — a second `ReactActivity`
+    hosting the *same* registered `"Vaultiq"` component `MainActivity` does
+    (RN's standard multi-entry-point pattern, one extra `autofillRequest`
+    prop via `getLaunchOptions`), running the app's own already-correct
+    unlock → `vault.pullItems()` → decrypt pipeline completely unchanged.
+    Whatever the user picks there is handed back through a small native
+    module, `AutofillModule.kt`, to complete the framework's response. No
+    native cache, no native decrypt path, no duplicated matching logic.
+    This is standard behavior for a locked password manager (Bitwarden/
+    1Password's own services work the same way) — there is no personalized
+    suggestion to offer before that pipeline runs regardless of
+    implementation.
+  - **Save** follows the identical shape in reverse: `onSaveRequest` (no UI
+    of its own — Android already showed its own "Save to Vaultiq?" prompt)
+    launches `AutofillActivity` in save mode with the typed
+    username/password/domain, which confirms and calls the existing
+    `vault.addItem`. `SaveCallback` isn't JS-representable, so that handoff
+    stays entirely native: `VaultiqAutofillService` holds it on a companion
+    var until the launched screen's confirm/discard finishes it — the same
+    pending-callback shape `lib/qrScanResult.ts` already uses for an
+    equivalent Activity-boundary handoff in JS, just on the Kotlin side.
+  - **Field detection**: primarily explicit `AUTOFILL_HINT_USERNAME`/
+    `_PASSWORD`/`_EMAIL_ADDRESS` (Chrome reliably infers these from HTML
+    `autocomplete` attributes, so most modern web forms are covered), with
+    an `InputType`-based fallback (treats the free-text field immediately
+    before a password field as the username) for the minority of forms —
+    mostly older sites, some non-Chrome apps — that never set a hint at
+    all. A known, accepted imprecision, not a bug to chase further.
+  - **New files**: `VaultiqAutofillService.kt`, `AutofillActivity.kt`,
+    `AutofillModule.kt`, `res/layout/autofill_suggestion.xml` (the one
+    suggestion row), `res/xml/autofill_service_config.xml` (required
+    service metadata), `nativeAutofill.ts`, `AutofillFillScreen.tsx`,
+    `AutofillSaveScreen.tsx`.
+  - **Matches mockup 6aa exactly**, checked against the actual design
+    handoff file rather than approximated from the shared component kit
+    (the first pass got this wrong — see the retrospective below): a
+    *bottom sheet* over the dimmed third-party form, not a full screen.
+    `AutofillActivity` gets its own translucent window
+    (`AutofillSheetTheme` in `styles.xml` —
+    `windowIsTranslucent`/transparent `windowBackground`) so the calling
+    app's own activity, still on the back stack underneath and never
+    finished, shows through wherever the RN content doesn't paint over it;
+    the RN side renders only a `colors.scrim` backdrop and a
+    bottom-anchored cream sheet (3px ink top border, 20px corner radius) —
+    the same conceptual pattern `AutoLockScreen.tsx` already uses for its
+    own bottom sheet, just at the Activity/window level here since this
+    screen isn't hosted inside the normal navigation tree. Header: the
+    `compact` `LogoMark` variant + "VAULTIQ" wordmark + a mono subtitle,
+    a close (×) button. Up to three direct matches show as compact rows
+    (`ItemAvatar`'s existing single-letter login-avatar square + name/
+    username + a solid-ink "FILL" button per row, not a whole-row tap);
+    two escape-hatch buttons below them, "Search vault" (reveals a
+    `SearchBar` + the full login list, still inside the sheet) and
+    "Save new" (an inline quick-create form for this exact site, calling
+    `vault.addItem` then completing the fill immediately with the
+    just-created values — no need to re-pull and pick it back out).
+    `AutofillSaveScreen.tsx` has no reference mockup (only the fill picker
+    was designed) but was built to match the same sheet language rather
+    than stay a full-screen form, on request.
+  - **Caller identity is never guessed, and always shown** — added after a
+    direct question surfaced a real gap: `onFillRequest` originally only
+    ever read the browser-verified `webDomain`, which is empty for a
+    native app, so a malicious app faking a familiar login screen would
+    have shown *no identifying signal at all* in the picker, only an
+    empty domain hint, while still letting a fooled user hand it real
+    credentials. `VaultiqAutofillService.callerFor` now always resolves a
+    real identifier: the `webDomain` when there is one (a page cannot lie
+    about this; the browser reports the true URL-bar domain, not whatever
+    the page's own HTML claims), otherwise `AssistStructure
+    .activityComponent`'s actual requesting package name and label —
+    never blank, never the vault's own guess. The sheet shows this
+    unmissably in both fill and save mode: a plain "*N* matches for
+    *domain*" when verified, or an amber alert-triangle icon (design rule
+    7: amber is icon/border-only, text stays ink) next to "Not a verified
+    website — *caller*" when it isn't. This doesn't eliminate the risk — a
+    convincingly-named fake app could still fool an inattentive user, and
+    nothing here blocks the fill, it only surfaces the signal — but it
+    closes the "shows literally nothing to check" gap the first pass had.
+  - **`MainActivity` gained `android:importantForAutofill=
+    "noExcludeDescendants"`**: Vaultiq's own unlock/master-password fields
+    must never be offered autofill suggestions, by our own service or any
+    other — both a UX nonsense-loop and a mild security smell worth closing
+    explicitly.
+  - **Retrospective**: the first implementation pass built a full-screen
+    picker using the shared UI kit for visual consistency, without
+    checking it against the actual mockup — reasonable-looking, but not
+    what was asked for, and the sheet-vs-full-screen difference isn't
+    cosmetic (it's *why* the design shows the third-party form dimmed
+    underneath at all). Caught only because the user asked directly
+    whether the screen matched the stored designs; this project's own
+    `claude_design` MCP connection wasn't available in-session to check
+    proactively, and the mismatch would not have been caught otherwise.
+    Worth checking design fidelity explicitly for any future screen this
+    session didn't source through that MCP tool.
+  - **Verified**: `tsc`, `eslint`, `:app:compileDebugKotlin`, and
+    `:app:assembleDebug` all pass, including a full manifest-merge check
+    (the new `<service>`/`<activity>`, `importantForAutofill`, and
+    `AutofillSheetTheme` all landed correctly in the merged manifest).
+    **Not verified on a real device** — none was connected while building
+    this, same caveat as the biometric/QR-scan/master-password-change
+    work. Enabling Vaultiq as the system autofill service, confirming the
+    translucent sheet actually shows the calling app dimmed underneath
+    (a real device/window-manager behavior no static check can confirm),
+    triggering a real fill, and the save-prompt round trip all still need
+    that.
+  - **Deliberately out of scope**: identity/card autofill (login only, per
+    the same design-rule-scoping this session applied elsewhere) and
+    breach-checking (§1.3, forever-deferred, unrelated to this feature but
+    worth restating every time a mockup nearby assumes it).
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
