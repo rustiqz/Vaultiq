@@ -461,6 +461,13 @@ fast and clever, every time.
     `navigate({..., merge: true})` can't express "these params merge into
     ItemEdit's existing route" without widening every other param on that
     screen to optional too.
+  - **Enrollment QR scanning** reuses that camera shell before unlock. The
+    extension's "Add a device" action renders a branded QR carrying only a
+    `vaultiq://enroll` payload with the server URL and single-use token; the
+    Join Vault flow validates it and fills both fields. The master password
+    is never part of the QR. Android must keep
+    `VisionCamera_enableCodeScanner=true` in `gradle.properties`; without it
+    VisionCamera packages a preview but no native barcode detector.
   - **Verified**: `tsc`, `eslint`, and `:app:assembleDebug` all pass for
     both (the vision-camera native build in particular, since it compiles
     real C++/CMake code, not just Kotlin). **Neither is verified on a real
