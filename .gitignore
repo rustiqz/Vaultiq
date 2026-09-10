@@ -50,3 +50,7 @@ vault-export*
 # Local dev-only compose overrides (e.g. publishing a port docker-compose.yml
 # deliberately doesn't, to reach the server from a device over adb reverse)
 docker-compose.override.yml
+
+# Local design exploration (AI image-gen concepts, prompts) -- handed to a
+# designer or kept for reference, never a build artifact or shipped asset.
+output/
