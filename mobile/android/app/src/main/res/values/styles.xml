@@ -13,4 +13,17 @@
         <item name="android:windowBackground">@drawable/splash_background</item>
     </style>
 
+    <!-- AutofillActivity's theme (mockup 6aa): a translucent window so the
+         calling app's own form stays visible underneath, since the RN
+         content itself renders the scrim and bottom sheet. The previous
+         activity (the third-party app) is still on the back stack, not
+         finished, so a transparent window shows it through untouched. -->
+    <style name="AutofillSheetTheme" parent="AppTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Translucent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
 </resources>
