@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import LogoMark from './LogoMark';
-import { colors, fonts } from './theme';
+import { brandColors, fonts } from './theme';
 
 /**
  * Detects a card brand from its number's prefix -- just enough for the
@@ -30,7 +30,7 @@ function CardPreview(props: { number: string; cardholder: string; expiryMonth: s
   return (
     <View style={styles.card}>
       <View style={styles.watermark}>
-        <LogoMark variant="detailed" size={150} color={colors.onInk} tickColor={colors.onInk} />
+        <LogoMark variant="mono" size={150} color={brandColors.paper} />
       </View>
       <View style={styles.topRow}>
         <View style={styles.chip} />
@@ -56,7 +56,7 @@ function CardPreview(props: { number: string; cardholder: string; expiryMonth: s
 const styles = StyleSheet.create({
   card: {
     minHeight: 132,
-    backgroundColor: colors.ink,
+    backgroundColor: brandColors.ink,
     borderRadius: 16,
     padding: 18,
     justifyContent: 'space-between',
@@ -77,20 +77,20 @@ const styles = StyleSheet.create({
     width: 34,
     height: 24,
     borderRadius: 4,
-    backgroundColor: colors.sage,
+    backgroundColor: brandColors.sage,
   },
   brand: {
     fontFamily: fonts.semiCondensedBold,
     fontSize: 13,
     letterSpacing: 1.6,
     textTransform: 'uppercase',
-    color: colors.onInk,
+    color: brandColors.paper,
   },
   number: {
     fontFamily: fonts.mono,
     fontSize: 17,
     letterSpacing: 2,
-    color: colors.onInk,
+    color: brandColors.paper,
   },
   bottomRow: {
     flexDirection: 'row',
@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
-    color: colors.onInk,
+    color: brandColors.paper,
     marginBottom: 4,
   },
   fieldValue: {
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     letterSpacing: 1,
     textTransform: 'uppercase',
-    color: colors.onInk,
+    color: brandColors.paper,
   },
 });
 

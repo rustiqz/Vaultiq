@@ -10,6 +10,7 @@ export default function UnlockScreen(props: {
   busy: boolean;
   error: string | null;
   biometricEnabled: boolean;
+  deviceName: string | null;
   onSubmit: (password: string) => void;
   onBiometric: () => void;
 }) {
@@ -25,10 +26,12 @@ export default function UnlockScreen(props: {
       )}
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.brand}>
-          <LogoMark variant="detailed" size={72} color={colors.ink} tickColor={colors.sage} />
+          <LogoMark variant="locked" size={72} color={colors.ink} stateColor={colors.sage} />
           <View style={styles.brandText}>
             <Text style={styles.brandTitle}>Vaultiq</Text>
-            <Text style={styles.brandSubtitle}>Locked</Text>
+            <Text style={styles.brandSubtitle} numberOfLines={1}>
+              Locked · {props.deviceName ?? 'This device'}
+            </Text>
           </View>
         </View>
         <SecretField label="Master password" value={password} onChangeText={setPassword} />

@@ -2,4 +2,23 @@
 <resources>
     <!-- Redesign v2 ink, used for the native splash background. See src/theme.ts. -->
     <color name="splash_background">#674636</color>
+    <color name="launcher_background">#FFF8E8</color>
+    <color name="vaultiq_background">#FFF8E8</color>
+    <color name="vaultiq_surface">#F7EED3</color>
+    <color name="vaultiq_card">#FFFFFF</color>
+    <color name="vaultiq_ink">#674636</color>
+    <color name="vaultiq_on_ink">#FFF8E8</color>
+    <color name="vaultiq_sage">#AAB396</color>
+    <color name="vaultiq_amber">#B98332</color>
+    <color name="vaultiq_rust">#A63D22</color>
+    <color name="vaultiq_ink_alpha_08">#14674636</color>
+    <color name="vaultiq_ink_alpha_10">#1A674636</color>
+    <color name="vaultiq_ink_alpha_12">#1F674636</color>
+    <color name="vaultiq_ink_alpha_14">#24674636</color>
+    <color name="vaultiq_ink_alpha_16">#29674636</color>
+    <color name="vaultiq_ink_alpha_18">#2E674636</color>
+    <color name="vaultiq_ink_alpha_20">#33674636</color>
+    <color name="vaultiq_ink_alpha_30">#4D674636</color>
+    <color name="vaultiq_ink_alpha_45">#73674636</color>
+    <color name="vaultiq_ink_alpha_55">#8C674636</color>
 </resources>
