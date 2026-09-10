@@ -478,13 +478,7 @@ fast and clever, every time.
     list ("not now, not partially, not 'just the types for later'") — not
     revisited here even though a mockup assumes it, per that rule.
   - **Explicitly out of scope for this pass**: a real Android
-    `AutofillService` (the "Autofill this identity" stub and the OS-level
-    autofill picker mockup both need it). This is native-Android work
-    comparable in size to the original FFI-bridge phase — a new
-    `AutofillService` subclass, manifest `BIND_AUTOFILL_SERVICE` service
-    declaration, structure parsing, dataset/fill-response construction —
-    not something to fold into a pass alongside four small stub wire-ups.
-    Needs its own planning session.
+    `AutofillService`. Its own planning session, below.
 - **Cross-app theme parity**: the extension popup now uses the same fall
   palette, fonts, icon set, and dial logo as the mobile redesign, so the
   three apps read as one product — a token-level reskin, not a layout
@@ -599,6 +593,74 @@ fast and clever, every time.
     (0.7)`, popup.css) to a 504×364 footprint, keeping every measurement,
     scroll pane, and overlay proportional rather than redrawing the layout
     at the smaller size.
+- **Real Android `AutofillService`, login-only (fill + save), v1.** The
+  mobile analogue of the extension's autofill, and the last of the
+  mockup-assumed features that was flagged as needing its own planning
+  session rather than folding into a stub-wiring pass.
+  - **The core problem**: `AutofillService` runs as a plain Kotlin service
+    callback with no access to whatever JS/React holds in memory, and the
+    vault is very likely *locked* when some other app triggers it
+    (backgrounding already tends to kill this app's process — see
+    `CryptoCoreModule`'s held key — and there is no native item cache to
+    search even when it isn't; building one just for this would be its own
+    separate, larger project). So `onFillRequest` never tries to decrypt or
+    match anything itself: it only inspects the *form* (does it look like a
+    login?) and, if so, replies with exactly one generic, always-the-same
+    authenticated placeholder ("Fill with Vaultiq"), gated behind a
+    `PendingIntent` that opens `AutofillActivity` — a second `ReactActivity`
+    hosting the *same* registered `"Vaultiq"` component `MainActivity` does
+    (RN's standard multi-entry-point pattern, one extra `autofillRequest`
+    prop via `getLaunchOptions`), running the app's own already-correct
+    unlock → `vault.pullItems()` → decrypt pipeline completely unchanged.
+    Whatever the user picks there is handed back through a small native
+    module, `AutofillModule.kt`, to complete the framework's response. No
+    native cache, no native decrypt path, no duplicated matching logic.
+    This is standard behavior for a locked password manager (Bitwarden/
+    1Password's own services work the same way) — there is no personalized
+    suggestion to offer before that pipeline runs regardless of
+    implementation.
+  - **Save** follows the identical shape in reverse: `onSaveRequest` (no UI
+    of its own — Android already showed its own "Save to Vaultiq?" prompt)
+    launches `AutofillActivity` in save mode with the typed
+    username/password/domain, which confirms and calls the existing
+    `vault.addItem`. `SaveCallback` isn't JS-representable, so that handoff
+    stays entirely native: `VaultiqAutofillService` holds it on a companion
+    var until the launched screen's confirm/discard finishes it — the same
+    pending-callback shape `lib/qrScanResult.ts` already uses for an
+    equivalent Activity-boundary handoff in JS, just on the Kotlin side.
+  - **Field detection**: primarily explicit `AUTOFILL_HINT_USERNAME`/
+    `_PASSWORD`/`_EMAIL_ADDRESS` (Chrome reliably infers these from HTML
+    `autocomplete` attributes, so most modern web forms are covered), with
+    an `InputType`-based fallback (treats the free-text field immediately
+    before a password field as the username) for the minority of forms —
+    mostly older sites, some non-Chrome apps — that never set a hint at
+    all. A known, accepted imprecision, not a bug to chase further.
+  - **New files**: `VaultiqAutofillService.kt`, `AutofillActivity.kt`,
+    `AutofillModule.kt`, `res/layout/autofill_suggestion.xml` (the one
+    suggestion row), `res/xml/autofill_service_config.xml` (required
+    service metadata), `nativeAutofill.ts`, `AutofillFillScreen.tsx`
+    (reuses `pullItems`, `SearchBar`, `Card`, `ItemAvatar` exactly like
+    every other list screen; a loose domain-substring sort is a
+    convenience only, not a security boundary — the extension's `tldts`
+    dependency is what full public-suffix-list correctness would need, not
+    worth pulling into mobile for this), `AutofillSaveScreen.tsx`.
+  - **`MainActivity` gained `android:importantForAutofill=
+    "noExcludeDescendants"`**: Vaultiq's own unlock/master-password fields
+    must never be offered autofill suggestions, by our own service or any
+    other — both a UX nonsense-loop and a mild security smell worth closing
+    explicitly.
+  - **Verified**: `tsc`, `eslint`, `:app:compileDebugKotlin`, and
+    `:app:assembleDebug` all pass, including a full manifest-merge check
+    (the new `<service>`/`<activity>` and `importantForAutofill` all landed
+    correctly in the merged manifest). **Not verified on a real device** —
+    none was connected while building this, same caveat as the biometric/
+    QR-scan/master-password-change work. Enabling Vaultiq as the system
+    autofill service, triggering a real fill against a third-party app, and
+    the save-prompt round trip all still need that.
+  - **Deliberately out of scope**: identity/card autofill (login only, per
+    the same design-rule-scoping this session applied elsewhere) and
+    breach-checking (§1.3, forever-deferred, unrelated to this feature but
+    worth restating every time a mockup nearby assumes it).
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the

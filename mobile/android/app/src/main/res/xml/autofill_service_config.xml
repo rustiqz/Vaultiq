@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Required metadata for an AutofillService declaration. settingsActivity
+     is what the OS's own "Autofill service" settings screen links to when
+     the user taps Vaultiq's entry there: pointing at MainActivity rather
+     than a dedicated settings screen, since the in-app Settings tab is
+     already the real place this is configured. -->
+<autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.vaultiq.mobile.MainActivity" />
