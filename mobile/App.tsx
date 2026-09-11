@@ -239,22 +239,20 @@ function App(props: { autofillRequest?: AutofillRequest }) {
   const runBiometricUnlock = () => {
     setError(null);
     setBusy(true);
-    // The locked screen can be mounted in the same frame as a native activity
-    // resume. Waiting for the transition to settle prevents the first prompt
-    // from being launched against a not-yet-resumed FragmentActivity.
-    setTimeout(() => {
-      vault
-        .unlockWithBiometric()
-        .then(() => setStatus('unlocked'))
-        .catch((thrown: unknown) => {
-          // React Native attaches the native Promise.reject code as `.code` --
-          // a user simply backing out of the fingerprint prompt isn't an error
-          // worth a red banner, unlike every other unlock failure.
-          const code = thrown !== null && typeof thrown === 'object' && 'code' in thrown ? (thrown as { code?: unknown }).code : undefined;
-          if (code !== 'biometric_cancelled') setError(thrown instanceof Error ? thrown.message : String(thrown));
-        })
-        .finally(() => setBusy(false));
-    }, 80);
+    // BiometricModule.kt waits for the hosting activity's actual RESUMED
+    // lifecycle event before showing the prompt, so this can fire as soon
+    // as the button is tapped -- no arbitrary delay needed here.
+    vault
+      .unlockWithBiometric()
+      .then(() => setStatus('unlocked'))
+      .catch((thrown: unknown) => {
+        // React Native attaches the native Promise.reject code as `.code` --
+        // a user simply backing out of the fingerprint prompt isn't an error
+        // worth a red banner, unlike every other unlock failure.
+        const code = thrown !== null && typeof thrown === 'object' && 'code' in thrown ? (thrown as { code?: unknown }).code : undefined;
+        if (code !== 'biometric_cancelled') setError(thrown instanceof Error ? thrown.message : String(thrown));
+      })
+      .finally(() => setBusy(false));
   };
 
   const run = (task: () => Promise<void>) => async () => {
