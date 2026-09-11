@@ -9,6 +9,9 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -208,17 +211,52 @@ class BiometricModule(private val reactContext: ReactApplicationContext) :
                 }
             }
 
-        try {
-            val biometricPrompt = BiometricPrompt(activity, executor, callback)
-            val info =
-                BiometricPrompt.PromptInfo.Builder()
-                    .setTitle(title)
-                    .setNegativeButtonText("Use password instead")
-                    .build()
-            biometricPrompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
-        } catch (error: Exception) {
-            promise.reject("biometric_error", error.message ?: "could not show the fingerprint prompt", error)
+        val biometricPrompt = BiometricPrompt(activity, executor, callback)
+        val info =
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle(title)
+                .setNegativeButtonText("Use password instead")
+                .build()
+        authenticateWhenResumed(activity, biometricPrompt, info, BiometricPrompt.CryptoObject(cipher), promise)
+    }
+
+    /**
+     * `BiometricPrompt.authenticate()` throws if the hosting activity hasn't
+     * actually reached RESUMED yet -- on the lock screen, the very first tap
+     * of "Use fingerprint" right after the screen appears can lose this
+     * race, rejecting with no prompt ever shown at all. A fixed delay before
+     * calling this was tried first and wasn't reliable (device-dependent);
+     * waiting for the real lifecycle event is deterministic instead of a
+     * guess.
+     */
+    private fun authenticateWhenResumed(
+        activity: FragmentActivity,
+        biometricPrompt: BiometricPrompt,
+        info: BiometricPrompt.PromptInfo,
+        cryptoObject: BiometricPrompt.CryptoObject,
+        promise: Promise,
+    ) {
+        fun authenticate() {
+            try {
+                biometricPrompt.authenticate(info, cryptoObject)
+            } catch (error: Exception) {
+                promise.reject("biometric_error", error.message ?: "could not show the fingerprint prompt", error)
+            }
         }
+
+        if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            authenticate()
+            return
+        }
+
+        activity.lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onResume(owner: LifecycleOwner) {
+                    owner.lifecycle.removeObserver(this)
+                    authenticate()
+                }
+            },
+        )
     }
 
     private companion object {
