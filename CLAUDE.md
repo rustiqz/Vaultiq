@@ -566,7 +566,16 @@ fast and clever, every time.
   Separately, on-device testing surfaced a real bug: the fingerprint prompt
   could fire against a not-yet-resumed `FragmentActivity` when the lock
   screen mounts, so it's now also gated on `vault.biometricAvailable()` (not
-  just `biometricEnabled`) and delayed 80ms past mount.
+  just `biometricEnabled`) and was delayed 80ms past mount as a first fix.
+  That delay was not reliable on all devices — first-tap-fails-silently
+  (rejects `biometric_error` with no prompt shown at all, second tap works)
+  still reproduced. Replaced with a deterministic fix in
+  `BiometricModule.kt`: `authenticateWhenResumed` checks the activity's
+  actual `Lifecycle.State`, calling `BiometricPrompt.authenticate()`
+  immediately if already `RESUMED` or via a one-shot
+  `DefaultLifecycleObserver.onResume` otherwise, instead of guessing a
+  delay. The JS-side `setTimeout` in `App.tsx`'s `runBiometricUnlock` is
+  gone — no longer needed once the native call itself is lifecycle-safe.
 - **Extension popup redesign ("Match Desk") and active-tab fill.** The popup
   moves from a single scrolling list (inline rows, settings/sync/generator/
   trash always stacked below it) to a master-detail layout: a header
