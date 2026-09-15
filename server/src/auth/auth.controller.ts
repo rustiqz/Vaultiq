@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
+import type { Request } from "express";
 import {
   AuthService,
   type DeviceCredential,
@@ -23,12 +24,13 @@ export class AuthController {
    */
   @Post("auth/register")
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  async register(@Body() body: RegisterDto): Promise<DeviceCredential> {
+  async register(@Req() request: Request, @Body() body: RegisterDto): Promise<DeviceCredential> {
     return await this.auth.register({
       token: body.token,
       authKey: body.authKey,
       vault: body.vault,
       deviceName: body.deviceName,
+      ...(request.ip !== undefined && { sourceIp: request.ip }),
     });
   }
 
@@ -44,8 +46,8 @@ export class AuthController {
    */
   @Post("auth/enrollment-params")
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  async enrollmentParams(@Body() body: EnrollmentParamsDto): Promise<KdfParams> {
-    return await this.auth.enrollmentParams(body.token);
+  async enrollmentParams(@Req() request: Request, @Body() body: EnrollmentParamsDto): Promise<KdfParams> {
+    return await this.auth.enrollmentParams(body.token, request.ip);
   }
 
   /**
@@ -57,11 +59,12 @@ export class AuthController {
    */
   @Post("auth/enroll")
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  async enroll(@Body() body: EnrollDto): Promise<DeviceCredential> {
+  async enroll(@Req() request: Request, @Body() body: EnrollDto): Promise<DeviceCredential> {
     return await this.auth.enroll({
       token: body.token,
       authKey: body.authKey,
       deviceName: body.deviceName,
+      ...(request.ip !== undefined && { sourceIp: request.ip }),
     });
   }
 
@@ -90,6 +93,7 @@ export class AuthController {
       currentAuthKey: body.currentAuthKey,
       newAuthKey: body.newAuthKey,
       vault: body.vault,
+      ...(request.ip !== undefined && { sourceIp: request.ip }),
     });
     return { changed: true };
   }

@@ -1,6 +1,7 @@
 // Registration, device enrolment, and deciding whether a caller may speak.
 
 import { Injectable, UnauthorizedException, ConflictException } from "@nestjs/common";
+import { recordAuditEvent } from "../audit/audit-log.js";
 import { pool } from "../db/pool.js";
 import {
   equalSecrets,
@@ -13,7 +14,7 @@ import {
 /** How long a device-join token is good for. Long enough to walk to a laptop. */
 const TOKEN_MINUTES = 15;
 
-export type Role = "member" | "admin";
+export type Capability = "manage_invitations" | "manage_devices" | "view_audit_log";
 
 export interface DeviceCredential {
   deviceId: string;
@@ -60,8 +61,8 @@ export class AuthService {
    * closes the same unauthenticated write the old "refuse once an account
    * exists" check did, rather than merely gating it once.
    *
-   * The new account's role comes from the token, not from the caller — a
-   * registering client has no identity yet for the server to trust with
+   * The new account's capabilities come from the token, not from the caller
+   * — a registering client has no identity yet for the server to trust with
    * that choice.
    */
   async register(input: {
@@ -69,6 +70,7 @@ export class AuthService {
     authKey: string;
     vault: VaultBootstrap;
     deviceName: string;
+    sourceIp?: string;
   }): Promise<DeviceCredential> {
     const client = await pool.connect();
     try {
@@ -76,8 +78,8 @@ export class AuthService {
 
       // Locked for update so two registrations cannot spend one token into
       // two accounts.
-      const { rows } = await client.query<{ token_hash: string; grants_role: Role }>(
-        `select token_hash, grants_role from enrollment_tokens
+      const { rows } = await client.query<{ token_hash: string; grants_capabilities: string[] }>(
+        `select token_hash, grants_capabilities from enrollment_tokens
           where token_hash = $1
             and kind = 'account_create'
             and used_at is null
@@ -90,18 +92,31 @@ export class AuthService {
       // One message for an unknown token, a spent one, an expired one and a
       // device-join token presented here by mistake — telling them apart
       // would say which half was wrong.
-      if (!found) throw new UnauthorizedException("Registration refused.");
+      if (!found) {
+        await recordAuditEvent({
+          eventType: "registration_refused",
+          ...(input.sourceIp !== undefined && { sourceIp: input.sourceIp }),
+        });
+        throw new UnauthorizedException("Registration refused.");
+      }
 
       await client.query("update enrollment_tokens set used_at = now() where token_hash = $1", [
         found.token_hash,
       ]);
 
       const { rows: users } = await client.query<{ id: string }>(
-        "insert into users (auth_key_hash, role) values ($1, $2) returning id",
-        [await hashSecret(input.authKey), found.grants_role],
+        "insert into users (auth_key_hash) values ($1) returning id",
+        [await hashSecret(input.authKey)],
       );
       const userId = users[0]?.id;
       if (!userId) throw new Error("user was not created");
+
+      for (const capability of found.grants_capabilities) {
+        await client.query(
+          "insert into user_capabilities (user_id, capability) values ($1, $2)",
+          [userId, capability],
+        );
+      }
 
       await client.query(
         `insert into vaults
@@ -119,6 +134,14 @@ export class AuthService {
 
       const credential = await this.attachDevice(client, userId, input.deviceName);
       await client.query("commit");
+
+      await recordAuditEvent({
+        eventType: "account_registered",
+        userId,
+        deviceId: credential.deviceId,
+        detail: { capabilities: found.grants_capabilities },
+      });
+
       return credential;
     } catch (error) {
       await client.query("rollback");
@@ -136,19 +159,31 @@ export class AuthService {
    * on a fresh server; the admin CLI calls it for everyone after that.
    */
   async mintAccountToken(input: {
-    grantsRole: Role;
+    grantsCapabilities: Capability[];
     minutes: number;
     createdBy?: string;
   }): Promise<{ token: string; expiresAt: string }> {
     const token = newSecret();
     const { rows } = await pool.query<{ expires_at: Date }>(
-      `insert into enrollment_tokens (token_hash, kind, grants_role, created_by, expires_at)
+      `insert into enrollment_tokens (token_hash, kind, grants_capabilities, created_by, expires_at)
        values ($1, 'account_create', $2, $3, now() + ($4 || ' minutes')::interval)
        returning expires_at`,
-      [tokenFingerprint(token), input.grantsRole, input.createdBy ?? null, String(input.minutes)],
+      [
+        tokenFingerprint(token),
+        input.grantsCapabilities,
+        input.createdBy ?? null,
+        String(input.minutes),
+      ],
     );
     const expiresAt = rows[0]?.expires_at;
     if (!expiresAt) throw new Error("token was not created");
+
+    await recordAuditEvent({
+      eventType: "invitation_issued",
+      ...(input.createdBy !== undefined && { userId: input.createdBy }),
+      detail: { capabilities: input.grantsCapabilities },
+    });
+
     return { token, expiresAt: expiresAt.toISOString() };
   }
 
@@ -196,7 +231,7 @@ export class AuthService {
    * The token is *not* consumed: a mistyped password should not cost a walk
    * back to the first device for a fresh one.
    */
-  async enrollmentParams(token: string): Promise<KdfParams> {
+  async enrollmentParams(token: string, sourceIp?: string): Promise<KdfParams> {
     const { rows } = await pool.query<{
       salt_b64: string;
       kdf_memory_kib: number;
@@ -216,7 +251,13 @@ export class AuthService {
     const vault = rows[0];
     // The same words `enroll` uses. An unknown token, a spent one and an
     // expired one must not be distinguishable from each other here either.
-    if (!vault) throw new UnauthorizedException("Enrolment refused.");
+    if (!vault) {
+      await recordAuditEvent({
+        eventType: "enrollment_refused",
+        ...(sourceIp !== undefined && { sourceIp }),
+      });
+      throw new UnauthorizedException("Enrolment refused.");
+    }
 
     return {
       saltB64: vault.salt_b64,
@@ -238,6 +279,7 @@ export class AuthService {
     token: string;
     authKey: string;
     deviceName: string;
+    sourceIp?: string;
   }): Promise<DeviceCredential> {
     const client = await pool.connect();
     try {
@@ -263,12 +305,16 @@ export class AuthService {
       const found = rows[0];
       // One message for an unknown token, a spent one, an expired one and a
       // wrong auth key. Telling them apart would say which half was right.
-      const refuse = (): never => {
+      const refuse = async (): Promise<never> => {
+        await recordAuditEvent({
+          eventType: "enrollment_refused",
+          ...(input.sourceIp !== undefined && { sourceIp: input.sourceIp }),
+        });
         throw new UnauthorizedException("Enrolment refused.");
       };
 
-      if (!found || !equalSecrets(found.token_hash, tokenFingerprint(input.token))) refuse();
-      if (!(await secretMatches(input.authKey, found!.auth_key_hash))) refuse();
+      if (!found || !equalSecrets(found.token_hash, tokenFingerprint(input.token))) await refuse();
+      if (!(await secretMatches(input.authKey, found!.auth_key_hash))) await refuse();
 
       await client.query("update enrollment_tokens set used_at = now() where token_hash = $1", [
         found!.token_hash,
@@ -276,6 +322,14 @@ export class AuthService {
 
       const credential = await this.attachDevice(client, found!.user_id, input.deviceName);
       await client.query("commit");
+
+      await recordAuditEvent({
+        eventType: "device_enrolled",
+        userId: found!.user_id,
+        deviceId: credential.deviceId,
+        detail: { deviceName: input.deviceName },
+      });
+
       return credential;
     } catch (error) {
       await client.query("rollback");
@@ -338,10 +392,18 @@ export class AuthService {
     if (deviceId === caller.deviceId) {
       throw new ConflictException("Revoke this device from another one.");
     }
-    await pool.query(
+    const result = await pool.query(
       "update devices set revoked_at = now() where id = $1 and user_id = $2 and revoked_at is null",
       [deviceId, caller.userId],
     );
+
+    if (result.rowCount) {
+      await recordAuditEvent({
+        eventType: "device_revoked",
+        userId: caller.userId,
+        deviceId,
+      });
+    }
   }
 
   /** What a device needs to rebuild the key hierarchy from the password. */
@@ -388,7 +450,7 @@ export class AuthService {
    */
   async changeMasterPassword(
     caller: Caller,
-    input: { currentAuthKey: string; newAuthKey: string; vault: VaultBootstrap },
+    input: { currentAuthKey: string; newAuthKey: string; vault: VaultBootstrap; sourceIp?: string },
   ): Promise<void> {
     const { rows } = await pool.query<{ auth_key_hash: string }>(
       "select auth_key_hash from users where id = $1",
@@ -399,12 +461,18 @@ export class AuthService {
     // One message whether the user row is missing or the key is wrong. There
     // is nothing to tell apart here for a caller who is already authenticated,
     // and keeping the wording uniform costs nothing.
-    const refuse = (): never => {
+    const refuse = async (): Promise<never> => {
+      await recordAuditEvent({
+        eventType: "enrollment_refused",
+        userId: caller.userId,
+        detail: { action: "master_password_change" },
+        ...(input.sourceIp !== undefined && { sourceIp: input.sourceIp }),
+      });
       throw new UnauthorizedException("Password change refused.");
     };
 
-    if (!stored) refuse();
-    if (!(await secretMatches(input.currentAuthKey, stored!))) refuse();
+    if (!stored) await refuse();
+    if (!(await secretMatches(input.currentAuthKey, stored!))) await refuse();
 
     // Both Argon2 calls happen before the transaction opens, so no row lock is
     // held across them. The update is then a compare-and-swap on the hash we
@@ -420,7 +488,7 @@ export class AuthService {
         "update users set auth_key_hash = $1 where id = $2 and auth_key_hash = $3",
         [nextHash, caller.userId, stored],
       );
-      if (updated.rowCount !== 1) refuse();
+      if (updated.rowCount !== 1) await refuse();
 
       await client.query(
         `update vaults
@@ -450,6 +518,11 @@ export class AuthService {
       );
 
       await client.query("commit");
+
+      await recordAuditEvent({
+        eventType: "master_password_changed",
+        userId: caller.userId,
+      });
     } catch (error) {
       await client.query("rollback");
       throw error;
