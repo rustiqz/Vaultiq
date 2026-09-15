@@ -30,17 +30,7 @@ import {
 } from "@nestjs/throttler";
 import type { Request } from "express";
 import { AuthService } from "./auth.service.js";
-
-export const IP_ONLY_PATHS = new Set(["/auth/register", "/auth/enrollment-params", "/auth/enroll"]);
-
-/** Splits a well-formed `Bearer <deviceId>.<credential>` header, or nothing. */
-export function parseBearerCredential(
-  header: string | undefined,
-): { deviceId: string; credential: string } | undefined {
-  if (!header?.startsWith("Bearer ")) return undefined;
-  const [deviceId, credential] = header.slice("Bearer ".length).split(".", 2);
-  return deviceId && credential ? { deviceId, credential } : undefined;
-}
+import { IP_ONLY_PATHS, parseBearerCredential } from "./bearer-credential.js";
 
 @Injectable()
 export class DeviceThrottlerGuard extends ThrottlerGuard {
