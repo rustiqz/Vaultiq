@@ -57,14 +57,14 @@ describe("before connecting", () => {
 
   it("refuses when there is no vault to upload", async () => {
     server();
-    await expect(vault.connectServer("https://v.test", "Desktop", PASSWORD)).rejects.toThrow(
+    await expect(vault.connectServer("https://v.test", "reg-token", "Desktop", PASSWORD)).rejects.toThrow(
       /no vault/i,
     );
   });
 
   it("insists on https", async () => {
     await vault.create(PASSWORD);
-    await expect(vault.connectServer("http://v.test", "Desktop", PASSWORD)).rejects.toThrow(
+    await expect(vault.connectServer("http://v.test", "reg-token", "Desktop", PASSWORD)).rejects.toThrow(
       /https/i,
     );
   });
@@ -76,7 +76,7 @@ describe("before connecting", () => {
     });
     const { fetched } = server();
 
-    await expect(vault.connectServer("https://v.test", "Desktop", "wrong")).rejects.toThrow();
+    await expect(vault.connectServer("https://v.test", "reg-token", "Desktop", "wrong")).rejects.toThrow();
 
     // The server takes one account, ever. A typo registered as *the* auth key
     // would not be recoverable without wiping it.
@@ -94,7 +94,7 @@ describe("registering the first device", () => {
       { accepted: [], conflicts: [], cursor: "0" },
     );
 
-    await vault.connectServer("https://v.test", "Desktop", PASSWORD);
+    await vault.connectServer("https://v.test", "reg-token", "Desktop", PASSWORD);
 
     // The fake keeps plaintext so tests can read it; what is asserted here is
     // that the credential went through the encryption path at all, rather
@@ -114,9 +114,9 @@ describe("registering the first device", () => {
       { items: [], cursor: "0", more: false },
       { accepted: [], conflicts: [], cursor: "0" },
     );
-    await vault.connectServer("https://v.test", "Desktop", PASSWORD);
+    await vault.connectServer("https://v.test", "reg-token", "Desktop", PASSWORD);
 
-    await expect(vault.connectServer("https://v.test", "Desktop", PASSWORD)).rejects.toThrow(
+    await expect(vault.connectServer("https://v.test", "reg-token", "Desktop", PASSWORD)).rejects.toThrow(
       /already connected/i,
     );
   });
@@ -180,7 +180,7 @@ describe("after a failure", () => {
       { items: [], cursor: "0", more: false },
       { accepted: [], conflicts: [], cursor: "0" },
     );
-    await vault.connectServer("https://v.test", "Desktop", PASSWORD);
+    await vault.connectServer("https://v.test", "reg-token", "Desktop", PASSWORD);
 
     vi.stubGlobal(
       "fetch",
@@ -204,7 +204,7 @@ describe("after a failure", () => {
       { items: [], cursor: "0", more: false },
       { accepted: [], conflicts: [], cursor: "0" },
     );
-    await vault.connectServer("https://v.test", "Desktop", PASSWORD);
+    await vault.connectServer("https://v.test", "reg-token", "Desktop", PASSWORD);
 
     await vault.disconnectServer();
 
@@ -226,7 +226,7 @@ describe("changing the master password", () => {
       { items: [], cursor: "0", more: false },
       { accepted: [], conflicts: [], cursor: "0" },
     );
-    await vault.connectServer("https://v.test", "Desktop", PASSWORD);
+    await vault.connectServer("https://v.test", "reg-token", "Desktop", PASSWORD);
   }
 
   it("proves the current password and uploads the new record", async () => {

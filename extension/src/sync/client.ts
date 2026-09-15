@@ -97,6 +97,7 @@ export class SyncClient {
   }
 
   async register(input: {
+    token: string;
     authKey: string;
     vault: ServerVault;
     deviceName: string;

@@ -48,12 +48,18 @@ function connectForm(panel: HTMLElement, fail: Fail): HTMLElement {
   const server = el("input", { type: "url", placeholder: "https://vault.example.com" });
   const deviceName = el("input", { type: "text", placeholder: "This laptop" });
   const password = el("input", { type: "password", autocomplete: "off" });
-  const token = el("input", { type: "text", autocomplete: "off", placeholder: "From another device" });
+  const registrationToken = el("input", {
+    type: "text",
+    autocomplete: "off",
+    placeholder: "From the server's admin",
+  });
+  const joinToken = el("input", { type: "text", autocomplete: "off", placeholder: "From another device" });
 
   const clear = (): void => {
     // The master password is not kept around after the request goes out.
     password.value = "";
-    token.value = "";
+    registrationToken.value = "";
+    joinToken.value = "";
   };
 
   const first = acting(
@@ -63,6 +69,7 @@ function connectForm(panel: HTMLElement, fail: Fail): HTMLElement {
         await send({
           kind: "connectServer",
           server: server.value.trim(),
+          token: registrationToken.value.trim(),
           deviceName: deviceName.value.trim(),
           masterPassword: password.value,
         }),
@@ -81,7 +88,7 @@ function connectForm(panel: HTMLElement, fail: Fail): HTMLElement {
         await send({
           kind: "enrollWithServer",
           server: server.value.trim(),
-          token: token.value.trim(),
+          token: joinToken.value.trim(),
           deviceName: deviceName.value.trim(),
           masterPassword: password.value,
         }),
@@ -97,18 +104,20 @@ function connectForm(panel: HTMLElement, fail: Fail): HTMLElement {
     field("Server address", server),
     field("Name for this device", deviceName),
     field("Master password", password),
+    field("Registration token", registrationToken),
     el("div", { className: "field" }, [first]),
     el("p", {
       className: "muted",
-      textContent: "Use this once, on the first device. It uploads this vault as it stands.",
+      textContent:
+        "Uploads this vault as it stands, as the account the token grants — a fresh personal server logs one at boot; an organisation's admin issues one.",
     }),
     el("hr"),
-    field("Enrolment token", token),
+    field("Enrolment token", joinToken),
     el("div", { className: "field" }, [join]),
     el("p", {
       className: "muted",
       textContent:
-        "For every device after the first. Get a token from one that is already connected; it lasts fifteen minutes.",
+        "For joining a vault that already exists. Get a token from one of its devices; it lasts fifteen minutes.",
     }),
   ]);
 }

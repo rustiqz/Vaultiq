@@ -1189,15 +1189,22 @@ async function connectedClient(): Promise<{ client: SyncClient; state: SyncState
 }
 
 /**
- * Registers this vault with a fresh server, as its first device.
+ * Registers this vault with a server, as its first device there.
  *
  * The master password is checked locally first, by unwrapping the vault key
  * with it. Without that check a typo would be registered as *the* auth key,
- * and since the server only accepts one account ever, the mistake would not
- * be recoverable without wiping the server.
+ * and the mistake would not be recoverable without a fresh registration
+ * token from the server's admin (or a fresh personal server).
+ *
+ * Needs a valid account-creation token: registration is always invite-only,
+ * on a personal server (one is minted and logged at boot) and an
+ * organisation's alike (an admin issues one). This upload is otherwise
+ * unchanged — the local vault as it already stands, becoming account and
+ * device zero on the server.
  */
 export async function connectServer(
   server: string,
+  token: string,
   deviceName: string,
   masterPassword: string,
 ): Promise<void> {
@@ -1219,6 +1226,7 @@ export async function connectServer(
   });
 
   const credential = await new SyncClient(base).register({
+    token,
     authKey,
     vault: {
       saltB64: vault.saltB64,
