@@ -28,6 +28,8 @@ import { useConfirmDialog } from './src/ui';
 import * as vault from './src/vault';
 import type { DecryptedItem, Status } from './src/vault';
 import type { RootTabParamList, SettingsStackParamList, VaultStackParamList, VaultStackScreenProps } from './src/navigation';
+import CreateVaultScreen from './src/screens/CreateVaultScreen';
+import GetStartedScreen from './src/screens/GetStartedScreen';
 import JoinVaultScreen from './src/screens/JoinVaultScreen';
 import UnlockScreen from './src/screens/UnlockScreen';
 import VaultHomeScreen from './src/screens/VaultHomeScreen';
@@ -206,6 +208,7 @@ function App(props: { autofillRequest?: AutofillRequest }) {
     };
   }, [colorScheme]);
   const [status, setStatus] = useState<Status | 'loading'>('loading');
+  const [onboardingMode, setOnboardingMode] = useState<'choose' | 'join' | 'create'>('choose');
   const [enrolledDeviceName, setEnrolledDeviceName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -305,13 +308,46 @@ function App(props: { autofillRequest?: AutofillRequest }) {
             <Text style={styles.loadingTagline}>Zero-knowledge</Text>
           </View>
         )}
-        {status === 'not-enrolled' && (
+        {status === 'not-enrolled' && onboardingMode === 'choose' && (
+          <GetStartedScreen
+            onJoin={() => {
+              setError(null);
+              setOnboardingMode('join');
+            }}
+            onCreate={() => {
+              setError(null);
+              setOnboardingMode('create');
+            }}
+          />
+        )}
+        {status === 'not-enrolled' && onboardingMode === 'join' && (
           <JoinVaultScreen
             busy={busy}
             error={error}
+            onExit={() => {
+              setError(null);
+              setOnboardingMode('choose');
+            }}
             onSubmit={(serverUrl, token, submittedDeviceName, password) =>
               run(async () => {
                 await vault.enrollAndUnlock(serverUrl, token, submittedDeviceName, password);
+                setEnrolledDeviceName(submittedDeviceName.trim());
+                setStatus('unlocked');
+              })()
+            }
+          />
+        )}
+        {status === 'not-enrolled' && onboardingMode === 'create' && (
+          <CreateVaultScreen
+            busy={busy}
+            error={error}
+            onExit={() => {
+              setError(null);
+              setOnboardingMode('choose');
+            }}
+            onSubmit={(serverUrl, token, submittedDeviceName, password) =>
+              run(async () => {
+                await vault.createVaultAndUnlock(serverUrl, token, submittedDeviceName, password);
                 setEnrolledDeviceName(submittedDeviceName.trim());
                 setStatus('unlocked');
               })()

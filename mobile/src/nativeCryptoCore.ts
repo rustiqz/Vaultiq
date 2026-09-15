@@ -51,6 +51,7 @@ type PasswordStrength = {
 
 type CryptoCoreNativeModule = {
   generateSalt(): Promise<string>;
+  defaultArgon2Params(): Promise<Argon2Params>;
   estimateStrength(password: string): Promise<PasswordStrength>;
   deriveAuthKey(
     password: string,
@@ -67,6 +68,13 @@ type CryptoCoreNativeModule = {
     parallelism: number,
     wrappedVaultKey: WrappedVaultKey,
   ): Promise<void>;
+  createVault(
+    password: string,
+    saltB64: string,
+    memoryKib: number,
+    iterations: number,
+    parallelism: number,
+  ): Promise<{ authKey: string; wrappedVaultKey: WrappedVaultKey }>;
   rewrapVaultKey(
     currentPassword: string,
     currentSaltB64: string,

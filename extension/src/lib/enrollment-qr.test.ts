@@ -10,6 +10,10 @@ describe('enrollment QR payload', () => {
     expect(invite.hostname).toBe('enroll');
     expect(invite.searchParams.get('server')).toBe('https://vault.example.test');
     expect(invite.searchParams.get('token')).toBe('one-time-token');
+    // Explicit, not relied-on-by-omission: the CLI's account-creation
+    // invites use the same shape with kind=account, and a scanner should
+    // never have to guess which flow an invite is for.
+    expect(invite.searchParams.get('kind')).toBe('device');
   });
 
   it('supports the USB-forwarded localhost development server', () => {

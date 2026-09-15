@@ -4,6 +4,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import helmet from "helmet";
 import { AppModule } from "./app.module.js";
+import { ensureBootstrapToken } from "./auth/bootstrap-token.js";
 import { migrate } from "./db/migrate.js";
 import { VERSION } from "./version.js";
 
@@ -11,6 +12,10 @@ async function bootstrap(): Promise<void> {
   // Before the first request rather than as a deploy step: the server and its
   // schema then cannot disagree, whatever order the containers came up in.
   await migrate();
+
+  // Registration is always invite-only, so a server with no accounts yet
+  // needs a live token to become usable at all.
+  await ensureBootstrapToken();
 
   const app = await NestFactory.create(AppModule, {
     // Nothing here serves a browser page, so CORS stays off. The extension

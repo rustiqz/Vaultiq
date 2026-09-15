@@ -42,6 +42,11 @@ export class RegisterDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(512)
+  token!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(512)
   authKey!: string;
 
   @ValidateNested()

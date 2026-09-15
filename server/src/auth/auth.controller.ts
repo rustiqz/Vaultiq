@@ -14,15 +14,18 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   /**
-   * Creates the one account. Refused once one exists.
+   * Creates a new vault, given a valid account-creation token.
    *
-   * Throttled hard: it should be called exactly once in this server's life,
-   * so anything more than a trickle is someone else finding the domain.
+   * Always invite-only: every deployment needs a live token to register at
+   * all, whether that's the one a fresh server mints at boot or one an
+   * admin issued. Throttled the same as `enroll`, since both are now "redeem
+   * a token" endpoints of the same sensitivity.
    */
   @Post("auth/register")
-  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async register(@Body() body: RegisterDto): Promise<DeviceCredential> {
     return await this.auth.register({
+      token: body.token,
       authKey: body.authKey,
       vault: body.vault,
       deviceName: body.deviceName,

@@ -9,9 +9,8 @@ import type { ItemContent } from './itemContent';
 
 /**
  * Vault enrollment/unlock orchestration -- the mobile analogue of
- * `enrollWithServer()` / `unlock()` / `lock()` in
- * extension/src/background/vault.ts, scoped to what this app implements so
- * far: joining an existing vault and unlocking it. See CLAUDE.md §0.
+ * `enrollWithServer()` / `connectServer()` / `create()` / `unlock()` /
+ * `lock()` in extension/src/background/vault.ts. See CLAUDE.md §0.
  */
 type Status = 'not-enrolled' | 'locked' | 'unlocked';
 
@@ -97,6 +96,58 @@ async function enrollAndUnlock(
       },
       wrappedVaultKey: bootstrap.wrappedVaultKey,
     },
+  };
+  await storage.writeEnrollment(enrollment);
+  credential = { deviceId: device.deviceId, credential: device.credential };
+}
+
+/**
+ * Creates a brand-new vault: generates fresh crypto locally, registers it
+ * with the server under an account-creation token, and unlocks immediately
+ * -- the mobile analogue of extension/src/background/vault.ts's `create()`
+ * followed by `connectServer()`, done as one step since this app has no
+ * local-only vault concept; every vault here is server-backed from the
+ * start. `CryptoCore.createVault` already leaves the module holding the new
+ * key, the same way `unlock` does, so there's no separate unlock call after.
+ */
+async function createVaultAndUnlock(
+  url: string,
+  token: string,
+  deviceName: string,
+  password: string,
+): Promise<void> {
+  const normalizedDeviceName = deviceName.trim();
+  if (normalizedDeviceName === '') throw new Error('Choose a name for this device.');
+
+  const saltB64 = await CryptoCore.generateSalt();
+  const argon2 = await CryptoCore.defaultArgon2Params();
+  const { authKey, wrappedVaultKey } = await CryptoCore.createVault(
+    password,
+    saltB64,
+    argon2.memoryKib,
+    argon2.iterations,
+    argon2.parallelism,
+  );
+
+  const device = await syncClient.register(
+    url,
+    token,
+    authKey,
+    { saltB64, ...argon2, wrappedVaultKey },
+    normalizedDeviceName,
+  );
+
+  const sealedCredential = await CryptoCore.encryptItem(
+    JSON.stringify({ credential: device.credential }),
+    CREDENTIAL_HEADER,
+  );
+
+  const enrollment: EnrollmentState = {
+    serverUrl: url,
+    deviceId: device.deviceId,
+    deviceName: normalizedDeviceName,
+    sealedCredential,
+    vault: { saltB64, argon2, wrappedVaultKey },
   };
   await storage.writeEnrollment(enrollment);
   credential = { deviceId: device.deviceId, credential: device.credential };
@@ -291,6 +342,15 @@ function revokeDevice(targetId: string): Promise<void> {
 }
 
 /**
+ * Mints a device-join invite for a new device -- available from any
+ * unlocked device, not only the extension (the server route already allows
+ * this; this app just never had UI for it before).
+ */
+function newEnrollmentToken(): Promise<{ token: string; expiresAt: string }> {
+  return authenticated((url, deviceId, cred) => syncClient.createEnrollmentToken(url, deviceId, cred));
+}
+
+/**
  * Pulls and decrypts the vault's current items.
  *
  * Always pulls from the beginning rather than tracking a cursor: this app
@@ -377,6 +437,7 @@ export {
   biometricAvailable,
   biometricEnabled,
   changeMasterPassword,
+  createVaultAndUnlock,
   deleteItem,
   enrolledDeviceName,
   disableBiometric,
@@ -384,6 +445,7 @@ export {
   enrollAndUnlock,
   listDevices,
   lock,
+  newEnrollmentToken,
   pullItems,
   revokeDevice,
   serverUrl,

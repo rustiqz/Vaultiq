@@ -40,6 +40,9 @@ moving to the next — don't jump ahead.
    unlock
 5. **Tauri desktop app** — same Rust core natively (no WASM needed, Tauri's
    backend is Rust)
+6. **Multi-tenancy and self-hosted distribution** — see below. Full
+   rationale and sequencing in [MULTI-TENANCY.md](MULTI-TENANCY.md); this
+   section is the settled subset of it.
 
 **Why this order:** the crypto core and data model are the hard-to-retrofit
 parts. Getting them right once, in isolation, before adding network sync,
@@ -204,16 +207,65 @@ dependency resolution.)
 
 ---
 
+## Phase 6: multi-tenancy and self-hosted distribution
+
+Precondition met: phases 1–3 (crypto core, extension, sync server) are
+complete end to end. Full reasoning, the isolation-defect list, and the
+recovery/escrow decision (explicitly **not** made here) live in
+[MULTI-TENANCY.md](MULTI-TENANCY.md). This section states only the settled
+parts.
+
+- **Isolation is unconditional, not a deployment mode.** No
+  `single|multi` toggle. A per-vault sequence replaces the current global
+  `item_seq`; rate limiting keys authenticated requests by `deviceId`
+  rather than IP; each vault gets a storage quota. All three are strict
+  improvements to the existing single-user deployment and apply regardless
+  of anything else in this phase.
+- **Registration is always invite-only**, via an account-creation token —
+  never a bare "first account wins" check. A personal server auto-mints one
+  bootstrap token on first boot (spent once, then registration is closed
+  exactly as it is today); an organization's admin mints more as needed.
+  This replaces, and is a strict improvement over, today's
+  count-the-`users`-table gate in `AuthService.register`.
+- **`users` gains a `role` column** (`member | admin`). An admin can issue
+  account-creation tokens and revoke accounts. An admin role carries no
+  cryptographic access — nothing changes about who can read a vault.
+- **Two kinds of invite token, one mechanism.** A device-join token (adds a
+  device to a vault that exists — already built) and an account-creation
+  token (creates a new vault — new). Both single-use, hashed at rest, short
+  expiry, shown as **QR and plaintext** alike. Any already-enrolled device
+  may mint a device-join token, not only the extension.
+- **Every client app is symmetric.** Extension, mobile, and desktop (once
+  it exists) each offer the same two entry points, as two explicit screens:
+  "I have an invite" (join this device to an existing vault) and "create a
+  new vault" (works unconditionally on a fresh personal server, requires a
+  token otherwise). A scanned QR still auto-routes on its embedded kind;
+  manual entry doesn't need to, since picking the screen already said which
+  one was meant. No app is privileged as "the first device" — that was ever
+  only true because the extension shipped first.
+- **Administration is a guided CLI**, not a fourth app or a new
+  authenticated HTTP surface: `server/src/admin/cli.ts` (`pnpm run admin`;
+  `docker compose exec server node dist/admin/cli.js` against a real
+  deployment), run with direct database access, in the interactive
+  numbered-prompt style of tools like `p10k configure` rather than a
+  flag-per-operation script.
+- **Recovery/escrow is explicitly out of scope for this phase** — see
+  below.
+
 ## Explicitly deferred (do not build yet)
 
-- Sharing between users / multi-user support
-- Emergency access / recovery flows
-- Self-hosted server distribution for others
+- **Emergency access / recovery / key escrow.** Deliberately left an open
+  decision rather than ruled out — see MULTI-TENANCY.md's "Recovery and
+  escrow" section for both paths and what each costs. Not started either
+  way until that decision is made on purpose, with its own phase and its
+  own SECURITY.md rewrite.
 - Passkey/WebAuthn support
-- TOTP storage, secure notes, cards, identities (item types beyond login)
 - Password health check / breach checking
 - Import from other password managers
+- SSO (SAML/OIDC), SCIM provisioning, audit logging, shared collections —
+  named in MULTI-TENANCY.md as things buyers will ask for; none are started.
 
-These are real roadmap items (see phases above) but out of scope until the
-crypto core + browser extension + sync server are working end-to-end for
-login items only.
+Multi-user support and self-hosted distribution are no longer on this list —
+see Phase 6 above. Item types beyond login (secure notes, cards, identities,
+TOTP) were on this list until phases 1–3 were done end to end, which was the
+condition originally set for them; they have since been built.

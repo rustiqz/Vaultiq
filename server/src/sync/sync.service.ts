@@ -5,7 +5,7 @@
 // not try: it reports the disagreement and hands back what it holds, leaving
 // the client — the only party that can read either side — to decide.
 
-import { Injectable } from "@nestjs/common";
+import { Injectable, PayloadTooLargeException } from "@nestjs/common";
 import { pool } from "../db/pool.js";
 import type { Caller } from "../auth/auth.service.js";
 
@@ -36,6 +36,13 @@ export interface PushResult {
 
 /** One page. Large enough that a first sync is a handful of round trips. */
 const PAGE = 250;
+
+// Self-limiting with one tenant, since the one person filling the disk is
+// the one person it costs. With several, one vault could fill it for
+// everyone. An item count is a coarser proxy for storage than total
+// ciphertext bytes, but it's the cheap check to make first, and raising it
+// later is a one-line change, not a migration.
+export const MAX_ITEMS_PER_VAULT = 10_000;
 
 interface ItemRow {
   item_id: string;
@@ -114,6 +121,40 @@ export class SyncService {
     try {
       await client.query("begin");
 
+      // Locked for the whole push, not just read: this is what makes the
+      // sequence per-vault rather than global without a second table. Two
+      // concurrent pushes to the *same* vault now serialise here instead of
+      // racing on a shared sequence; two pushes to different vaults never
+      // contend, since each locks only its own row.
+      const { rows: vaultRows } = await client.query<{ next_seq: string }>(
+        "select next_seq from vaults where id = $1 for update",
+        [caller.vaultId],
+      );
+      let nextSeq = BigInt(vaultRows[0]!.next_seq);
+
+      // Only a genuinely new item_id grows the vault; an update to one
+      // already stored does not, so it's what's checked against the quota
+      // rather than the size of this push.
+      const { rows: existingRows } = await client.query<{ item_id: string }>(
+        "select item_id from items where vault_id = $1 and item_id = any($2::text[])",
+        [caller.vaultId, items.map((item) => item.id)],
+      );
+      const existingIds = new Set(existingRows.map((row) => row.item_id));
+      const newItemCount = items.filter((item) => !existingIds.has(item.id)).length;
+
+      if (newItemCount > 0) {
+        const { rows: countRows } = await client.query<{ count: string }>(
+          "select count(*)::text as count from items where vault_id = $1",
+          [caller.vaultId],
+        );
+        const currentCount = Number(countRows[0]!.count);
+        if (currentCount + newItemCount > MAX_ITEMS_PER_VAULT) {
+          throw new PayloadTooLargeException(
+            `Vault is at its ${MAX_ITEMS_PER_VAULT}-item limit.`,
+          );
+        }
+      }
+
       for (const item of items) {
         const ciphertext = Buffer.from(item.ciphertext, "base64");
         const nonce = Buffer.from(item.nonce, "base64");
@@ -148,11 +189,14 @@ export class SyncService {
           }
         }
 
+        const seq = nextSeq;
+        nextSeq += 1n;
+
         await client.query(
           `insert into items
              (vault_id, item_id, item_type, version, updated_at, deleted, format,
               ciphertext, nonce, seq)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, nextval('item_seq'))
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            on conflict (vault_id, item_id) do update set
              item_type = excluded.item_type,
              version = excluded.version,
@@ -163,7 +207,7 @@ export class SyncService {
              nonce = excluded.nonce,
              -- Advanced on update too, or a client that had already read past
              -- this row would never see the change.
-             seq = nextval('item_seq')`,
+             seq = excluded.seq`,
           [
             caller.vaultId,
             item.id,
@@ -174,18 +218,21 @@ export class SyncService {
             item.format,
             ciphertext,
             nonce,
+            seq,
           ],
         );
         accepted.push(item.id);
       }
 
-      const { rows: head } = await client.query<{ seq: string | null }>(
-        "select max(seq)::text as seq from items where vault_id = $1",
-        [caller.vaultId],
-      );
+      await client.query("update vaults set next_seq = $1 where id = $2", [
+        nextSeq,
+        caller.vaultId,
+      ]);
 
       await client.query("commit");
-      return { accepted, conflicts, cursor: head[0]?.seq ?? "0" };
+      // next_seq is always one past the highest seq this vault has ever
+      // handed out, so it doubles as the cursor without a second query.
+      return { accepted, conflicts, cursor: (nextSeq - 1n).toString() };
     } catch (error) {
       await client.query("rollback");
       throw error;
