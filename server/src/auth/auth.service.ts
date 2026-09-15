@@ -1,12 +1,19 @@
 // Registration, device enrolment, and deciding whether a caller may speak.
 
 import { Injectable, UnauthorizedException, ConflictException } from "@nestjs/common";
-import { createHash } from "node:crypto";
 import { pool } from "../db/pool.js";
-import { equalSecrets, hashSecret, newSecret, secretMatches } from "./credentials.js";
+import {
+  equalSecrets,
+  hashSecret,
+  newSecret,
+  secretMatches,
+  tokenFingerprint,
+} from "./credentials.js";
 
-/** How long an enrolment token is good for. Long enough to walk to a laptop. */
+/** How long a device-join token is good for. Long enough to walk to a laptop. */
 const TOKEN_MINUTES = 15;
+
+export type Role = "member" | "admin";
 
 export interface DeviceCredential {
   deviceId: string;
@@ -41,21 +48,24 @@ export interface VaultBootstrap {
   wrappedVaultKey: unknown;
 }
 
-/** Tokens are looked up by hash, so a database dump does not yield working ones. */
-function tokenFingerprint(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-
 @Injectable()
 export class AuthService {
   /**
-   * Creates the one account this server will ever hold.
+   * Creates a new vault, given a valid account-creation token.
    *
-   * Refuses once an account exists. This server is for one person, and a
-   * registration endpoint that keeps answering is an open door — anyone who
-   * finds the domain could otherwise create their own account on it.
+   * Always invite-only, in every deployment: a fresh personal server has one
+   * token minted at boot (`ensureBootstrapToken`), spent once and never
+   * reissued unless something explicitly mints another; an organisation's
+   * admin mints more via the CLI as people are onboarded. Either way this
+   * closes the same unauthenticated write the old "refuse once an account
+   * exists" check did, rather than merely gating it once.
+   *
+   * The new account's role comes from the token, not from the caller — a
+   * registering client has no identity yet for the server to trust with
+   * that choice.
    */
   async register(input: {
+    token: string;
     authKey: string;
     vault: VaultBootstrap;
     deviceName: string;
@@ -64,16 +74,31 @@ export class AuthService {
     try {
       await client.query("begin");
 
-      const { rows: existing } = await client.query<{ count: string }>(
-        "select count(*)::text as count from users",
+      // Locked for update so two registrations cannot spend one token into
+      // two accounts.
+      const { rows } = await client.query<{ token_hash: string; grants_role: Role }>(
+        `select token_hash, grants_role from enrollment_tokens
+          where token_hash = $1
+            and kind = 'account_create'
+            and used_at is null
+            and expires_at > now()
+          for update`,
+        [tokenFingerprint(input.token)],
       );
-      if (existing[0]?.count !== "0") {
-        throw new ConflictException("This server already has an account.");
-      }
+
+      const found = rows[0];
+      // One message for an unknown token, a spent one, an expired one and a
+      // device-join token presented here by mistake — telling them apart
+      // would say which half was wrong.
+      if (!found) throw new UnauthorizedException("Registration refused.");
+
+      await client.query("update enrollment_tokens set used_at = now() where token_hash = $1", [
+        found.token_hash,
+      ]);
 
       const { rows: users } = await client.query<{ id: string }>(
-        "insert into users (auth_key_hash) values ($1) returning id",
-        [await hashSecret(input.authKey)],
+        "insert into users (auth_key_hash, role) values ($1, $2) returning id",
+        [await hashSecret(input.authKey), found.grants_role],
       );
       const userId = users[0]?.id;
       if (!userId) throw new Error("user was not created");
@@ -101,6 +126,30 @@ export class AuthService {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * An invitation to create a brand-new vault, not join an existing one.
+   *
+   * Never minted through an HTTP route: nothing exists yet to authenticate a
+   * caller as allowed to issue one. `ensureBootstrapToken` calls this at boot
+   * on a fresh server; the admin CLI calls it for everyone after that.
+   */
+  async mintAccountToken(input: {
+    grantsRole: Role;
+    minutes: number;
+    createdBy?: string;
+  }): Promise<{ token: string; expiresAt: string }> {
+    const token = newSecret();
+    const { rows } = await pool.query<{ expires_at: Date }>(
+      `insert into enrollment_tokens (token_hash, kind, grants_role, created_by, expires_at)
+       values ($1, 'account_create', $2, $3, now() + ($4 || ' minutes')::interval)
+       returning expires_at`,
+      [tokenFingerprint(token), input.grantsRole, input.createdBy ?? null, String(input.minutes)],
+    );
+    const expiresAt = rows[0]?.expires_at;
+    if (!expiresAt) throw new Error("token was not created");
+    return { token, expiresAt: expiresAt.toISOString() };
   }
 
   private async attachDevice(
@@ -158,6 +207,7 @@ export class AuthService {
          from enrollment_tokens t
          join vaults v on v.user_id = t.user_id
         where t.token_hash = $1
+          and t.kind = 'device_join'
           and t.used_at is null
           and t.expires_at > now()`,
       [tokenFingerprint(token)],
@@ -203,6 +253,7 @@ export class AuthService {
            from enrollment_tokens t
            join users u on u.id = t.user_id
           where t.token_hash = $1
+            and t.kind = 'device_join'
             and t.used_at is null
             and t.expires_at > now()
           for update of t`,

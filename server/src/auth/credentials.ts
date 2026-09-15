@@ -10,7 +10,7 @@
 // insurance against the failure that would otherwise be silent.
 
 import { hash, verify } from "@node-rs/argon2";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 /**
  * Deliberately lighter than the vault's own KDF.
@@ -56,4 +56,17 @@ export function equalSecrets(a: string, b: string): boolean {
   // signal, so the lengths are compared first and the result folded in.
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
+}
+
+/**
+ * A fast fingerprint for tokens, not the Argon2id hash above.
+ *
+ * A token is already 256 bits of uniform entropy, drawn straight from the
+ * CSPRNG, and it's looked up by this fingerprint rather than verified
+ * against a chosen value -- so unlike an auth key or device credential,
+ * there's no offline search this needs to be slow against, only a database
+ * dump this needs to not hand back a working token from.
+ */
+export function tokenFingerprint(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }

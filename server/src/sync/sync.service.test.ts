@@ -93,7 +93,9 @@ describeDb("sync", () => {
     await pool.query("delete from users");
 
     const auth = new AuthService();
+    const { token } = await auth.mintAccountToken({ grantsRole: "admin", minutes: 15 });
     const { deviceId, credential } = await auth.register({
+      token,
       authKey: "auth-key",
       vault: VAULT,
       deviceName: "First",
