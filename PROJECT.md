@@ -243,8 +243,9 @@ parts.
   "the first device" — that was ever only true because the extension
   shipped first.
 - **Administration is a guided CLI**, not a fourth app or a new
-  authenticated HTTP surface: `server/scripts/vaultiq-admin`, run on the
-  server host with direct database access, in the interactive
+  authenticated HTTP surface: `server/src/admin/cli.ts` (`pnpm run admin`;
+  `docker compose exec server node dist/admin/cli.js` against a real
+  deployment), run with direct database access, in the interactive
   numbered-prompt style of tools like `p10k configure` rather than a
   flag-per-operation script.
 - **Recovery/escrow is explicitly out of scope for this phase** — see

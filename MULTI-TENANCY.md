@@ -140,20 +140,30 @@ out to be.
 
 None of the three client apps is a natural home for server administration,
 and building one just for this is scope the org use case doesn't need yet.
-Instead: `server/scripts/vaultiq-admin`, an interactive terminal wizard in
-the shape of tools like `p10k configure` — numbered/arrow-key prompts
-guiding a step at a time, rather than a flag-per-operation CLI someone has
-to look up. Menu, roughly:
+Instead: `server/src/admin/cli.ts` (`pnpm run admin` locally; in a real
+deployment, `docker compose exec server node dist/admin/cli.js`, since
+Postgres is deliberately not reachable from the host any other way — see
+§8.5's reasoning applied to the database instead of the API). An interactive
+terminal wizard in the shape of tools like `p10k configure` — numbered/
+arrow-key prompts guiding a step at a time (`@clack/prompts`), rather than a
+flag-per-operation CLI someone has to look up. Menu:
 
-- **First run** (no admin exists): name the org, create the first admin
-  account by minting its account-creation token, print it as both plaintext
-  and a terminal-rendered QR.
-- **Invite someone**: pick member or admin, pick an expiry, get back
-  plaintext + QR.
-- **List / revoke**: users, their devices, outstanding unspent tokens.
-- **Recovery**: present but inert — prints a pointer to this document's
-  escrow section rather than a dead menu item that looks broken. Stays
-  inert until (and unless) escrow is decided and built.
+- **Invite someone**: pick member or admin, pick an expiry, type the
+  server's own URL, get back a plaintext token and a terminal-rendered QR
+  (`qrcode`) encoding the same `vaultiq://enroll` shape the extension's
+  device-join QR already uses, with `kind=account` added.
+- **List users and devices**, **list outstanding invitations**, **revoke a
+  user** (revokes every device on the account and spends its outstanding
+  device-join tokens — there's no separate "delete account" concept, since a
+  device credential is the only thing that reaches a vault at all).
+- **Recover a locked-out account**: present but inert — prints a pointer to
+  this document's escrow section rather than a dead menu item that looks
+  broken. Stays inert until (and unless) escrow is decided and built.
+
+No separate "first run" mode: `ensureBootstrapToken` (called from `main.ts`
+right after migrations run) already mints the very first account-creation
+token automatically whenever `users` is empty, so the CLI's first real use
+is typically "invite the next person," not bootstrapping.
 
 This script talks to the database directly (it already lives in the
 server's pnpm workspace and runs on the host, same trust level as the
