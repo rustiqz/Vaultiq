@@ -382,7 +382,7 @@ export type Request =
   // flows, which have to derive an auth key; nothing else needs it, and it
   // is never stored.
   | { kind: "syncStatus" }
-  | { kind: "connectServer"; server: string; deviceName: string; masterPassword: string }
+  | { kind: "connectServer"; server: string; token: string; deviceName: string; masterPassword: string }
   | {
       kind: "enrollWithServer";
       server: string;

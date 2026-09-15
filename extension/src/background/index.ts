@@ -208,7 +208,7 @@ async function handle(
       // sync was without opening the vault.
       return { ok: true, kind: "syncStatus", sync: await syncStatus() };
     case "connectServer":
-      await connectServer(request.server, request.deviceName, request.masterPassword);
+      await connectServer(request.server, request.token, request.deviceName, request.masterPassword);
       await extendAutoLock();
       return { ok: true, kind: "connectServer" };
     case "enrollWithServer":
