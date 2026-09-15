@@ -1,6 +1,10 @@
+type InviteKind = 'device' | 'account';
+
 type EnrollmentInvite = {
   serverUrl: string;
   token: string;
+  /** Which flow this token is for. Missing on an older QR -- treated as 'device', the only kind that existed before. */
+  kind: InviteKind;
 };
 
 /** Reads the deliberately small payload emitted by the trusted-device UI. */
@@ -25,7 +29,24 @@ export function parseEnrollmentQr(value: string): EnrollmentInvite | null {
     return null;
   }
 
-  return { serverUrl, token };
+  const kind: InviteKind = params.get('kind') === 'account' ? 'account' : 'device';
+  return { serverUrl, token, kind };
 }
 
-export type { EnrollmentInvite };
+/**
+ * The payload for a device-join invite this device mints, mirroring
+ * extension/src/lib/enrollment-qr.ts's shape. Built via `URLSearchParams`
+ * alone rather than `new URL('vaultiq://...')` -- the same reasoning as the
+ * parser above: the bundled polyfill's custom-scheme handling isn't
+ * trustworthy on-device.
+ */
+export function buildEnrollmentQr(serverUrl: string, token: string): string {
+  const params = new URLSearchParams({
+    server: serverUrl.trim().replace(/\/+$/, ''),
+    token: token.trim(),
+    kind: 'device',
+  });
+  return `vaultiq://enroll?${params.toString()}`;
+}
+
+export type { EnrollmentInvite, InviteKind };

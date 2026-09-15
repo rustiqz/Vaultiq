@@ -2,10 +2,7 @@ import type { Argon2Params, EncryptedItem, WrappedVaultKey } from './nativeCrypt
 
 /**
  * HTTP calls to the sync server's enrollment/auth/sync routes -- the mobile
- * analogue of extension/src/sync/client.ts, covering only the subset this
- * app currently uses: joining an *existing* vault as a new device, its
- * bootstrap record, and pulling/pushing items. Vault creation
- * (`auth/register`) is not implemented here; see CLAUDE.md §0.
+ * analogue of extension/src/sync/client.ts.
  */
 type KdfParams = {
   saltB64: string;
@@ -84,9 +81,29 @@ async function deleteJson<T>(serverUrl: string, path: string, authHeader: string
   return (await response.json()) as T;
 }
 
+/** Creates a brand-new vault, given a valid account-creation token. */
+function register(
+  serverUrl: string,
+  token: string,
+  authKey: string,
+  vault: VaultBootstrap,
+  deviceName: string,
+): Promise<DeviceCredential> {
+  return postJson(serverUrl, 'auth/register', { token, authKey, vault, deviceName });
+}
+
 /** The salt and KDF costs an enrolling device needs to derive its auth key. */
 function enrollmentParams(serverUrl: string, token: string): Promise<KdfParams> {
   return postJson(serverUrl, 'auth/enrollment-params', { token });
+}
+
+/** Mints a device-join token for a new device, from this already-trusted one. */
+function createEnrollmentToken(
+  serverUrl: string,
+  deviceId: string,
+  credential: string,
+): Promise<{ token: string; expiresAt: string }> {
+  return postJson(serverUrl, 'devices/enrollment-token', {}, `Bearer ${deviceId}.${credential}`);
 }
 
 /** Adds this device, given a token from an already-trusted one and the auth key. */
@@ -140,5 +157,17 @@ function changeMasterPassword(
   return postJson(serverUrl, 'vault/master-password', body, `Bearer ${deviceId}.${credential}`);
 }
 
-export { changeMasterPassword, enroll, enrollmentParams, listDevices, pull, push, revokeDevice, SyncServerError, vaultBootstrap };
+export {
+  changeMasterPassword,
+  createEnrollmentToken,
+  enroll,
+  enrollmentParams,
+  listDevices,
+  pull,
+  push,
+  register,
+  revokeDevice,
+  SyncServerError,
+  vaultBootstrap,
+};
 export type { DeviceCredential, DeviceSummary, KdfParams, PullResult, PushResult, VaultBootstrap };
