@@ -805,8 +805,50 @@ fast and clever, every time.
     failed to parse an ESM dependency with no gate, meaning a checkout
     without a database (or, for mobile, at all) couldn't run them — same
     class of bug Work Item 1's `device-throttler.guard.test.ts` fix
-    addressed, just predating this phase. See their own fix commits for
-    what changed.
+    addressed, just predating this phase. Fixed by making `pool.ts`
+    construct its `Pool` lazily (a Proxy, on first real use, rather than
+    at import time — the fix generalizes past this one test file, to any
+    future test that transitively imports `AuthService`) and by widening
+    mobile's Jest `transformIgnorePatterns` plus adding native-module
+    mocks (`jest.setup.js`) for Clipboard/AsyncStorage/VisionCamera/
+    `react-native-qrcode-svg`. `SECURITY.md`'s "one account per server and
+    no sharing" claim and this file's own missing phase-6 entry (this one)
+    were also stale and caught in the same pass.
+  - **Work item 4 — admin capabilities and an audit log**, prompted by
+    deciding the recovery question (Path A: no escrow, ever — see
+    MULTI-TENANCY.md) and wanting a real answer to "what happened" for
+    incident investigation. `users.role` (a plain `member`/`admin` column)
+    replaced by `user_capabilities` (`manage_invitations`, `manage_devices`,
+    `view_audit_log` — granular, not all-or-nothing; nothing enforces these
+    at an HTTP layer yet since nothing admin-facing runs over HTTP, the CLI
+    already having full database trust). A new `audit_log` table records
+    registrations, enrolments and their refusals, device revocations,
+    master password changes, and invitations issued — never a credential,
+    token, or key material. Writes go through the plain connection pool
+    rather than whatever transaction the caller is in, specifically so a
+    refusal's log entry survives the refusal's own transaction rolling
+    back (verified by a test: `expect(rows).toEqual([{event_type:
+    "registration_refused", ...}])` after a rejected `register()` call).
+    Source IP is recorded only for registration/enrolment refusals — one
+    deliberate, documented exception to "a database dump identifies
+    nobody," decided explicitly rather than defaulted into. Retention is
+    manual (`prune audit log older than N days` in the CLI); no scheduler
+    added for this. **Caught while building the IP-logging half**, not
+    something either feature set out to find: the real deployment sits
+    behind Caddy, and the server never trusted it as a proxy, so `req.ip`
+    resolved to Caddy's own container address for every request — meaning
+    Work Item 1's IP-keyed rate limiting on the three bootstrap routes had
+    been silently ineffective in the real deployment the whole time (every
+    caller collapsed into one shared bucket, one hop further out than the
+    NAT problem that work item was built to prevent). Fixed with
+    `app.set('trust proxy', 1)`. Admin CLI gained capability multiselect
+    (replacing the member/admin picker) and "view/prune audit log" menu
+    entries. **Verified**: `pnpm typecheck`/`lint`/`test` (75 tests, real
+    Postgres, including the rollback-survival property above), a live
+    HTTP smoke test confirming a spoofed `X-Forwarded-For` header now
+    produces the correct `source_ip` in a refused-registration audit row,
+    and the CLI's new multiselect/audit-log-view screens driven end to end
+    over a real pty against a real database.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
