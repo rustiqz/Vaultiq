@@ -16,11 +16,13 @@ import uniffi.pw_crypto_core.ItemHeaderInput
 import uniffi.pw_crypto_core.VaultKeyHandle
 import uniffi.pw_crypto_core.WrappedVaultKeyFfi
 import uniffi.pw_crypto_core.decryptItemFfi
+import uniffi.pw_crypto_core.defaultArgon2Params as defaultArgon2ParamsFfi
 import uniffi.pw_crypto_core.deriveAuthKey as deriveAuthKeyFfi
 import uniffi.pw_crypto_core.deriveMasterKey
 import uniffi.pw_crypto_core.encryptItemFfi
 import uniffi.pw_crypto_core.estimateStrengthFfi
 import uniffi.pw_crypto_core.generateSalt as generateSaltFfi
+import uniffi.pw_crypto_core.generateVaultKey
 import uniffi.pw_crypto_core.totpCodeFfi
 import uniffi.pw_crypto_core.totpSecondsRemainingFfi
 import uniffi.pw_crypto_core.unwrapVaultKey
@@ -73,6 +75,23 @@ class CryptoCoreModule(reactContext: ReactApplicationContext) :
         } catch (error: Exception) {
             rejectFfi(promise, error)
         }
+    }
+
+    /**
+     * The published Argon2id defaults -- needed only for creating a brand-new
+     * vault. Joining an existing one always reads its costs from the server
+     * instead ([enrollAndUnlock]'s `enrollmentParams` step in vault.ts).
+     */
+    @ReactMethod
+    fun defaultArgon2Params(promise: Promise) {
+        val params = defaultArgon2ParamsFfi()
+        promise.resolve(
+            Arguments.createMap().apply {
+                putInt("memoryKib", params.memoryKib.toInt())
+                putInt("iterations", params.iterations.toInt())
+                putInt("parallelism", params.parallelism.toInt())
+            },
+        )
     }
 
     /** Scores a password's shape. Never fails, so no promise rejection path. */
@@ -159,6 +178,59 @@ class CryptoCoreModule(reactContext: ReactApplicationContext) :
             vaultKey?.close()
             vaultKey = unwrapped
             promise.resolve(null)
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
+    }
+
+    /**
+     * Generates a brand-new vault key and wraps it under a freshly-derived
+     * master key -- the mobile analogue of
+     * extension/src/background/vault.ts's `create()`, which runs the same
+     * three calls (fresh salt, fresh vault key, wrap it) before treating
+     * itself as unlocked immediately. Also derives the auth key in the same
+     * call: unlike [unlock], a brand-new vault has no server registration
+     * yet, and creating one needs exactly this key.
+     */
+    @ReactMethod
+    fun createVault(
+        password: String,
+        saltB64: String,
+        memoryKib: Double,
+        iterations: Double,
+        parallelism: Double,
+        promise: Promise,
+    ) {
+        try {
+            val masterKey =
+                deriveMasterKey(
+                    password,
+                    saltB64,
+                    memoryKib.toInt().toUInt(),
+                    iterations.toInt().toUInt(),
+                    parallelism.toInt().toUInt(),
+                )
+            try {
+                val generated = generateVaultKey()
+                val wrapped =
+                    try {
+                        wrapVaultKey(generated, masterKey)
+                    } catch (error: Exception) {
+                        generated.close()
+                        throw error
+                    }
+                val authKey = deriveAuthKeyFfi(masterKey)
+                vaultKey?.close()
+                vaultKey = generated
+                promise.resolve(
+                    Arguments.createMap().apply {
+                        putString("authKey", authKey)
+                        putMap("wrappedVaultKey", writeWrappedVaultKey(wrapped))
+                    },
+                )
+            } finally {
+                masterKey.close()
+            }
         } catch (error: Exception) {
             rejectFfi(promise, error)
         }
