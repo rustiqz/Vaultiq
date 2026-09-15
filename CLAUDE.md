@@ -725,6 +725,88 @@ fast and clever, every time.
     the same design-rule-scoping this session applied elsewhere) and
     breach-checking (§1.3, forever-deferred, unrelated to this feature but
     worth restating every time a mockup nearby assumes it).
+- **Phase 6 underway: multi-tenancy and self-hosted distribution.**
+  [MULTI-TENANCY.md](MULTI-TENANCY.md) is the design doc — the reasoning,
+  the recovery/escrow question (deliberately left open), and the sequencing.
+  `PROJECT.md`'s Phase 6 section is the settled subset of it. Three work
+  items landed (PR #47, `phase6/isolation-defects` → `main`).
+  - **Work item 1 — isolation defects**, worth doing regardless of the rest:
+    `vaults.next_seq` replaces the single global `item_seq` (was a
+    cross-tenant side channel — the gaps in your own sequence numbers
+    reported how much another tenant wrote), a 10,000-item-per-vault quota
+    (`MAX_ITEMS_PER_VAULT` in `sync.service.ts`, hardcoded — a reasonable
+    follow-up, not done, to make it configurable), and rate limiting keyed
+    by device (`DeviceThrottlerGuard`) instead of IP for every authenticated
+    route, so one office behind one NAT no longer shares a bucket. The
+    three bootstrap routes (register/enrollment-params/enroll) stay
+    IP-keyed unconditionally — nothing has authenticated yet when they run,
+    and trusting a self-claimed device id there would let an attacker mint
+    a fresh "device" per guess and walk past the limit.
+  - **Work item 2 — always-invite-only registration.** `register()` drops
+    the old "refuse once an account exists" check for a required, valid,
+    unspent `account_create`-kind token (`enrollment_tokens` gained `kind`,
+    `grants_role`, `created_by`, a shape-check constraint tying the two
+    kinds' columns together). `ensureBootstrapToken()` mints and logs one
+    automatically at boot when `users` is empty, reproducing today's
+    single-account behaviour on a fresh server without a special case.
+    `users.role` (`member`/`admin`) is the first real role — an admin can
+    issue registration tokens and revoke devices, never read a vault.
+    Administration is `server/src/admin/cli.ts` (`pnpm run admin`;
+    `docker compose exec server node dist/admin/cli.js` against a real
+    deployment, since Postgres isn't reachable from the host any other
+    way), an interactive `@clack/prompts` wizard rather than a fourth app
+    or a new HTTP surface — invite, list users/devices/outstanding
+    invitations, revoke (revokes every device on the account and spends
+    its outstanding device-join tokens), and a "recover a locked-out
+    account" entry that's present but inert, pointing at the escrow
+    section rather than looking like a missing feature. Invite tokens
+    render as a terminal QR (`qrcode`) alongside the plaintext, encoding
+    the same `vaultiq://enroll` shape the extension's device-join QR uses,
+    with `kind=account`.
+  - **Work item 3 — symmetric client enrollment.** No app is privileged as
+    "the first device" anymore — that was only ever true because the
+    extension shipped first. Mobile gained a `GetStartedScreen.tsx`
+    choice screen, a `CreateVaultScreen.tsx` (mirrors `JoinVaultScreen`'s
+    three-step wizard shape but generates fresh crypto locally and asks
+    the user to *choose* a password, single field, no confirmation,
+    matching the extension's own "Create your vault" convention), and
+    "Invite a device" in Settings (`react-native-qrcode-svg`, new
+    dependency — mobile had QR scanning but no generation before).
+    Creating a vault needed native crypto mobile never had a bridge for:
+    `CryptoCoreModule.kt` gained `createVault`/`defaultArgon2Params`,
+    calling `pw-crypto-core` FFI exports the extension's wasm bindings
+    already use for the same purpose — no Rust changes. Both QR generators
+    (extension and mobile) and the CLI mark their kind explicitly
+    (`device`/`account`) in the invite URI; each screen's scanner rejects
+    a mismatched kind rather than misrouting it, but this is a UX routing
+    hint only — the server enforces kind on every route regardless
+    (`register` only accepts `account_create`, `enroll`/`enrollment-params`
+    only `device_join`), so there's no server round-trip to ask "what is
+    this token" and no trust decision riding on a client's own read of it.
+    Caught along the way: `connectServer()` (the extension's "upload this
+    local vault to a fresh server" path) had never been updated to send
+    the new required token — a real break, not hypothetical, fixed here.
+  - **Verified**: server — `pnpm typecheck`/`lint`/`test`/`build` green
+    across every commit (checked in isolation via temporary stashing at
+    each commit boundary, not just at the end), migrations applied fresh
+    and twice for idempotency against a real Postgres, a live smoke test
+    against a running built server (bootstrap → register → push/pull;
+    rate-limit behaviour confirmed live), and the admin CLI driven
+    end-to-end over a real pty against a real database. Extension — `pnpm
+    typecheck`/`lint`/`test`, 275 tests. Mobile — `tsc`, `eslint`,
+    `:app:assembleDebug` (full native build, including the new Kotlin
+    bridge methods and the new dependency's autolinking). **Not verified**:
+    no physical Android device was connected this session, so
+    `CreateVaultScreen`/`GetStartedScreen`/the invite QR/the native
+    `createVault` bridge are compile-verified only, not run on hardware.
+  - **Two pre-existing, unrelated test-infra gaps found and fixed
+    separately from the phase-6 work itself**: `version.controller.test.ts`
+    and mobile's Jest config both transitively required `DATABASE_URL` /
+    failed to parse an ESM dependency with no gate, meaning a checkout
+    without a database (or, for mobile, at all) couldn't run them — same
+    class of bug Work Item 1's `device-throttler.guard.test.ts` fix
+    addressed, just predating this phase. See their own fix commits for
+    what changed.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
