@@ -111,10 +111,24 @@ with its own vault. Every query is scoped to the caller's own vault (checked
 on every request, not assumed), and each vault has its own write sequence and
 storage ceiling rather than one shared globally — a busy tenant cannot fill
 the disk for another or leak how much another has written by the gaps in its
-own numbers. An administrator — a role that can issue registration tokens and
-revoke devices — has no cryptographic path into any vault on the server,
-including ones they provisioned themselves; the role governs who may register
-and stay enrolled, never who can decrypt.
+own numbers. An administrator — granted one or more specific capabilities
+(issue registration tokens, revoke devices, read the audit log below), never
+an all-or-nothing role — has no cryptographic path into any vault on the
+server, including ones they provisioned themselves; capabilities govern who
+may register, stay enrolled, or read the event history, never who can
+decrypt.
+
+**An investigation, without exposing what it's investigating.** The audit
+log (`audit_log`) records security-relevant events — an account registering,
+a device enrolling or being revoked, a master password changing, a
+registration or enrolment attempt being refused — with a timestamp and which
+account/device they concern. It never records a credential, a token (not
+even a fingerprint of one), or key material, the same list CLAUDE.md §2.3
+holds every other part of this codebase to. Reading it needs the
+`view_audit_log` capability above, and its contents are exactly as available
+to whoever holds a database dump as everything else in the Traffic analysis
+entry below — nothing here is a wider exposure than that, with one deliberate
+exception, next.
 
 **Online guessing.** The routes with no caller identity yet — registration,
 enrolment, and the params step before it — are rate limited by IP, since
@@ -180,6 +194,15 @@ ciphertext is, when each one changed, how many devices there are, and when each
 syncs. It cannot read any of it, but the shape is visible. Padding item
 ciphertext to a fixed size is a plausible future change; it is not done today.
 
+**The one deliberate exception: source IP on a refused attempt.** The audit
+log records the caller's IP address specifically for registration and
+enrolment *refusals* (an unknown, spent, or expired token; a wrong auth key)
+— nowhere else, and never for a successful action. This is a real, chosen
+cost to this project's usual "a database dump identifies nobody" stance: it
+exists because the single most useful signal for telling a scattered mistake
+from a deliberate attack is whether the failures share a source. Everywhere
+else in this file, that stance still holds without exception.
+
 **Memory on an unlocked device.** While the vault is unlocked, the vault key is
 in `storage.session` and in wasm memory. Anyone who can read the process's
 memory has it — but they already have everything else on that machine too.
@@ -195,15 +218,15 @@ its extension APIs are trusted absolutely.
 **Sharing between accounts.** Isolation between tenants is defended (see
 above); collaboration between them is not built. Two people wanting to share
 one login still need to hand each other the master password out of band —
-there is no feature for it, and the escrow question a shared-vault design
-would also need is an open one (see MULTI-TENANCY.md's "Recovery and
-escrow").
+there is no feature for it, and it would need the same asymmetric primitives
+the escrow question below was declined for.
 
 **An admin's view of metadata.** An administrator's database access — via the
 CLI, which talks to it directly (MULTI-TENANCY.md) — is the same trust level
-as a compromised server for everything in the Traffic analysis entry above:
-account count, device count and names, and every timestamp. It is not a wider
-window than that, and it is never a window into content.
+as a compromised server for everything in the Traffic analysis entry above,
+the audit log included: account count, device count and names, every
+timestamp, and refused-attempt source IPs. It is not a wider window than
+that, and it is never a window into content.
 
 ---
 
@@ -222,7 +245,8 @@ the rest by rules the code is reviewed against:
   derived from one.
 - Database tests against a real PostgreSQL, because per-vault isolation, the
   token kind/shape constraint, the token lock, and the revocation filter all
-  live in SQL.
+  live in SQL — including that a refused attempt is still logged even though
+  the transaction around the refusal itself rolls back.
 
 See [CLAUDE.md](CLAUDE.md) §2 and §4 for the rules in full.
 

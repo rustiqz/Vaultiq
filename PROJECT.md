@@ -210,8 +210,7 @@ dependency resolution.)
 ## Phase 6: multi-tenancy and self-hosted distribution
 
 Precondition met: phases 1–3 (crypto core, extension, sync server) are
-complete end to end. Full reasoning, the isolation-defect list, and the
-recovery/escrow decision (explicitly **not** made here) live in
+complete end to end. Full reasoning and the isolation-defect list live in
 [MULTI-TENANCY.md](MULTI-TENANCY.md). This section states only the settled
 parts.
 
@@ -227,9 +226,22 @@ parts.
   exactly as it is today); an organization's admin mints more as needed.
   This replaces, and is a strict improvement over, today's
   count-the-`users`-table gate in `AuthService.register`.
-- **`users` gains a `role` column** (`member | admin`). An admin can issue
-  account-creation tokens and revoke accounts. An admin role carries no
-  cryptographic access — nothing changes about who can read a vault.
+- **Admin capabilities, granular rather than one `role` column.**
+  `user_capabilities` grants specific capabilities (`manage_invitations`,
+  `manage_devices`, `view_audit_log`) rather than an all-or-nothing role.
+  None of them are cryptographic access — nothing changes about who can
+  read a vault.
+- **An audit log** (`audit_log`) records security-relevant events —
+  registrations, enrolments and their refusals, revocations, master
+  password changes, invitations issued — with a timestamp and which
+  account/device they concern, never a credential, token, or key
+  material. Source IP is recorded only for refused registration/enrolment
+  attempts, the one deliberate exception to this project's "a database
+  dump identifies nobody" stance — see SECURITY.md.
+- **Recovery: decided, Path A.** No escrow, ever, in any deployment — a
+  forgotten master password loses the vault, with no exception for
+  organizations. See MULTI-TENANCY.md's "Recovery and escrow" for the
+  reasoning kept alongside the decision.
 - **Two kinds of invite token, one mechanism.** A device-join token (adds a
   device to a vault that exists — already built) and an account-creation
   token (creates a new vault — new). Both single-use, hashed at rest, short
@@ -249,21 +261,16 @@ parts.
   deployment), run with direct database access, in the interactive
   numbered-prompt style of tools like `p10k configure` rather than a
   flag-per-operation script.
-- **Recovery/escrow is explicitly out of scope for this phase** — see
-  below.
 
 ## Explicitly deferred (do not build yet)
 
-- **Emergency access / recovery / key escrow.** Deliberately left an open
-  decision rather than ruled out — see MULTI-TENANCY.md's "Recovery and
-  escrow" section for both paths and what each costs. Not started either
-  way until that decision is made on purpose, with its own phase and its
-  own SECURITY.md rewrite.
 - Passkey/WebAuthn support
 - Password health check / breach checking
 - Import from other password managers
-- SSO (SAML/OIDC), SCIM provisioning, audit logging, shared collections —
-  named in MULTI-TENANCY.md as things buyers will ask for; none are started.
+- SSO (SAML/OIDC), SCIM provisioning, shared collections — named in
+  MULTI-TENANCY.md as things buyers will ask for; none are started, and
+  shared collections in particular would need asymmetric primitives this
+  project doesn't have (the same ones Path B recovery was declined for).
 
 Multi-user support and self-hosted distribution are no longer on this list —
 see Phase 6 above. Item types beyond login (secure notes, cards, identities,
