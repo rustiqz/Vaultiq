@@ -51,7 +51,9 @@ describeDb("DeviceThrottlerGuard", () => {
     await pool.query("delete from users");
 
     const auth = new AuthService();
+    const { token } = await auth.mintAccountToken({ grantsRole: "admin", minutes: 15 });
     ({ deviceId, credential } = await auth.register({
+      token,
       authKey: "auth-key",
       vault: {
         saltB64: "c2FsdA==",

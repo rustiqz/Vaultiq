@@ -36,8 +36,14 @@ describeDb("auth", () => {
     await pool.end();
   });
 
+  async function accountToken(grantsRole: "member" | "admin" = "admin"): Promise<string> {
+    const { token } = await auth.mintAccountToken({ grantsRole, minutes: 15 });
+    return token;
+  }
+
   async function registered(): Promise<{ deviceId: string; credential: string }> {
-    return await auth.register({ authKey: "auth-key", vault: VAULT, deviceName: "First" });
+    const token = await accountToken();
+    return await auth.register({ token, authKey: "auth-key", vault: VAULT, deviceName: "First" });
   }
 
   describe("registration", () => {
@@ -47,16 +53,47 @@ describeDb("auth", () => {
       expect(credential.length).toBeGreaterThan(20);
     });
 
-    it("refuses once an account exists", async () => {
-      await registered();
-      // This server is for one person. An endpoint that keeps answering is an
-      // open door for anyone who finds the domain.
-      await expect(registered()).rejects.toThrow(/already has an account/i);
+    it("refuses without a valid token", async () => {
+      await expect(
+        auth.register({ token: "made-up", authKey: "auth-key", vault: VAULT, deviceName: "x" }),
+      ).rejects.toThrow(/refused/i);
+    });
+
+    it("refuses a token already spent", async () => {
+      const token = await accountToken();
+      await auth.register({ token, authKey: "auth-key", vault: VAULT, deviceName: "First" });
+
+      await expect(
+        auth.register({ token, authKey: "auth-key", vault: VAULT, deviceName: "Second" }),
+      ).rejects.toThrow(/refused/i);
+    });
+
+    it("refuses an expired token", async () => {
+      const token = await accountToken();
+      await pool.query("update enrollment_tokens set expires_at = now() - interval '1 minute'");
+
+      await expect(
+        auth.register({ token, authKey: "auth-key", vault: VAULT, deviceName: "First" }),
+      ).rejects.toThrow(/refused/i);
+    });
+
+    it("refuses a device-join token presented as a registration token", async () => {
+      const { deviceId, credential } = await registered();
+      const caller = (await auth.identify(deviceId, credential))!;
+      const { token: joinToken } = await auth.createEnrollmentToken(caller);
+
+      await expect(
+        auth.register({ token: joinToken, authKey: "auth-key", vault: VAULT, deviceName: "x" }),
+      ).rejects.toThrow(/refused/i);
     });
 
     it("leaves nothing behind when it refuses", async () => {
-      await registered();
-      await expect(registered()).rejects.toThrow();
+      const token = await accountToken();
+      await auth.register({ token, authKey: "auth-key", vault: VAULT, deviceName: "First" });
+      // The same token again: already spent.
+      await expect(
+        auth.register({ token, authKey: "auth-key", vault: VAULT, deviceName: "Second" }),
+      ).rejects.toThrow();
 
       const { rows } = await pool.query<{ count: string }>(
         "select count(*)::text as count from devices",
@@ -64,6 +101,19 @@ describeDb("auth", () => {
       // The rollback matters: a half-registered second account would leave an
       // orphan device credential that still authenticates.
       expect(rows[0]?.count).toBe("1");
+    });
+
+    it("grants the role the token specifies", async () => {
+      const memberToken = await accountToken("member");
+      await auth.register({
+        token: memberToken,
+        authKey: "auth-key",
+        vault: VAULT,
+        deviceName: "First",
+      });
+
+      const { rows } = await pool.query<{ role: string }>("select role from users");
+      expect(rows[0]?.role).toBe("member");
     });
 
     it("stores no auth key, only a hash of one", async () => {
@@ -82,6 +132,17 @@ describeDb("auth", () => {
       );
       expect(rows[0]?.credential_hash).not.toContain(credential);
       expect(rows[0]?.credential_hash.startsWith("$argon2")).toBe(true);
+    });
+
+    it("stores no token, only a fingerprint of one", async () => {
+      const token = await accountToken();
+      await auth.register({ token, authKey: "auth-key", vault: VAULT, deviceName: "First" });
+
+      const { rows } = await pool.query<{ token_hash: string }>(
+        "select token_hash from enrollment_tokens where kind = 'account_create'",
+      );
+      // A database dump must not yield working tokens.
+      expect(rows[0]?.token_hash).not.toContain(token);
     });
   });
 
