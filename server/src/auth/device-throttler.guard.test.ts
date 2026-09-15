@@ -2,7 +2,7 @@ import type { ThrottlerModuleOptions, ThrottlerStorage } from "@nestjs/throttler
 import type { Reflector } from "@nestjs/core";
 import type { Request } from "express";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { parseBearerCredential } from "./device-throttler.guard.js";
+import { parseBearerCredential } from "./bearer-credential.js";
 
 const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
 
