@@ -12,7 +12,18 @@ import { Button, Field, SecretField } from '../ui';
 type Step = 'welcome' | 'device' | 'password';
 const STEP_INDEX: Record<Step, number> = { welcome: 0, device: 1, password: 2 };
 
-export default function JoinVaultScreen(props: {
+/**
+ * Creates a brand-new vault -- the mobile analogue of the extension's "Set
+ * up a new server" (extension/src/popup/sync-panel.ts), reshaped into the
+ * same three-step wizard JoinVaultScreen already uses so the two entry
+ * points read as one flow rather than two unrelated screens. The essential
+ * difference from joining: this device generates its own fresh crypto
+ * (there's nothing to match), and the last step asks the user to *choose* a
+ * password rather than enter one that already exists -- no confirmation
+ * field, matching the extension's own "Create your vault" screen, which
+ * warns instead of double-entry.
+ */
+export default function CreateVaultScreen(props: {
   busy: boolean;
   error: string | null;
   onSubmit: (serverUrl: string, token: string, deviceName: string, password: string) => void;
@@ -29,12 +40,12 @@ export default function JoinVaultScreen(props: {
   if (scanning) {
     return (
       <QrScannerView
-        title="Scan enrollment QR"
-        invalidMessage="That QR code is not a Vaultiq enrollment invite."
+        title="Scan registration QR"
+        invalidMessage="That QR code is not a Vaultiq registration invite."
         onCancel={() => setScanning(false)}
         onScan={value => {
           const invite = parseEnrollmentQr(value);
-          if (invite === null || invite.kind !== 'device') return false;
+          if (invite === null || invite.kind !== 'account') return false;
           setServerUrl(invite.serverUrl);
           setToken(invite.token);
           setScanning(false);
@@ -77,10 +88,10 @@ export default function JoinVaultScreen(props: {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {step === 'welcome' && (
           <View style={styles.welcome}>
-            <Text style={styles.welcomeTitle}>Join an existing vault</Text>
+            <Text style={styles.welcomeTitle}>Create a new vault</Text>
             <Text style={styles.welcomeBody}>
-              You'll need an enrollment token from a device already trusted on that vault, and the vault's master
-              password. Nothing leaves this device unencrypted.
+              You'll need a registration token -- from the server's admin, or logged at boot on a fresh server. This
+              device becomes the vault's first, with a password only you choose.
             </Text>
           </View>
         )}
@@ -88,18 +99,18 @@ export default function JoinVaultScreen(props: {
         {step === 'device' && (
           <View style={styles.stepBody}>
             <Text style={styles.stepTitle}>Connect this device</Text>
-            <Text style={styles.stepSubtitle}>Scan the invite from a trusted device, or enter its details below.</Text>
+            <Text style={styles.stepSubtitle}>Scan the registration invite, or enter its details below.</Text>
             <Pressable style={styles.scanButton} onPress={() => setScanning(true)}>
               <Icon name="scan" size={23} color={colors.ink} />
               <View style={styles.scanButtonText}>
-                <Text style={styles.scanButtonTitle}>Scan enrollment QR</Text>
+                <Text style={styles.scanButtonTitle}>Scan registration QR</Text>
                 <Text style={styles.scanButtonHint}>Fills the server URL and token.</Text>
               </View>
             </Pressable>
             <Field label="Server URL" placeholder="https://vault.example.com" autoCapitalize="none" value={serverUrl} onChangeText={setServerUrl} />
             <View>
               <Field
-                label="Enrollment token"
+                label="Registration token"
                 placeholder="0x9F82A…"
                 autoCapitalize="none"
                 value={token}
@@ -116,9 +127,11 @@ export default function JoinVaultScreen(props: {
 
         {step === 'password' && (
           <View style={styles.stepBody}>
-            <Text style={styles.stepTitle}>Enter your master password</Text>
-            <Text style={styles.stepSubtitle}>Use the existing password that opens this vault. It never leaves this device.</Text>
-            <SecretField label="Existing master password" value={password} onChangeText={setPassword} />
+            <Text style={styles.stepTitle}>Choose a master password</Text>
+            <Text style={styles.stepSubtitle}>
+              Never stored or sent anywhere. If it's lost, this vault cannot be recovered -- there is no reset.
+            </Text>
+            <SecretField label="Master password" value={password} onChangeText={setPassword} />
             {props.error !== null && <Text style={styles.error}>{props.error}</Text>}
           </View>
         )}
@@ -129,12 +142,12 @@ export default function JoinVaultScreen(props: {
         {step === 'device' && (
           <>
             <Button title="Continue" onPress={() => setStep('password')} disabled={serverUrl.trim() === '' || token.trim() === '' || deviceName.trim() === ''} />
-            <Text style={styles.footNote}>Next · set master password</Text>
+            <Text style={styles.footNote}>Next · choose master password</Text>
           </>
         )}
         {step === 'password' && (
           <Button
-            title={props.busy ? 'Joining…' : 'Join'}
+            title={props.busy ? 'Creating…' : 'Create vault'}
             disabled={props.busy || password === ''}
             onPress={() => props.onSubmit(serverUrl, token, deviceName, password)}
           />
@@ -161,11 +174,6 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  appBarTitle: {
-    fontFamily: fonts.condensedBold,
-    fontSize: 24,
-    color: colors.ink,
   },
   progressWrap: {
     paddingHorizontal: spacing.lg,

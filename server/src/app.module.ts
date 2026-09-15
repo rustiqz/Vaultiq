@@ -1,8 +1,9 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
-import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { ThrottlerModule } from "@nestjs/throttler";
 import { AuthController } from "./auth/auth.controller.js";
 import { AuthService } from "./auth/auth.service.js";
+import { DeviceThrottlerGuard } from "./auth/device-throttler.guard.js";
 import { DevicesController } from "./devices/devices.controller.js";
 import { HealthController } from "./health/health.controller.js";
 import { SyncController } from "./sync/sync.controller.js";
@@ -11,9 +12,12 @@ import { VersionController } from "./version/version.controller.js";
 
 @Module({
   imports: [
-    // A global floor under every endpoint. The auth routes tighten it further
-    // with their own decorators — rate limiting is the only thing throttling
-    // online guesses at the auth key, so it is not optional.
+    // A global floor under every endpoint, keyed by device rather than IP
+    // wherever a caller has proven a device identity (DeviceThrottlerGuard
+    // below) — so one busy office behind one NAT doesn't rate-limit itself.
+    // The auth routes tighten this further with their own decorators, and
+    // stay IP-keyed unconditionally, since rate limiting is the only thing
+    // throttling online guesses at the auth key there.
     ThrottlerModule.forRoot([{ name: "default", ttl: 60_000, limit: 120 }]),
   ],
   controllers: [
@@ -23,6 +27,6 @@ import { VersionController } from "./version/version.controller.js";
     SyncController,
     VersionController,
   ],
-  providers: [AuthService, SyncService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [AuthService, SyncService, { provide: APP_GUARD, useClass: DeviceThrottlerGuard }],
 })
 export class AppModule {}

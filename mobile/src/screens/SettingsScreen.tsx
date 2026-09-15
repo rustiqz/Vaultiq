@@ -1,7 +1,9 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import Icon from '../icons';
+import { buildEnrollmentQr } from '../lib/enrollmentQr';
 import LogoMark from '../LogoMark';
 import type { SettingsStackScreenProps } from '../navigation';
 import Autofill from '../nativeAutofill';
@@ -32,6 +34,8 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [autofillSupported, setAutofillSupported] = useState(false);
   const [autofillEnabled, setAutofillEnabled] = useState(false);
+  const [invite, setInvite] = useState<{ token: string; expiresAt: string } | null>(null);
+  const [invitingBusy, setInvitingBusy] = useState(false);
   const { show, dialog } = useConfirmDialog();
 
   const loadDevices = useCallback(() => {
@@ -87,6 +91,16 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
             .catch(thrown => setError(thrown instanceof Error ? thrown.message : String(thrown))),
       },
     ]);
+  };
+
+  const inviteDevice = () => {
+    setError(null);
+    setInvitingBusy(true);
+    vault
+      .newEnrollmentToken()
+      .then(setInvite)
+      .catch(thrown => setError(thrown instanceof Error ? thrown.message : String(thrown)))
+      .finally(() => setInvitingBusy(false));
   };
 
   const activeDevices = (devices ?? []).filter(device => device.revokedAt === null);
@@ -185,6 +199,36 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
             </View>
           ))}
         </Card>
+
+        {invite === null ? (
+          <Button
+            title={invitingBusy ? 'Generating…' : 'Invite a device'}
+            variant="outline"
+            disabled={invitingBusy}
+            onPress={inviteDevice}
+          />
+        ) : (
+          <Card style={styles.inviteCard}>
+            {serverUrl !== null && (
+              <View style={styles.inviteQr}>
+                <QRCode
+                  value={buildEnrollmentQr(serverUrl, invite.token)}
+                  size={180}
+                  // react-native-qrcode-svg types these as plain `string`,
+                  // but it renders react-native-svg primitives underneath,
+                  // whose own `fill`/`stroke` accept ColorValue directly (see
+                  // LogoMark.tsx) -- a typing gap in the wrapper, not a real
+                  // runtime constraint.
+                  color={colors.ink as string}
+                  backgroundColor={colors.background as string}
+                />
+              </View>
+            )}
+            <Text style={styles.mono}>{invite.token}</Text>
+            <Text style={styles.inviteHint}>Scan or paste on the new device. Expires {new Date(invite.expiresAt).toLocaleTimeString()}.</Text>
+            <Button title="Done" variant="outline" onPress={() => setInvite(null)} />
+          </Card>
+        )}
       </View>
 
       <Button title="Lock vault now" variant="outline" onPress={onLock} />
@@ -289,6 +333,22 @@ const styles = StyleSheet.create({
     height: 21,
     borderRadius: 999,
     backgroundColor: colors.background,
+  },
+  inviteCard: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.lg,
+  },
+  inviteQr: {
+    padding: spacing.sm,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+  },
+  inviteHint: {
+    fontFamily: fonts.body,
+    fontSize: 12.5,
+    color: colors.ink,
+    textAlign: 'center',
   },
   deviceRow: {
     minHeight: 68,

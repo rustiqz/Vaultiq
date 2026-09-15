@@ -1,6 +1,8 @@
 // Against a real Postgres: the cursor, the row lock and the sequence are all
 // database behaviour, and none of them can be tested against a fake.
 
+import { PayloadTooLargeException } from "@nestjs/common";
+import type { Pool } from "pg";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
@@ -12,6 +14,45 @@ const VAULT = {
   parallelism: 4,
   wrappedVaultKey: { version: 1 },
 };
+
+/** A second real vault, inserted directly since `register` allows only one. */
+async function createVault(
+  pool: Pool,
+): Promise<{ userId: string; vaultId: string; deviceId: string }> {
+  const { rows: userRows } = await pool.query<{ id: string }>(
+    "insert into users (auth_key_hash) values ('unused') returning id",
+  );
+  const { rows: vaultRows } = await pool.query<{ id: string }>(
+    `insert into vaults
+       (user_id, salt_b64, kdf_memory_kib, kdf_iterations, kdf_parallelism, wrapped_vault_key)
+     values ($1, $2, $3, $4, $5, $6)
+     returning id`,
+    [
+      userRows[0]!.id,
+      VAULT.saltB64,
+      VAULT.memoryKib,
+      VAULT.iterations,
+      VAULT.parallelism,
+      JSON.stringify(VAULT.wrappedVaultKey),
+    ],
+  );
+  return { userId: userRows[0]!.id, vaultId: vaultRows[0]!.id, deviceId: "unused-device" };
+}
+
+/**
+ * Inserted directly rather than through `push`, so a quota test doesn't also
+ * have to pay for thousands of round trips. The seq values aren't meaningful
+ * sync history, only bodies to count.
+ */
+async function seedItems(pool: Pool, vaultId: string, count: number): Promise<void> {
+  await pool.query(
+    `insert into items
+       (vault_id, item_id, item_type, version, updated_at, deleted, format, ciphertext, nonce, seq)
+     select $1, 'seed-' || gs::text, 'login', 1, 0, false, 1, '\\x00'::bytea, '\\x00'::bytea, gs
+       from generate_series(1, $2) as gs`,
+    [vaultId, count],
+  );
+}
 
 function item(id: string, version: number, secret = "ciphertext"): {
   id: string;
@@ -39,18 +80,22 @@ describeDb("sync", () => {
   let pool: typeof import("../db/pool.js").pool;
   let sync: import("./sync.service.js").SyncService;
   let caller: import("../auth/auth.service.js").Caller;
+  let MAX_ITEMS_PER_VAULT: number;
 
   beforeEach(async () => {
     ({ pool } = await import("../db/pool.js"));
     const { migrate } = await import("../db/migrate.js");
     const { AuthService } = await import("../auth/auth.service.js");
-    const { SyncService } = await import("./sync.service.js");
+    const { SyncService, MAX_ITEMS_PER_VAULT: max } = await import("./sync.service.js");
+    MAX_ITEMS_PER_VAULT = max;
 
     await migrate();
     await pool.query("delete from users");
 
     const auth = new AuthService();
+    const { token } = await auth.mintAccountToken({ grantsRole: "admin", minutes: 15 });
     const { deviceId, credential } = await auth.register({
+      token,
       authKey: "auth-key",
       vault: VAULT,
       deviceName: "First",
@@ -223,6 +268,43 @@ describeDb("sync", () => {
       const elsewhere = { ...caller, vaultId: "00000000-0000-4000-8000-000000000000" };
       const { items } = await sync.pull(elsewhere, "0");
       expect(items).toHaveLength(0);
+    });
+
+    it("gives each vault its own sequence, not a shared one", async () => {
+      const other = await createVault(pool);
+
+      // Advance the other vault's sequence well past this one's, the way a
+      // busier tenant would. With a shared item_seq, this one's next cursor
+      // would inherit that gap and report how much the other vault wrote.
+      await sync.push(other, Array.from({ length: 20 }, (_, n) => item(`o${String(n)}`, 1)));
+
+      const result = await sync.push(caller, [item("a", 1)]);
+      expect(result.cursor).toBe("1");
+    });
+  });
+
+  describe("per-vault quota", () => {
+    it("refuses a new item once the vault is at its limit", async () => {
+      await seedItems(pool, caller.vaultId, MAX_ITEMS_PER_VAULT);
+
+      await expect(sync.push(caller, [item("one-too-many", 1)])).rejects.toThrow(
+        PayloadTooLargeException,
+      );
+    });
+
+    it("accepts a new item exactly at the boundary", async () => {
+      await seedItems(pool, caller.vaultId, MAX_ITEMS_PER_VAULT - 1);
+
+      const result = await sync.push(caller, [item("last-one", 1)]);
+      expect(result.accepted).toEqual(["last-one"]);
+    });
+
+    it("does not count updating an existing item against the quota", async () => {
+      await sync.push(caller, [item("a", 1)]);
+      await seedItems(pool, caller.vaultId, MAX_ITEMS_PER_VAULT - 1);
+
+      const result = await sync.push(caller, [item("a", 2, "still fits")]);
+      expect(result.accepted).toEqual(["a"]);
     });
   });
 });
