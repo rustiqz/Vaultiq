@@ -75,12 +75,24 @@ CLI (below) as new people need to be onboarded. `grants_role` defaults to
 
 `extension/src/lib/enrollment-qr.ts` already produces
 `vaultiq://enroll?server=...&token=...`, scanned by mobile's Join Vault flow.
-Both token kinds reuse this: add an optional `kind` parameter
-(`device` | `account`), defaulting to `device` for compatibility with
-anything already generated. The client asks the server what a pasted or
-scanned token is for — the server, not the client, is the source of truth on
-`kind`, since a client blindly trusting a `kind` param it can't verify would
-let a malformed or malicious link claim to be the more powerful kind.
+Both token kinds reuse this, with an explicit `kind` parameter added
+(`device` | `account`).
+
+Built simpler than first planned here: no server round trip to ask "what is
+this token for." Manual paste/type stays two explicit screens — "I have an
+invite" (join) and "Create a new vault" — so the user's own choice of screen
+already says which kind they mean, the same way it already worked before
+this phase. `kind` in the QR exists only to auto-route a *scan*, since
+scanning skips that choice: each screen's scanner checks the embedded kind
+and rejects a mismatch (scan a `kind=account` invite on the join screen, get
+"not a Vaultiq enrollment invite," not a wrong-flow attempt). A `kind` the
+client got wrong or a forged one costs nothing beyond that UX bounce — the
+server independently enforces kind on every route regardless
+(`register` only accepts `account_create`, `enroll`/`enrollment-params` only
+`device_join`, per Work Item 2), so `kind` is a routing hint, not a trust
+decision, and there is no oracle worth building just to double-check it
+before showing a screen.
+
 Whatever a client shows or accepts, it does so as **both QR and plaintext**,
 since a QR that can't be read out loud or typed on a device with no camera
 isn't an accessible invite.
@@ -182,21 +194,39 @@ invite the same way "join a vault" already does — there's no reason the
 first app someone opens should decide which capability they get.
 
 Every client — extension, mobile, and desktop once it exists — gets the same
-onboarding shape:
+two entry points, as two explicit screens rather than one input that guesses
+(see "The invite payload, unified" above for why a guess isn't needed):
 
-- **"I have an invite"** — paste or scan. The client asks the server what
-  kind of token it is and routes to the matching flow (join this device to
-  an existing vault, or create a new vault under this token's granted role).
-- **"Create a new vault"** — always attempted the same way; the server
-  either has a live bootstrap token waiting (fresh personal server) or
-  demands one (org server with registration already used).
+- **"I have an invite"** — paste, or scan (auto-routes on the QR's `kind`
+  if it was reached via a "scan" shortcut rather than the explicit choice).
+  Joins this device to an existing vault under a device-join token.
+- **"Create a new vault"** — takes an account-creation token; the server
+  either has a live bootstrap one waiting (fresh personal server) or demands
+  one from an admin (org server with registration already used).
 - **Invite another device** — available from *any* unlocked client, not
-  just the extension, since the server route already allows it. This is
-  UI work on mobile (and later desktop), not a new server capability.
+  just the extension, since the server route already allowed this; it only
+  ever lacked UI elsewhere.
 
-No cryptographic changes. This is UI parity work reusing
-`enrollWithServer`/`unlock` (extension) and their mobile equivalents
-end-to-end.
+Built: mobile gained both. `GetStartedScreen.tsx` is the new first screen on
+an unenrolled device, routing to the existing `JoinVaultScreen.tsx` (now
+kind-checked on scan) or a new `CreateVaultScreen.tsx` mirroring its wizard
+shape. `SettingsScreen.tsx` gained "Invite a device," rendering a QR
+(`react-native-qrcode-svg`, new dependency — mobile had scanning but no
+generation before) alongside the plaintext token, same as the extension.
+
+Creating a vault from scratch needed native crypto mobile never had a bridge
+for: `pw-crypto-core` already exports `generate_vault_key`/`wrap_vault_key`/
+`derive_master_key`/`default_argon2_params` over FFI (the extension's wasm
+bindings already use them for its own "create a new vault" path), so this is
+new methods on `CryptoCoreModule.kt` — `createVault`/`defaultArgon2Params` —
+calling existing exports, not new Rust. No changes to `pw-crypto-core`
+itself.
+
+The extension needed one fix, not a new feature: `auth/register` started
+requiring a token in Work Item 2, but `connectServer()` (the extension's own
+"upload this local vault to a fresh server" path) never sent one — a real
+break, not a hypothetical, caught here rather than by a user. Its form gained
+a registration-token field; nothing else about that flow changed.
 
 ---
 

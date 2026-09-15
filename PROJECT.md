@@ -236,12 +236,13 @@ parts.
   expiry, shown as **QR and plaintext** alike. Any already-enrolled device
   may mint a device-join token, not only the extension.
 - **Every client app is symmetric.** Extension, mobile, and desktop (once
-  it exists) each offer the same two entry points: "I have an invite"
-  (join a device, or create a vault, depending on what the token turns out
-  to be) and "create a new vault" (works unconditionally on a fresh
-  personal server, requires a token otherwise). No app is privileged as
-  "the first device" — that was ever only true because the extension
-  shipped first.
+  it exists) each offer the same two entry points, as two explicit screens:
+  "I have an invite" (join this device to an existing vault) and "create a
+  new vault" (works unconditionally on a fresh personal server, requires a
+  token otherwise). A scanned QR still auto-routes on its embedded kind;
+  manual entry doesn't need to, since picking the screen already said which
+  one was meant. No app is privileged as "the first device" — that was ever
+  only true because the extension shipped first.
 - **Administration is a guided CLI**, not a fourth app or a new
   authenticated HTTP surface: `server/src/admin/cli.ts` (`pnpm run admin`;
   `docker compose exec server node dist/admin/cli.js` against a real
