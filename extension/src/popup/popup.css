@@ -171,6 +171,14 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
 .utility-screen, #app > main:not(.utility-screen) { width: min(620px, 100%); flex: 1; min-height: 0; margin: 0 auto; padding: 22px 24px 28px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
 #app > main:not(.utility-screen) { width: min(440px, 100%); justify-content: center; }
 .brand { display: flex; align-items: center; gap: 10px; }
+/* The empty and locked screens are just a centered form with room to spare —
+   unlike the dense master-detail vault view the 0.7 shell scale (above) was
+   tuned for, so they get their own larger pre-scale sizes rather than
+   inheriting its effective ~10px body text. */
+.onboard { font-size: 18px; }
+.onboard .brand h1 { font-size: 28px; }
+.onboard .muted { font-size: 16px; }
+.onboard label { font-size: 15px; }
 .type-chooser { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .type-choice { min-height: 72px; justify-content: flex-start; padding: 10px 12px; text-align: left; }
 .type-choice > span:nth-child(2) { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
