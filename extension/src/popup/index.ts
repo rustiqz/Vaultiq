@@ -247,7 +247,7 @@ function renderEmpty(): void {
         ];
 
   root.replaceChildren(
-    el("main", {}, [
+    el("main", { className: "onboard" }, [
       el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Welcome to Vaultiq" })]),
       el("div", { className: "scope-tabs" }, [createTab, joinTab]),
       ...body,
@@ -458,7 +458,7 @@ function renderQuick(): void {
 
 function renderLocked(): void {
   root.replaceChildren(
-    el("main", {}, [
+    el("main", { className: "onboard" }, [
       el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Vaultiq is locked" })]),
       passwordForm("Unlock", async (value) => {
         unwrap(await send({ kind: "unlock", masterPassword: value }));
