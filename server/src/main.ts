@@ -2,6 +2,7 @@ import "reflect-metadata";
 
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { Express } from "express";
 import helmet from "helmet";
 import { AppModule } from "./app.module.js";
 import { ensureBootstrapToken } from "./auth/bootstrap-token.js";
@@ -24,6 +25,17 @@ async function bootstrap(): Promise<void> {
   });
 
   app.use(helmet());
+
+  // Caddy is the only thing this server ever hears from directly (the
+  // compose network exposes nothing else) — trusting exactly one hop means
+  // `req.ip` is the real caller's address from Caddy's X-Forwarded-For,
+  // not Caddy's own container IP. Without this, every request looked like
+  // it came from the same place, which made IP-keyed rate limiting and the
+  // audit log's source_ip on refused attempts (see SECURITY.md) both
+  // useless behind the real deployment's reverse proxy — caught only while
+  // building the audit log, not something a local, proxy-free dev server
+  // would ever surface.
+  (app.getHttpAdapter().getInstance() as Express).set("trust proxy", 1);
 
   app.useGlobalPipes(
     new ValidationPipe({

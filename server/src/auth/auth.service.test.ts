@@ -29,6 +29,10 @@ describeDb("auth", () => {
     await migrate();
     // Cascades to vaults, devices, tokens and items.
     await pool.query("delete from users");
+    // Not reached by that cascade -- audit_log keeps user/device references
+    // as `on delete set null`, deliberately, so a deleted account's history
+    // survives the account.
+    await pool.query("delete from audit_log");
     auth = new AuthService();
   });
 
@@ -36,8 +40,10 @@ describeDb("auth", () => {
     await pool.end();
   });
 
-  async function accountToken(grantsRole: "member" | "admin" = "admin"): Promise<string> {
-    const { token } = await auth.mintAccountToken({ grantsRole, minutes: 15 });
+  async function accountToken(
+    grantsCapabilities: import("./auth.service.js").Capability[] = [],
+  ): Promise<string> {
+    const { token } = await auth.mintAccountToken({ grantsCapabilities, minutes: 15 });
     return token;
   }
 
@@ -57,6 +63,32 @@ describeDb("auth", () => {
       await expect(
         auth.register({ token: "made-up", authKey: "auth-key", vault: VAULT, deviceName: "x" }),
       ).rejects.toThrow(/refused/i);
+    });
+
+    it("logs a refused registration even though its transaction rolled back", async () => {
+      await auth
+        .register({
+          token: "made-up",
+          authKey: "auth-key",
+          vault: VAULT,
+          deviceName: "x",
+          sourceIp: "203.0.113.9",
+        })
+        .catch(() => undefined);
+
+      const { rows } = await pool.query<{ event_type: string; source_ip: string }>(
+        "select event_type, source_ip from audit_log",
+      );
+      expect(rows).toEqual([{ event_type: "registration_refused", source_ip: "203.0.113.9" }]);
+    });
+
+    it("logs a successful registration", async () => {
+      const { deviceId } = await registered();
+
+      const { rows } = await pool.query<{ event_type: string; device_id: string }>(
+        "select event_type, device_id from audit_log where event_type = 'account_registered'",
+      );
+      expect(rows).toEqual([{ event_type: "account_registered", device_id: deviceId }]);
     });
 
     it("refuses a token already spent", async () => {
@@ -103,17 +135,22 @@ describeDb("auth", () => {
       expect(rows[0]?.count).toBe("1");
     });
 
-    it("grants the role the token specifies", async () => {
-      const memberToken = await accountToken("member");
-      await auth.register({
-        token: memberToken,
-        authKey: "auth-key",
-        vault: VAULT,
-        deviceName: "First",
-      });
+    it("grants no capabilities by default", async () => {
+      await registered();
+      const { rows } = await pool.query<{ count: string }>(
+        "select count(*)::text as count from user_capabilities",
+      );
+      expect(rows[0]?.count).toBe("0");
+    });
 
-      const { rows } = await pool.query<{ role: string }>("select role from users");
-      expect(rows[0]?.role).toBe("member");
+    it("grants the capabilities the token specifies", async () => {
+      const token = await accountToken(["manage_invitations", "view_audit_log"]);
+      await auth.register({ token, authKey: "auth-key", vault: VAULT, deviceName: "First" });
+
+      const { rows } = await pool.query<{ capability: string }>(
+        "select capability from user_capabilities order by capability",
+      );
+      expect(rows.map((r) => r.capability)).toEqual(["manage_invitations", "view_audit_log"]);
     });
 
     it("stores no auth key, only a hash of one", async () => {
@@ -336,6 +373,23 @@ describeDb("auth", () => {
       const devices = await auth.listDevices(caller);
       expect(devices).toHaveLength(1);
       expect(devices[0]?.current).toBe(true);
+    });
+
+    it("logs an actual revocation, not a no-op one", async () => {
+      const first = await registered();
+      const caller = (await auth.identify(first.deviceId, first.credential))!;
+      const { token } = await auth.createEnrollmentToken(caller);
+      const second = await auth.enroll({ token, authKey: "auth-key", deviceName: "Second" });
+
+      // Revoking something already revoked (or never enrolled) shouldn't
+      // pad the log with an event that didn't happen.
+      await auth.revokeDevice(caller, second.deviceId);
+      await auth.revokeDevice(caller, second.deviceId);
+
+      const { rows } = await pool.query<{ device_id: string }>(
+        "select device_id from audit_log where event_type = 'device_revoked'",
+      );
+      expect(rows).toEqual([{ device_id: second.deviceId }]);
     });
   });
 

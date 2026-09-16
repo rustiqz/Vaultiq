@@ -24,14 +24,16 @@ export async function ensureBootstrapToken(): Promise<void> {
 
   const auth = new AuthService();
   const { token, expiresAt } = await auth.mintAccountToken({
-    grantsRole: "admin",
+    // The very first account needs every capability -- there's no one else
+    // yet to grant the rest later.
+    grantsCapabilities: ["manage_invitations", "manage_devices", "view_audit_log"],
     minutes: BOOTSTRAP_TOKEN_MINUTES,
   });
 
   console.log(
     [
       "",
-      `No account exists yet. Registration token (grants admin, expires ${expiresAt}):`,
+      `No account exists yet. Registration token (full admin, expires ${expiresAt}):`,
       "",
       `  ${token}`,
       "",
