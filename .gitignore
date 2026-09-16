@@ -23,6 +23,8 @@ build/
 *.pfx
 *.jks
 *.keystore
+keystore.properties
+!keystore.properties.example
 secrets/
 credentials.json
 service-account*.json
