@@ -27,11 +27,12 @@ separate from the one part that isn't.
    nobody flips is also a flag nobody tests. The only thing that genuinely
    differs between a personal server and an organization's is *who is
    allowed to register*, and that's one extension point, not a mode.
-3. **Vault recovery, not multi-tenancy, is the hard part.** Adding accounts
-   is plumbing. Letting an organization recover an employee's vault means
-   escrowing the vault key, which changes what "zero-knowledge" means for
-   that deployment. That decision is **explicitly not made by this
-   document** — see [Recovery and escrow](#recovery-and-escrow).
+3. **Vault recovery was the hard decision, not multi-tenancy — decided:
+   Path A, no escrow, ever.** Adding accounts is plumbing. Letting an
+   organization recover an employee's vault would have meant escrowing the
+   vault key, changing what "zero-knowledge" means for that deployment —
+   see [Recovery and escrow](#recovery-and-escrow) for the reasoning kept
+   alongside the decision.
 
 ---
 
@@ -58,18 +59,20 @@ column (`'device_join' | 'account_create'`) rather than a second table —
 both rows are "a hashed, single-use, expiring bearer secret," and splitting
 them into two tables would duplicate the expiry/spend/hash logic for no
 isolation benefit. An account-creation row additionally carries
-`grants_role` (`'member' | 'admin'`), decided by whoever issues it.
+`grants_capabilities` (an array — see
+[Work item 4](#work-item-4--admin-capabilities-and-an-audit-log); an empty
+array grants a plain member), decided by whoever issues it.
 
 **Bootstrap, for a personal or fresh server:** on first boot, if `users` is
-empty, the server mints one account-creation token with `grants_role =
-'admin'` and logs it — the pattern Vaultwarden and Gitea both use. A solo
+empty, the server mints one account-creation token granting every
+capability and logs it — the pattern Vaultwarden and Gitea both use. A solo
 self-hoster spends it once and never sees another; the behavior is identical
 to today's single-account server, just reached through the same mechanism an
 org uses, rather than a special case.
 
 **For an organization:** an admin issues account-creation tokens through the
-CLI (below) as new people need to be onboarded. `grants_role` defaults to
-`'member'`; an admin can grant a new admin the same way.
+CLI (below) as new people need to be onboarded, choosing which capabilities
+each invitation grants — none, by default, for a plain member.
 
 ### The invite payload, unified
 
@@ -141,12 +144,12 @@ unspent account-creation token," which is a strict improvement even for a
 single-user server: it closes the unauthenticated write endpoint instead of
 merely gating it once.
 
-This introduces the first real role. `users` gains a `role` column
-(`'member' | 'admin'`, default `'member'`). An admin can mint
-account-creation tokens and revoke accounts; nothing about the role grants
-cryptographic access — an admin cannot read anyone's vault, today or ever,
-independent of whatever the [escrow](#recovery-and-escrow) decision turns
-out to be.
+This introduces the first real admin concept, originally shipped as a plain
+`role` column (`'member' | 'admin'`) and later replaced by a capabilities
+table — see [Work item 4](#work-item-4--admin-capabilities-and-an-audit-log)
+for why and what changed. Nothing about either shape grants cryptographic
+access — an admin cannot read anyone's vault, today or ever, independent of
+the [escrow](#recovery-and-escrow) decision below.
 
 ### Admin interface: a guided CLI, not a fourth app
 
@@ -160,17 +163,19 @@ terminal wizard in the shape of tools like `p10k configure` — numbered/
 arrow-key prompts guiding a step at a time (`@clack/prompts`), rather than a
 flag-per-operation CLI someone has to look up. Menu:
 
-- **Invite someone**: pick member or admin, pick an expiry, type the
-  server's own URL, get back a plaintext token and a terminal-rendered QR
-  (`qrcode`) encoding the same `vaultiq://enroll` shape the extension's
-  device-join QR already uses, with `kind=account` added.
+- **Invite someone**: multi-select which capabilities to grant (none for a
+  plain member), pick an expiry, type the server's own URL, get back a
+  plaintext token and a terminal-rendered QR (`qrcode`) encoding the same
+  `vaultiq://enroll` shape the extension's device-join QR already uses,
+  with `kind=account` added.
 - **List users and devices**, **list outstanding invitations**, **revoke a
   user** (revokes every device on the account and spends its outstanding
   device-join tokens — there's no separate "delete account" concept, since a
   device credential is the only thing that reaches a vault at all).
-- **Recover a locked-out account**: present but inert — prints a pointer to
-  this document's escrow section rather than a dead menu item that looks
-  broken. Stays inert until (and unless) escrow is decided and built.
+- **View audit log**, **prune audit log** — [Work item 4](#work-item-4--admin-capabilities-and-an-audit-log).
+- **Recover a locked-out account**: present but permanently inert, per the
+  Path A decision below — prints a pointer to this document's escrow
+  section rather than a dead menu item that looks broken.
 
 No separate "first run" mode: `ensureBootstrapToken` (called from `main.ts`
 right after migrations run) already mints the very first account-creation
@@ -230,11 +235,80 @@ a registration-token field; nothing else about that flow changed.
 
 ---
 
+## Work item 4 — admin capabilities and an audit log
+
+Two decisions that came out of using Work Items 1–3 in practice, not
+planned from the start: `role` is a plain column, which can only ever be
+all-or-nothing, and there was no way to answer "what happened" after the
+fact beyond what each table's own current state shows.
+
+**Capabilities replace `role`.** `user_capabilities` (`user_id`,
+`capability`, `granted_at`) — one row per capability a user holds, out of
+`manage_invitations` (issue/list/revoke registration tokens),
+`manage_devices` (revoke any account's devices), `view_audit_log` (read
+the log below). An account with none is a plain member. This is a real
+authorization model only in the sense that it's *recorded*: nothing today
+enforces `view_audit_log` at an HTTP layer, because nothing admin-facing
+runs over HTTP — the CLI already has full database trust, the same as
+before, so a capability check inside it would be checking an operator
+against themselves. The value now is expressiveness (an invitation can
+grant exactly what a new admin needs, not "everything or nothing") and
+being the thing a future authenticated admin surface, if one is ever
+built, would enforce against.
+
+`enrollment_tokens.grants_capabilities` (a `text[]`, checked against the
+known set) replaces `grants_role`. The kind-shape constraint updates with
+it: a device-join token still grants nothing; an account-creation token's
+array can be empty.
+
+**The audit log — `audit_log`** — records what's listed in SECURITY.md's
+"An investigation, without exposing what it's investigating" entry:
+registrations, enrolments and their refusals, device revocations, master
+password changes, and invitations issued. Never a credential, a token, or
+key material — CLAUDE.md §2.3's rules apply here exactly as everywhere
+else. Two things worth being explicit about:
+
+- **A refusal is logged even though the operation's own transaction rolls
+  back.** The write goes through the plain connection pool, not whatever
+  transaction the caller is mid-way through — logging inside that
+  transaction would roll the log entry back along with the refusal it's
+  recording, which is exactly backwards.
+- **Source IP, only for refusals, is the one deliberate exception to "a
+  database dump identifies nobody."** Decided explicitly, not a default:
+  the single most useful signal for telling a mistake from an attack is
+  whether the failures share a source. Nowhere else does this project log
+  an IP.
+
+Retention is manual for now — a CLI "prune older than N days" action, no
+scheduler. Automatic retention with a fixed window is a reasonable
+follow-up, not needed to make the log useful today.
+
+**Also decided, while this was in front of us: Path A for recovery** (see
+[Recovery and escrow](#recovery-and-escrow) below) — no escrow, ever, on
+every deployment. Making that decision here rather than continuing to defer
+it is what let this work item settle on capabilities as *permissions*, not
+as a stand-in for "who could eventually unlock what."
+
+**Caught along the way, unrelated to either feature directly:** the real
+deployment sits behind Caddy (`Caddyfile`'s `reverse_proxy`), and the
+server never trusted it as a proxy — `req.ip` resolved to Caddy's own
+container address for every request, not the real caller's. Harmless until
+something needed a real IP to mean anything: Work Item 1's IP-keyed rate
+limiting on the three bootstrap routes was silently ineffective in the real
+deployment the whole time (every caller collapsed into one shared bucket,
+the exact NAT problem that work item exists to prevent, just one hop
+further out), and the audit log's source IP would have recorded Caddy's
+address for every refusal rather than the attacker's. Fixed with
+`app.set('trust proxy', 1)` — trust exactly one hop, since exactly one
+reverse proxy ever sits in front.
+
+---
+
 ## Recovery and escrow
 
-**Left undecided on purpose.** This section lays out both paths so the
-decision can be made deliberately later, not by drift. Nothing in Work
-Items 1–3 forecloses either one.
+**Decided: Path A. No escrow, ever.** Both paths are kept below because the
+reasoning that ruled Path B out is worth keeping alongside the decision, not
+because it's still open.
 
 ### The problem
 
@@ -252,7 +326,7 @@ opened. Binding an email address to an account would also cost the server's
 present anonymity (a database dump today identifies nobody) for a benefit it
 doesn't actually deliver.
 
-### Path A — no escrow, ever
+### Path A — no escrow, ever (chosen)
 
 Org admins can provision (issue account-creation tokens) and deprovision
 (revoke devices, revoke accounts) but can never read vault contents. A
@@ -261,9 +335,14 @@ exception for org deployments. This keeps one guarantee true across every
 deployment Vaultiq ever runs: nobody but the vault's owner can open it. It
 also means Vaultiq is not viable for organizations that require IT to
 recover a departed employee's data — a real, disqualifying gap for some
-buyers, not a hypothetical one.
+buyers, accepted knowingly rather than a hypothetical one.
 
-### Path B — organization escrow
+SECURITY.md already states this correctly and needed no change: "Losing the
+master password... no recovery, no reset, no escrow, no backdoor. This is a
+design decision, not an oversight" was never conditional on how
+multi-tenancy turned out.
+
+### Path B — organization escrow (not pursued)
 
 The vault key gets a second wrapping, under an organization public key held
 by admins, alongside the existing wrapping under the stretched
@@ -301,22 +380,16 @@ for personal and escrowed vaults staying distinguishable *to the user*,
 not just the operator: someone should be able to see, in the app, whether
 their vault has an escrow copy or not.
 
-### What staying undecided requires now
+### Revisiting this later
 
-To avoid foreclosing Path B while doing everything else in this document:
-
-- The account-creation token record and the admin role are shaped so a
-  future "this vault is escrowed" flag or a second wrapped-key record slot
-  cleanly onto them — no redesign, just an addition.
-- Nothing added here binds a user's identity into the server in a way that
-  would make distributing/pinning a future org public key harder.
-- SECURITY.md and PROJECT.md state escrow as **explicitly open**, not
-  silently ruled out and not silently assumed — anyone reading either file
-  should know this is a live decision, not settled ground.
-
-If the decision is ever made, it gets its own PROJECT.md phase, its own
-SECURITY.md rewrite, and the design review named above — before any code,
-per CLAUDE.md §7.3 ("ask before... changing a serialized format").
+Nothing built under Work Items 1–3 forecloses Path B mechanically, even
+though it isn't being pursued now — the account-creation token record and
+the capability model (below) are shaped so a future "this vault is
+escrowed" flag or a second wrapped-key record slot on cleanly, as an
+addition rather than a redesign. If this is ever revisited, it still gets
+its own PROJECT.md phase, its own SECURITY.md rewrite, and the design
+review named above, before any code — a decision this size doesn't get
+reopened by drift either.
 
 ---
 
@@ -370,35 +443,37 @@ private repo can defer these but a public one can't:
 1. **Isolation defects** (Work Item 1) — strict improvements, no new
    concepts, ship regardless of anything else here.
 2. **Registration policy + admin role + CLI wizard** (Work Item 2) —
-   removes the unauthenticated `register` route, introduces the first role.
+   removes the unauthenticated `register` route, introduces the first
+   admin concept.
 3. **Symmetric client enrollment** (Work Item 3) — mobile (then desktop)
    gain create-a-vault and invite-a-device parity with the extension.
-4. **Publish** — license, secret-history audit, branch protection,
-   SECURITY.md updated to describe the org model honestly, including that
-   escrow is an open question, not a shipped feature.
-5. **Escrow** — untouched unless and until it's deliberately decided. Its
-   own PROJECT.md phase, its own SECURITY.md rewrite, its own design
-   review, if it happens at all.
+4. **Admin capabilities and an audit log** (Work Item 4) — replaces the
+   role column with granular capabilities, adds the audit log, decides
+   recovery (Path A), fixes the trust-proxy gap both of those surfaced.
+5. **Publish** — license, secret-history audit, branch protection.
+   SECURITY.md already describes the org model and the recovery decision
+   honestly; nothing left pending on that front.
 
-Steps 1–4 are worth doing even if the answer on escrow ends up being
-Path A forever. Step 5 is the one place the product's central promise gets
-renegotiated, and it should be reached on purpose.
+Every step so far was worth doing on its own terms, including the recovery
+decision — Path A was chosen deliberately, not arrived at by running out of
+steps to defer it with.
 
 ---
 
-## Open decisions
+## Decisions made
 
-- Path A or Path B for organization recovery — deliberately not decided
-  here (see [Recovery and escrow](#recovery-and-escrow)).
-- If Path B: a single organization-key holder, or a threshold scheme
-  across several admins? The latter is materially safer and materially
-  harder to build.
-- If Path B: how is the organization public key distributed and pinned so
-  a compromised server can't substitute its own?
-- One `enrollment_tokens` table with a `kind` column, or two tables? This
-  document assumes one; revisit if the two kinds' access patterns diverge
-  enough to make that awkward.
-- Is `role` a plain column on `users`, or does it need to become a
-  separate table with granular capabilities later? Start with the column;
-  a table is a cheap migration away if a second capability ever needs
-  its own permission.
+Everything this document originally left open has been decided:
+
+- **Recovery: Path A, no escrow, ever.** See
+  [Recovery and escrow](#recovery-and-escrow). The threshold-scheme and
+  org-key-pinning questions that would have followed from Path B are moot.
+- **One `enrollment_tokens` table with a `kind` column**, not two. Built
+  this way from Work Item 2; confirmed rather than revisited — the two
+  kinds' access patterns haven't diverged enough to make the shared table
+  awkward.
+- **`role` becomes a capabilities table, not a plain column.** See
+  [Work item 4](#work-item-4--admin-capabilities-and-an-audit-log) — a
+  single `member`/`admin` column doesn't let a server hand out narrower
+  admin scopes (issue invitations, but not revoke devices; view the audit
+  log, but not either), and the audit log makes that distinction worth
+  having from the start rather than retrofitting later.

@@ -98,9 +98,43 @@ nothing; a master password without a token adds no device. Tokens are stored as
 SHA-256 fingerprints, expire in fifteen minutes, are spent once, and are all
 invalidated when the master password changes.
 
-**Online guessing.** Registration, enrolment and password change are rate
-limited, and every route sits under a global floor. The auth key is verified
-with Argon2id, so even a leaked hash is not cheaply searchable.
+**A registration token on its own.** Creating an account needs a live
+account-creation token — one minted automatically at boot on a fresh server,
+or issued by an admin afterward — and it decrypts nothing by itself either: it
+only lets its holder register a new, empty vault under the role it grants, the
+same "found on a screen, pulls nothing" property device-join tokens have.
+Registration is refused without one, in every deployment, always — there is no
+mode where the first account is free to claim.
+
+**Other tenants on the same server.** A server can hold many accounts, each
+with its own vault. Every query is scoped to the caller's own vault (checked
+on every request, not assumed), and each vault has its own write sequence and
+storage ceiling rather than one shared globally — a busy tenant cannot fill
+the disk for another or leak how much another has written by the gaps in its
+own numbers. An administrator — granted one or more specific capabilities
+(issue registration tokens, revoke devices, read the audit log below), never
+an all-or-nothing role — has no cryptographic path into any vault on the
+server, including ones they provisioned themselves; capabilities govern who
+may register, stay enrolled, or read the event history, never who can
+decrypt.
+
+**An investigation, without exposing what it's investigating.** The audit
+log (`audit_log`) records security-relevant events — an account registering,
+a device enrolling or being revoked, a master password changing, a
+registration or enrolment attempt being refused — with a timestamp and which
+account/device they concern. It never records a credential, a token (not
+even a fingerprint of one), or key material, the same list CLAUDE.md §2.3
+holds every other part of this codebase to. Reading it needs the
+`view_audit_log` capability above, and its contents are exactly as available
+to whoever holds a database dump as everything else in the Traffic analysis
+entry below — nothing here is a wider exposure than that, with one deliberate
+exception, next.
+
+**Online guessing.** The routes with no caller identity yet — registration,
+enrolment, and the params step before it — are rate limited by IP, since
+nothing else exists to key on. Every other route is limited by device instead,
+so a shared office IP is not throttled as if it were one caller. The auth key
+is verified with Argon2id, so even a leaked hash is not cheaply searchable.
 
 **A page trying to read the vault.** The content script is handed names, not
 values: a list to draw a picker from, with no password, card number or
@@ -160,6 +194,15 @@ ciphertext is, when each one changed, how many devices there are, and when each
 syncs. It cannot read any of it, but the shape is visible. Padding item
 ciphertext to a fixed size is a plausible future change; it is not done today.
 
+**The one deliberate exception: source IP on a refused attempt.** The audit
+log records the caller's IP address specifically for registration and
+enrolment *refusals* (an unknown, spent, or expired token; a wrong auth key)
+— nowhere else, and never for a successful action. This is a real, chosen
+cost to this project's usual "a database dump identifies nobody" stance: it
+exists because the single most useful signal for telling a scattered mistake
+from a deliberate attack is whether the failures share a source. Everywhere
+else in this file, that stance still holds without exception.
+
 **Memory on an unlocked device.** While the vault is unlocked, the vault key is
 in `storage.session` and in wasm memory. Anyone who can read the process's
 memory has it — but they already have everything else on that machine too.
@@ -172,9 +215,18 @@ preferred from RustCrypto, and checked weekly against the RustSec advisory
 database. That reduces the surface; it does not eliminate it. The browser and
 its extension APIs are trusted absolutely.
 
-**Other users.** There is exactly one account per server and no sharing. Nothing
-here has been designed to hold up between mutually distrusting users, and it
-should not be assumed to.
+**Sharing between accounts.** Isolation between tenants is defended (see
+above); collaboration between them is not built. Two people wanting to share
+one login still need to hand each other the master password out of band —
+there is no feature for it, and it would need the same asymmetric primitives
+the escrow question below was declined for.
+
+**An admin's view of metadata.** An administrator's database access — via the
+CLI, which talks to it directly (MULTI-TENANCY.md) — is the same trust level
+as a compromised server for everything in the Traffic analysis entry above,
+the audit log included: account count, device count and names, every
+timestamp, and refused-attempt source IPs. It is not a wider window than
+that, and it is never a window into content.
 
 ---
 
@@ -191,8 +243,10 @@ the rest by rules the code is reviewed against:
 - `#![forbid(unsafe_code)]`, no panics in library code, no `Debug` or
   `Serialize` derived on any secret type, constant-time comparison for anything
   derived from one.
-- Database tests against a real PostgreSQL, because the single-account
-  constraint, the token lock and the revocation filter live in SQL.
+- Database tests against a real PostgreSQL, because per-vault isolation, the
+  token kind/shape constraint, the token lock, and the revocation filter all
+  live in SQL — including that a refused attempt is still logged even though
+  the transaction around the refusal itself rolls back.
 
 See [CLAUDE.md](CLAUDE.md) §2 and §4 for the rules in full.
 
@@ -200,6 +254,6 @@ See [CLAUDE.md](CLAUDE.md) §2 and §4 for the rules in full.
 
 ## Reporting something
 
-This is a personal, single-user project with no public deployment. If you have
-found something anyway, open an issue describing the class of problem — not a
-working exploit — or contact the repository owner directly.
+This project has no public deployment yet. If you have found something
+anyway, open an issue describing the class of problem — not a working
+exploit — or contact the repository owner directly.

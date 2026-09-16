@@ -14,7 +14,8 @@
 import * as p from "@clack/prompts";
 import { toString as qrToString } from "qrcode";
 import { fileURLToPath } from "node:url";
-import { AuthService, type Role } from "../auth/auth.service.js";
+import { listAuditLog, pruneAuditLog } from "../audit/audit-log.js";
+import { AuthService, type Capability } from "../auth/auth.service.js";
 import { pool } from "../db/pool.js";
 import { inviteUri } from "./invite-uri.js";
 
@@ -24,15 +25,19 @@ const EXPIRIES = [
   { label: "7 days", minutes: 7 * 24 * 60 },
 ] as const;
 
+const CAPABILITIES: { value: Capability; label: string; hint: string }[] = [
+  { value: "manage_invitations", label: "Manage invitations", hint: "issue and revoke registration tokens" },
+  { value: "manage_devices", label: "Manage devices", hint: "revoke any account's devices" },
+  { value: "view_audit_log", label: "View audit log", hint: "read the security event history" },
+];
+
 async function invite(auth: AuthService): Promise<void> {
-  const role = await p.select<Role>({
-    message: "What should this invitation grant?",
-    options: [
-      { value: "member", label: "Member", hint: "can create a vault, nothing else" },
-      { value: "admin", label: "Admin", hint: "can also issue invitations and revoke access" },
-    ],
+  const capabilities = await p.multiselect<Capability>({
+    message: "What should this invitation grant? (none = plain member)",
+    options: CAPABILITIES,
+    required: false,
   });
-  if (p.isCancel(role)) return;
+  if (p.isCancel(capabilities)) return;
 
   const minutes = await p.select<number>({
     message: "Expires in?",
@@ -47,16 +52,20 @@ async function invite(auth: AuthService): Promise<void> {
   });
   if (p.isCancel(server)) return;
 
-  const { token, expiresAt } = await auth.mintAccountToken({ grantsRole: role, minutes });
+  const { token, expiresAt } = await auth.mintAccountToken({
+    grantsCapabilities: capabilities,
+    minutes,
+  });
   const qr = await qrToString(inviteUri(server, token), { type: "terminal", small: true });
 
-  p.note([qr, "", token, "", `Expires ${expiresAt}`].join("\n"), `Invitation (${role})`);
+  const what = capabilities.length > 0 ? capabilities.join(", ") : "member";
+  p.note([qr, "", token, "", `Expires ${expiresAt}`].join("\n"), `Invitation (${what})`);
 }
 
 interface UserRow {
   id: string;
-  role: string;
   created_at: Date;
+  capabilities: string[];
 }
 
 interface DeviceRow {
@@ -67,10 +76,25 @@ interface DeviceRow {
   revoked_at: Date | null;
 }
 
-async function listUsers(): Promise<void> {
-  const { rows: users } = await pool.query<UserRow>(
-    "select id, role, created_at from users order by created_at",
+function describeUser(user: UserRow): string {
+  const what = user.capabilities.length > 0 ? user.capabilities.join(", ") : "member";
+  return `${user.id} (${what}, joined ${user.created_at.toISOString()})`;
+}
+
+async function listedUsers(): Promise<UserRow[]> {
+  const { rows } = await pool.query<UserRow>(
+    `select u.id, u.created_at,
+            coalesce(array_agg(c.capability) filter (where c.capability is not null), '{}') as capabilities
+       from users u
+       left join user_capabilities c on c.user_id = u.id
+      group by u.id, u.created_at
+      order by u.created_at`,
   );
+  return rows;
+}
+
+async function listUsers(): Promise<void> {
+  const users = await listedUsers();
   if (users.length === 0) {
     p.note("No accounts yet.");
     return;
@@ -82,7 +106,7 @@ async function listUsers(): Promise<void> {
 
   const lines: string[] = [];
   for (const user of users) {
-    lines.push(`${user.id}  (${user.role}, joined ${user.created_at.toISOString()})`);
+    lines.push(describeUser(user));
     const theirs = devices.filter((d) => d.user_id === user.id);
     if (theirs.length === 0) lines.push("  no devices");
     for (const device of theirs) {
@@ -95,14 +119,14 @@ async function listUsers(): Promise<void> {
 
 interface TokenRow {
   kind: string;
-  grants_role: string | null;
+  grants_capabilities: string[];
   created_at: Date;
   expires_at: Date;
 }
 
 async function listTokens(): Promise<void> {
   const { rows } = await pool.query<TokenRow>(
-    `select kind, grants_role, created_at, expires_at from enrollment_tokens
+    `select kind, grants_capabilities, created_at, expires_at from enrollment_tokens
       where used_at is null and expires_at > now()
       order by created_at`,
   );
@@ -112,16 +136,17 @@ async function listTokens(): Promise<void> {
   }
 
   const lines = rows.map((row) => {
-    const what = row.kind === "account_create" ? `account (${row.grants_role ?? "?"})` : "device";
+    const what =
+      row.kind === "account_create"
+        ? `account (${row.grants_capabilities.length > 0 ? row.grants_capabilities.join(", ") : "member"})`
+        : "device";
     return `${what} -- expires ${row.expires_at.toISOString()}`;
   });
   p.note(lines.join("\n"), `${String(rows.length)} outstanding invitation(s)`);
 }
 
 async function revokeUser(): Promise<void> {
-  const { rows: users } = await pool.query<UserRow>(
-    "select id, role, created_at from users order by created_at",
-  );
+  const users = await listedUsers();
   if (users.length === 0) {
     p.note("No accounts yet.");
     return;
@@ -129,10 +154,7 @@ async function revokeUser(): Promise<void> {
 
   const userId = await p.select<string>({
     message: "Revoke every device for which account?",
-    options: users.map((u) => ({
-      value: u.id,
-      label: `${u.id} (${u.role}, joined ${u.created_at.toISOString()})`,
-    })),
+    options: users.map((u) => ({ value: u.id, label: describeUser(u) })),
   });
   if (p.isCancel(userId)) return;
 
@@ -155,18 +177,50 @@ async function revokeUser(): Promise<void> {
   p.note("All devices revoked.");
 }
 
+async function viewAuditLog(): Promise<void> {
+  const entries = await listAuditLog(50);
+  if (entries.length === 0) {
+    p.note("Nothing logged yet.");
+    return;
+  }
+
+  const lines = entries.map((entry) => {
+    const who = entry.userId ?? "-";
+    const where = entry.sourceIp ? ` from ${entry.sourceIp}` : "";
+    const detail = Object.keys(entry.detail).length > 0 ? ` ${JSON.stringify(entry.detail)}` : "";
+    return `${entry.occurredAt}  ${entry.eventType}  user=${who}${where}${detail}`;
+  });
+  p.note(lines.join("\n"), `Last ${String(entries.length)} event(s)`);
+}
+
+async function pruneAudit(): Promise<void> {
+  const daysInput = await p.text({
+    message: "Delete audit entries older than how many days?",
+    placeholder: "90",
+    validate: (value) => (value && /^\d+$/.test(value) ? undefined : "Enter a whole number of days."),
+  });
+  if (p.isCancel(daysInput)) return;
+
+  const deleted = await pruneAuditLog(Number(daysInput));
+  p.note(`Deleted ${String(deleted)} entr${deleted === 1 ? "y" : "ies"}.`);
+}
+
 async function main(): Promise<void> {
   p.intro("Vaultiq admin");
   const auth = new AuthService();
 
   for (;;) {
-    const action = await p.select<"invite" | "list" | "tokens" | "revoke" | "recovery" | "exit">({
+    const action = await p.select<
+      "invite" | "list" | "tokens" | "revoke" | "audit" | "prune" | "recovery" | "exit"
+    >({
       message: "What would you like to do?",
       options: [
         { value: "invite", label: "Invite someone" },
         { value: "list", label: "List users and devices" },
         { value: "tokens", label: "List outstanding invitations" },
         { value: "revoke", label: "Revoke a user" },
+        { value: "audit", label: "View audit log" },
+        { value: "prune", label: "Prune audit log" },
         { value: "recovery", label: "Recover a locked-out account" },
         { value: "exit", label: "Exit" },
       ],
@@ -177,15 +231,17 @@ async function main(): Promise<void> {
     else if (action === "list") await listUsers();
     else if (action === "tokens") await listTokens();
     else if (action === "revoke") await revokeUser();
+    else if (action === "audit") await viewAuditLog();
+    else if (action === "prune") await pruneAudit();
     else if (action === "recovery") {
-      // Not built. Escrow is an open decision, not a shipped feature -- see
-      // MULTI-TENANCY.md's "Recovery and escrow" section. This exists so an
-      // operator finds an explicit "not available" rather than no mention of
-      // recovery at all, as if it had been overlooked.
+      // Decided, not pending: Path A (MULTI-TENANCY.md's "Recovery and
+      // escrow") means this stays permanently inert, on purpose -- shown so
+      // an operator finds an explicit "not available" rather than no
+      // mention of recovery at all, as if it had been overlooked.
       p.note(
-        "Not available. A forgotten master password loses the vault, by " +
-          "design, in every deployment today -- see MULTI-TENANCY.md's " +
-          '"Recovery and escrow" section for why, and what it would take.',
+        "Not available, permanently -- a forgotten master password loses " +
+          "the vault in every deployment, by design. See MULTI-TENANCY.md's " +
+          '"Recovery and escrow" section for the decision and why.',
         "Recovery",
       );
     }
