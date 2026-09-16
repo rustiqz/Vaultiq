@@ -157,18 +157,100 @@ function passwordForm(label: string, action: (value: string) => Promise<void>): 
   return form;
 }
 
+let emptyMode: "create" | "join" = "create";
+
+/** Server URL, invite token (with a paste button), device name, and master password. */
+function joinForm(): HTMLFormElement {
+  const server = el("input", { type: "url", placeholder: "https://vault.example.com", required: true });
+  const token = el("input", { type: "text", autocomplete: "off", placeholder: "From another device", required: true });
+  const paste = el("button", { className: "inline", type: "button", textContent: "Paste" });
+  paste.addEventListener("click", () => {
+    navigator.clipboard
+      .readText()
+      .then((text) => (token.value = text.trim()))
+      .catch(() => showError("Could not read the clipboard."));
+  });
+  const deviceName = el("input", { type: "text", placeholder: "This laptop", required: true });
+  const password = el("input", { type: "password", required: true, autocomplete: "off" });
+  const submit = el("button", { className: "primary", type: "submit", textContent: "Join vault" });
+
+  const form = el("form", {}, [
+    el("label", {}, ["Server address", server]),
+    el("label", {}, ["Invite token", el("div", { className: "field" }, [token, paste])]),
+    el("label", {}, ["Name for this device", deviceName]),
+    el("label", {}, ["Master password", password]),
+    submit,
+  ]);
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    submit.textContent = "Working…";
+    void send({
+      kind: "enrollWithServer",
+      server: server.value.trim(),
+      token: token.value.trim(),
+      deviceName: deviceName.value.trim(),
+      masterPassword: password.value,
+    })
+      .then(unwrap)
+      .then(refresh)
+      .catch((error: unknown) => {
+        submit.disabled = false;
+        submit.textContent = "Join vault";
+        showError(error instanceof Error ? error.message : "Failed.");
+      });
+  });
+
+  return form;
+}
+
 function renderEmpty(): void {
+  const createTab = el(
+    "button",
+    { className: `scope-tab${emptyMode === "create" ? " active" : ""}`, type: "button" },
+    ["Create vault"],
+  );
+  createTab.addEventListener("click", () => {
+    emptyMode = "create";
+    renderEmpty();
+  });
+  const joinTab = el(
+    "button",
+    { className: `scope-tab${emptyMode === "join" ? " active" : ""}`, type: "button" },
+    ["I have an invite"],
+  );
+  joinTab.addEventListener("click", () => {
+    emptyMode = "join";
+    renderEmpty();
+  });
+
+  const body =
+    emptyMode === "create"
+      ? [
+          el("p", {
+            className: "muted",
+            textContent:
+              "Your master password is never stored or sent anywhere. If you lose it, the vault cannot be recovered.",
+          }),
+          passwordForm("Create vault", async (value) => {
+            unwrap(await send({ kind: "create", masterPassword: value }));
+          }),
+        ]
+      : [
+          el("p", {
+            className: "muted",
+            textContent:
+              "Uses a token from a device that's already in your vault. Your master password stays on this device — it's only used to unwrap the vault key once you're in.",
+          }),
+          joinForm(),
+        ];
+
   root.replaceChildren(
-    el("main", {}, [
-    el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Create your vault" })]),
-    el("p", {
-      className: "muted",
-      textContent:
-        "Your master password is never stored or sent anywhere. If you lose it, the vault cannot be recovered.",
-    }),
-    passwordForm("Create vault", async (value) => {
-      unwrap(await send({ kind: "create", masterPassword: value }));
-    }),
+    el("main", { className: "onboard" }, [
+      el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Welcome to Vaultiq" })]),
+      el("div", { className: "scope-tabs" }, [createTab, joinTab]),
+      ...body,
     ]),
   );
 }
@@ -376,7 +458,7 @@ function renderQuick(): void {
 
 function renderLocked(): void {
   root.replaceChildren(
-    el("main", {}, [
+    el("main", { className: "onboard" }, [
       el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Vaultiq is locked" })]),
       passwordForm("Unlock", async (value) => {
         unwrap(await send({ kind: "unlock", masterPassword: value }));
