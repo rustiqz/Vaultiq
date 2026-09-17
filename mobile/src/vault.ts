@@ -83,6 +83,7 @@ async function enrollAndUnlock(
   );
 
   const enrollment: EnrollmentState = {
+    mode: 'server',
     serverUrl: url,
     deviceId: device.deviceId,
     deviceName: normalizedDeviceName,
@@ -105,10 +106,10 @@ async function enrollAndUnlock(
  * Creates a brand-new vault: generates fresh crypto locally, registers it
  * with the server under an account-creation token, and unlocks immediately
  * -- the mobile analogue of extension/src/background/vault.ts's `create()`
- * followed by `connectServer()`, done as one step since this app has no
- * local-only vault concept; every vault here is server-backed from the
- * start. `CryptoCore.createVault` already leaves the module holding the new
- * key, the same way `unlock` does, so there's no separate unlock call after.
+ * followed by `connectServer()`, done as one step. `CryptoCore.createVault`
+ * already leaves the module holding the new key, the same way `unlock`
+ * does, so there's no separate unlock call after. See
+ * `createLocalVaultAndUnlock` below for the vault-with-no-server sibling.
  */
 async function createVaultAndUnlock(
   url: string,
@@ -143,6 +144,7 @@ async function createVaultAndUnlock(
   );
 
   const enrollment: EnrollmentState = {
+    mode: 'server',
     serverUrl: url,
     deviceId: device.deviceId,
     deviceName: normalizedDeviceName,
@@ -151,6 +153,36 @@ async function createVaultAndUnlock(
   };
   await storage.writeEnrollment(enrollment);
   credential = { deviceId: device.deviceId, credential: device.credential };
+}
+
+/**
+ * Creates a brand-new vault that lives on this device only -- no server,
+ * ever. The same local crypto steps as `createVaultAndUnlock`'s first half
+ * (`CryptoCore.createVault` already leaves the module holding the new key,
+ * so there's no separate unlock call after), with everything server-shaped
+ * skipped entirely: no registration call, no device credential, nothing to
+ * seal. The device name is display-only here (there's no server to register
+ * it with), so unlike the server-backed flow it's optional.
+ */
+async function createLocalVaultAndUnlock(deviceName: string, password: string): Promise<void> {
+  const normalizedDeviceName = deviceName.trim();
+
+  const saltB64 = await CryptoCore.generateSalt();
+  const argon2 = await CryptoCore.defaultArgon2Params();
+  const { wrappedVaultKey } = await CryptoCore.createVault(
+    password,
+    saltB64,
+    argon2.memoryKib,
+    argon2.iterations,
+    argon2.parallelism,
+  );
+
+  const enrollment: EnrollmentState = {
+    mode: 'local',
+    ...(normalizedDeviceName === '' ? {} : { deviceName: normalizedDeviceName }),
+    vault: { saltB64, argon2, wrappedVaultKey },
+  };
+  await storage.writeEnrollment(enrollment);
 }
 
 /** Unlocks an already-enrolled vault with the master password. */
@@ -167,10 +199,15 @@ async function unlock(password: string): Promise<void> {
     enrollment.vault.wrappedVaultKey,
   );
 
-  const unsealed = JSON.parse(await CryptoCore.decryptItem(enrollment.sealedCredential)) as {
-    credential: string;
-  };
-  credential = { deviceId: enrollment.deviceId, credential: unsealed.credential };
+  // A local vault has no device credential to unseal -- `credential` stays
+  // null, exactly as `lock()` leaves it, and `authenticated()` below refuses
+  // any call that would need one.
+  if (enrollment.mode === 'server') {
+    const unsealed = JSON.parse(await CryptoCore.decryptItem(enrollment.sealedCredential)) as {
+      credential: string;
+    };
+    credential = { deviceId: enrollment.deviceId, credential: unsealed.credential };
+  }
 }
 
 async function lock(): Promise<void> {
@@ -212,15 +249,17 @@ async function enableBiometric(password: string): Promise<void> {
   await storage.writeEnrollment({ ...enrollment, biometric: sealed });
 }
 
-/** `enrollment` with any cached biometric password forgotten. */
+/**
+ * `enrollment` with any cached biometric password forgotten.
+ *
+ * Sets the field to `undefined` rather than destructuring it away: this
+ * still round-trips through `storage.writeEnrollment`'s `JSON.stringify`
+ * exactly as an absent key would (`undefined` values are dropped), and it
+ * sidesteps declaring a rest-sibling binding this project's lint config
+ * would otherwise flag as unused.
+ */
 function withoutBiometric(enrollment: EnrollmentState): EnrollmentState {
-  return {
-    serverUrl: enrollment.serverUrl,
-    deviceId: enrollment.deviceId,
-    deviceName: enrollment.deviceName,
-    sealedCredential: enrollment.sealedCredential,
-    vault: enrollment.vault,
-  };
+  return { ...enrollment, biometric: undefined };
 }
 
 /** Turns fingerprint unlock back off. */
@@ -299,23 +338,34 @@ async function changeMasterPassword(currentPassword: string, newPassword: string
     vault.argon2.parallelism,
   );
 
-  const [currentAuthKey, newAuthKey] = await Promise.all([
-    CryptoCore.deriveAuthKey(currentPassword, vault.saltB64, vault.argon2.memoryKib, vault.argon2.iterations, vault.argon2.parallelism),
-    CryptoCore.deriveAuthKey(newPassword, newSaltB64, vault.argon2.memoryKib, vault.argon2.iterations, vault.argon2.parallelism),
-  ]);
-
   const newVault = { saltB64: newSaltB64, argon2: vault.argon2, wrappedVaultKey: newWrappedVaultKey };
 
-  await authenticated((url, deviceId, cred) =>
-    syncClient.changeMasterPassword(url, deviceId, cred, { currentAuthKey, newAuthKey, vault: { saltB64: newVault.saltB64, ...newVault.argon2, wrappedVaultKey: newVault.wrappedVaultKey } }),
-  );
+  // A local vault has no server to tell, and therefore no auth key to
+  // derive for one -- the same reason the extension only derives it "when
+  // `state`" in its own `changeMasterPassword`.
+  if (enrollment.mode === 'server') {
+    const [currentAuthKey, newAuthKey] = await Promise.all([
+      CryptoCore.deriveAuthKey(currentPassword, vault.saltB64, vault.argon2.memoryKib, vault.argon2.iterations, vault.argon2.parallelism),
+      CryptoCore.deriveAuthKey(newPassword, newSaltB64, vault.argon2.memoryKib, vault.argon2.iterations, vault.argon2.parallelism),
+    ]);
+
+    await authenticated((url, deviceId, cred) =>
+      syncClient.changeMasterPassword(url, deviceId, cred, { currentAuthKey, newAuthKey, vault: { saltB64: newVault.saltB64, ...newVault.argon2, wrappedVaultKey: newVault.wrappedVaultKey } }),
+    );
+  }
 
   await storage.writeEnrollment({ ...enrollment, vault: newVault });
 }
 
-/** The server this device is enrolled with, for display -- null if not enrolled. */
+/** The server this device is enrolled with, for display -- null if there isn't one. */
 async function serverUrl(): Promise<string | null> {
-  return (await storage.readEnrollment())?.serverUrl ?? null;
+  const enrollment = await storage.readEnrollment();
+  return enrollment?.mode === 'server' ? enrollment.serverUrl : null;
+}
+
+/** Whether this vault is local-only -- created with no server relationship at all. */
+async function isLocalOnly(): Promise<boolean> {
+  return (await storage.readEnrollment())?.mode === 'local';
 }
 
 /** The name chosen for this device during enrollment, when locally known. */
@@ -323,10 +373,11 @@ async function enrolledDeviceName(): Promise<string | null> {
   return (await storage.readEnrollment())?.deviceName ?? null;
 }
 
-/** Fails the same way pullItems does if called before unlock. */
+/** Fails the same way pullItems does if called before unlock, or at all for a local-only vault. */
 async function authenticated<T>(call: (url: string, deviceId: string, credential: string) => Promise<T>): Promise<T> {
   const enrollment = await storage.readEnrollment();
   if (enrollment === null) throw new Error('not enrolled on this device yet');
+  if (enrollment.mode !== 'server') throw new Error('this vault has no server');
   if (credential === null) throw new Error('vault is locked');
   return call(enrollment.serverUrl, credential.deviceId, credential.credential);
 }
@@ -350,28 +401,42 @@ function newEnrollmentToken(): Promise<{ token: string; expiresAt: string }> {
   return authenticated((url, deviceId, cred) => syncClient.createEnrollmentToken(url, deviceId, cred));
 }
 
+/** Decrypts every non-tombstoned item in a batch, in the shared `DecryptedItem` shape. */
+async function decryptLive(items: EncryptedItem[]): Promise<DecryptedItem[]> {
+  const decrypted: DecryptedItem[] = [];
+  for (const item of items) {
+    if (item.deleted) continue;
+    const content = JSON.parse(await CryptoCore.decryptItem(item)) as Record<string, unknown>;
+    decrypted.push({ id: item.id, itemType: item.itemType, version: item.version, content });
+  }
+  return decrypted;
+}
+
 /**
  * Pulls and decrypts the vault's current items.
  *
- * Always pulls from the beginning rather than tracking a cursor: this app
- * does not keep a local item cache yet (nothing is persisted here but
- * ciphertext-free enrollment state -- see storage.ts), so every call needs
- * the full set to render from anyway. A cursor only pays for itself once
- * there is a cache to advance incrementally; premature here. Follows the
- * server's `more` flag until caught up, the same loop
- * extension/src/sync/engine.ts's pull side runs.
+ * A local-only vault reads and decrypts straight from `storage.ts`'s local
+ * item store -- there is no server to pull from, and that store is the only
+ * copy that exists. A server-backed vault still always pulls from the
+ * beginning rather than tracking a cursor: this app does not keep a local
+ * item cache *for that case* (nothing is persisted here but ciphertext-free
+ * enrollment state), so every call needs the full set to render from
+ * anyway. A cursor only pays for itself once there is a cache to advance
+ * incrementally; premature here. Follows the server's `more` flag until
+ * caught up, the same loop extension/src/sync/engine.ts's pull side runs.
  */
-function pullItems(): Promise<DecryptedItem[]> {
+async function pullItems(): Promise<DecryptedItem[]> {
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null) throw new Error('not enrolled on this device yet');
+
+  if (enrollment.mode === 'local') return decryptLive(await storage.readLocalItems());
+
   return authenticated(async (url, deviceId, cred) => {
     const decrypted: DecryptedItem[] = [];
     let cursor = '0';
     for (;;) {
       const page = await syncClient.pull(url, deviceId, cred, cursor);
-      for (const item of page.items) {
-        if (item.deleted) continue;
-        const content = JSON.parse(await CryptoCore.decryptItem(item)) as Record<string, unknown>;
-        decrypted.push({ id: item.id, itemType: item.itemType, version: item.version, content });
-      }
+      decrypted.push(...(await decryptLive(page.items)));
       cursor = page.cursor;
       if (!page.more) break;
     }
@@ -395,13 +460,30 @@ async function pushOne(item: EncryptedItem): Promise<void> {
   }
 }
 
-/** Encrypts and pushes a brand-new item at version 1. */
+/** Writes one item into the local item store, replacing any existing record for its id. */
+async function writeLocalItem(item: EncryptedItem): Promise<void> {
+  const items = await storage.readLocalItems();
+  const index = items.findIndex((existing) => existing.id === item.id);
+  if (index === -1) items.push(item);
+  else items[index] = item;
+  await storage.writeLocalItems(items);
+}
+
+/** Persists a freshly-encrypted item: locally for a local-only vault, pushed otherwise. */
+async function persist(item: EncryptedItem): Promise<void> {
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null) throw new Error('not enrolled on this device yet');
+  if (enrollment.mode === 'local') await writeLocalItem(item);
+  else await pushOne(item);
+}
+
+/** Encrypts and saves a brand-new item at version 1. */
 async function addItem(content: ItemContent): Promise<void> {
   const now = Date.now();
   const stamped = { ...content, createdAt: now, lastModifiedAt: now };
   const header = { id: randomItemId(), itemType: content.type, version: 1, updatedAt: now, deleted: false };
   const encrypted = await CryptoCore.encryptItem(JSON.stringify(stamped), header);
-  await pushOne(encrypted);
+  await persist(encrypted);
 }
 
 /**
@@ -409,14 +491,16 @@ async function addItem(content: ItemContent): Promise<void> {
  * into the authentication tag (pw-crypto-core/src/vault_item.rs), so an
  * edit is always a fresh encryption, never an in-place field change. Callers
  * pass the version they last saw (from the item as it was pulled or just
- * created); the server is the one that decides whether that was current --
- * see pushOne.
+ * created); for a server-backed vault the server is the one that decides
+ * whether that was current -- see pushOne. A local-only vault has no other
+ * writer to race against, so its version is never actually disputed; the
+ * same AEAD/AAD discipline still applies regardless.
  */
 async function updateItem(id: string, version: number, content: ItemContent): Promise<void> {
   const header = { id, itemType: content.type, version: version + 1, updatedAt: Date.now(), deleted: false };
   const stamped = { ...content, lastModifiedAt: Date.now() };
   const encrypted = await CryptoCore.encryptItem(JSON.stringify(stamped), header);
-  await pushOne(encrypted);
+  await persist(encrypted);
 }
 
 /**
@@ -424,12 +508,15 @@ async function updateItem(id: string, version: number, content: ItemContent): Pr
  * replaced, the mobile analogue of the extension's `purgeItem` -- there's no
  * trash/restore screen here to make a recoverable soft-delete meaningful, so
  * this is the only kind of delete. The record itself is kept (with the new
- * version and tombstone) so the deletion still propagates to other devices.
+ * version and tombstone), for a server-backed vault so the deletion still
+ * propagates to other devices, and for a local-only one for the same reason
+ * `vault_item.rs` never hard-deletes anywhere: a version number that could
+ * vanish and be reused is a rollback vulnerability, not a storage saving.
  */
 async function deleteItem(id: string, version: number, itemType: string): Promise<void> {
   const header = { id, itemType, version: version + 1, updatedAt: Date.now(), deleted: true };
   const encrypted = await CryptoCore.encryptItem(JSON.stringify({ purged: true }), header);
-  await pushOne(encrypted);
+  await persist(encrypted);
 }
 
 export {
@@ -437,12 +524,14 @@ export {
   biometricAvailable,
   biometricEnabled,
   changeMasterPassword,
+  createLocalVaultAndUnlock,
   createVaultAndUnlock,
   deleteItem,
   enrolledDeviceName,
   disableBiometric,
   enableBiometric,
   enrollAndUnlock,
+  isLocalOnly,
   listDevices,
   lock,
   newEnrollmentToken,

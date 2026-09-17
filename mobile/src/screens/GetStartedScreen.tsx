@@ -10,7 +10,11 @@ import { Button } from '../ui';
  * accident of build order. Every client offers the same two entry points;
  * see MULTI-TENANCY.md's "symmetric client enrollment."
  */
-export default function GetStartedScreen(props: { onJoin: () => void; onCreate: () => void }) {
+export default function GetStartedScreen(props: {
+  onJoin: () => void;
+  onCreate: () => void;
+  onCreateLocal: () => void;
+}) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
@@ -21,6 +25,7 @@ export default function GetStartedScreen(props: { onJoin: () => void; onCreate: 
       <View style={styles.footer}>
         <Button title="I have an invite" onPress={props.onJoin} />
         <Button title="Create a new vault" variant="outline" onPress={props.onCreate} />
+        <Button title="Use without a server" variant="outline" onPress={props.onCreateLocal} />
       </View>
     </SafeAreaView>
   );
