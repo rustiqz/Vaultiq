@@ -849,6 +849,71 @@ fast and clever, every time.
     produces the correct `source_ip` in a refused-registration audit row,
     and the CLI's new multiselect/audit-log-view screens driven end to end
     over a real pty against a real database.
+- **CSV import (extension + mobile)**, un-deferred from §1.3. Imports login
+  and secure-note rows from a CSV export (Chrome, Firefox, Bitwarden,
+  LastPass, 1Password, and similar all produce something the parser
+  recognises) — deliberately **not** cards, identities, or TOTP: their CSV
+  schemas diverge too much between vendors to map correctly without a real
+  sample from each, so a row whose `type` column says anything else is
+  skipped and counted, not guessed at. No de-duplication against existing
+  items either — both are reasonable v2 follow-ups, not oversights.
+  - **Parsing** (`extension/src/lib/csvImport.ts`, ported — not shared — to
+    `mobile/src/lib/csvImport.ts`, the same relationship `itemContent.ts`
+    already has with `messages.ts`): a hand-rolled ~150-line RFC4180-ish
+    parser (quoted fields, embedded commas/newlines, `""` escaping, CRLF or
+    LF), no CSV dependency on either app — same call already made for
+    `otpauth.ts` and `lib/id.ts`. A header-alias table maps common column
+    names case-insensitively (`login_uri`/`uri`/`website` → url, etc.) so
+    one parser reads Chrome's header-less-type export and Bitwarden's
+    `type`/`login_*` columns alike. A row with nothing meaningful in it
+    (no username/password for a login, no name/notes for a note) is
+    skipped and counted, not imported blank.
+  - **Extension**: no new message kind — a new "Import" overflow-menu entry
+    (`popup/import-panel.ts`) reads a local file via a plain
+    `<input type="file">` (no dependency, no `host_permissions`; nothing
+    like this existed in the popup before), parses it, shows a preview list
+    with a per-row include toggle, then loops the existing
+    `{ kind: "addItem", content }` request sequentially — the same request
+    the "New item" form already sends, so every parsed row gets encrypted
+    exactly the way a hand-typed item does. `scheduleSync`'s debounce
+    coalesces the resulting pushes into one sync after the last item.
+  - **Mobile** needed a new dependency: `@react-native-documents/picker`
+    (exact-pinned `12.0.2`; the older `react-native-document-picker` is
+    deprecated — checked against npm directly this session, not assumed).
+    Its `pick()` has no `readContent`/base64 option — checked against the
+    package's actual `.d.ts` after an initial web search suggested
+    otherwise and turned out to be wrong for this package — so the file is
+    read via `fetch(uri).then(r => r.text())`, which the package's own docs
+    confirm handles a picked `content://`/`file://` uri directly; no second
+    filesystem dependency needed. `errorCodes.OPERATION_CANCELED` is
+    treated as "nothing happened," not an error, matching the existing
+    `biometric_cancelled` convention in `vault.ts`. New `ImportScreen.tsx`,
+    reached from a new "Data" section in Settings, mirrors the same
+    pick → preview (toggleable `FlatList` rows) → import flow, looping
+    `vault.addItem` per included row in its own `try`/`catch` so one
+    failure doesn't abort the batch — `addItem` was already mode-aware
+    (local-only-vault-mode work), so this screen never needs to know which
+    kind of vault it's importing into. The package's own jest mock isn't
+    reachable from outside it (`ERR_PACKAGE_PATH_NOT_EXPORTED` on its
+    `jest/build/jest/setup` subpath, despite that file existing precisely
+    for this) — a hand-written mock in `jest.setup.js` instead, same
+    pattern as the Clipboard/VisionCamera/qrcode-svg entries already there.
+    `jest.config.js`'s `transformIgnorePatterns` gained
+    `@react-native-documents` alongside the existing RN-ecosystem entries,
+    for the same ESM-parsing reason every other one is listed.
+  - Both apps carry a plain warning in the import UI to delete the source
+    CSV once it's confirmed imported — it's plaintext credentials sitting
+    outside Vaultiq's control the moment it's picked.
+  - **Verified**: extension — `pnpm typecheck`/`lint`/`test` (291 tests, 16
+    new for `csvImport.ts`: header aliasing, quoted/escaped/CRLF fields,
+    skipped-row counting) and `pnpm build`. Mobile — `tsc`, `eslint`, jest
+    (17 tests, 16 new for the ported parser, plus the existing
+    `App.test.tsx` smoke test now also covering the new dependency's mock),
+    and `:app:assembleDebug` (full native build, confirming the new
+    dependency autolinks and compiles). **Not verified on a real device or
+    in a real browser** — no physical device was connected and no headless
+    Chromium was available this session, so the actual pick → preview →
+    import round trip hasn't been exercised end to end on either app.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
