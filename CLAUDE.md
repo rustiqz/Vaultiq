@@ -849,6 +849,67 @@ fast and clever, every time.
     produces the correct `source_ip` in a refused-registration audit row,
     and the CLI's new multiselect/audit-log-view screens driven end to end
     over a real pty against a real database.
+- **Local-only vault mode (extension + mobile)**: a vault that is created and
+  used entirely without ever contacting a sync server. Research before
+  building this turned up an asymmetry worth recording: the extension needed
+  almost no new storage, because it was already local-first.
+  - **Extension**: `vault.create()` has never touched the network — every
+    item mutation already writes to IndexedDB unconditionally, and sync
+    (`connectServer`/`enrollWithServer`) has always been a separate, opt-in
+    step. So this is a policy feature, not a storage one: a new
+    `browser.storage.local` flag (`isLocalOnly`/`setLocalOnly` in
+    `vault.ts`, same shape as `autoLockMinutes`), enforced at the source —
+    `connectServer`/`enrollWithServer` refuse outright while it's set, and
+    `setLocalOnly(true)` itself refuses while a server is connected, forcing
+    an explicit disconnect first rather than doing both silently.
+    `scheduleSync`/`syncOnUnlock` short-circuit before ever reaching
+    `connectedClient()`. Settings gained a "Never sync this vault" toggle;
+    the Sync screen shows an explanatory line instead of the connect form
+    once it's on, rather than a form that would only error.
+  - **Mobile** needed real new work: it had no local item cache at all
+    before this (`pullItems()` always re-pulled and re-decrypted from the
+    server — see its own prior doc comment). `storage.ts`'s
+    `EnrollmentState` is now a discriminated union on `mode: 'local' |
+    'server'` (a record with no `mode` — everything written before this
+    existed — reads as `'server'`, since that's the only kind that did), and
+    a new `vaultiq:localItems` AsyncStorage key holds an `EncryptedItem[]`
+    in the same wire shape `nativeCryptoCore.ts` already defines, matching
+    `server/src/sync/dto.ts`'s DTO for free. New `createLocalVaultAndUnlock`
+    sits beside `createVaultAndUnlock`, skipping registration, the device
+    credential, and the device-name requirement entirely (display-only for
+    a vault with no other device to show it to). `addItem`/`updateItem`/
+    `deleteItem`/`pullItems` branch on enrollment mode — same encryption,
+    same AEAD/AAD discipline, same version-bump-never-hard-delete tombstone
+    rule, just written to and read from the local store instead of pushed
+    or pulled. `authenticated()` now refuses outright for a local-only
+    vault rather than only failing on the credential check, so a
+    programming error can't accidentally reach a server call for one.
+    `changeMasterPassword` skips auth-key derivation and the server round
+    trip entirely for local mode, mirroring how the extension's own
+    version already made that conditional on a connected server.
+  - **New screen**: `GetStartedScreen` gained a third option, "Use without a
+    server," opening `CreateLocalVaultScreen.tsx` — a single password field,
+    not CreateVaultScreen's three-step wizard, since a local vault has
+    nothing server-shaped left to collect once the device-name step is
+    dropped. Settings hides the device list, "Invite a device," and the
+    server-address row for a local-only vault, showing "Local (no server)"
+    in the vault card instead.
+  - **Deliberately not built**: any upgrade path from a local vault to a
+    server-backed one later (agreed before implementation started), and any
+    backup/export mechanism for a local-only vault — losing the device
+    loses the vault, same as losing the master password does for any vault;
+    see SECURITY.md's new "No offsite backup" entry.
+  - **Verified**: extension — `pnpm typecheck`/`lint`/`test` (280 tests,
+    including new refusal tests for the guard on `connectServer`/
+    `enrollWithServer`/`setLocalOnly`) and `pnpm build`. No headless
+    Chromium was available in this session to visually check the Settings
+    toggle and Sync screen's notice, unlike prior popup-reskin work — that
+    manual check is still outstanding. Mobile — `tsc`, `eslint`, the
+    existing `App.test.tsx` smoke test, and `:app:assembleDebug` (full
+    native build). **Not verified on a real device** — none was connected
+    this session, so creating a local vault, adding/editing/deleting items,
+    and confirming they persist across a restart haven't been exercised on
+    hardware.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
