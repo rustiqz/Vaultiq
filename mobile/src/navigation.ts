@@ -34,6 +34,7 @@ type SettingsStackParamList = {
   AutoLock: undefined;
   ChangeMasterPassword: undefined;
   EnableBiometric: undefined;
+  Import: undefined;
 };
 
 type SettingsStackScreenProps<Screen extends keyof SettingsStackParamList> = NativeStackScreenProps<
