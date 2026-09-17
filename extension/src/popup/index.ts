@@ -9,6 +9,7 @@ import { CLIPBOARD_SECONDS, copyForAWhile } from "../lib/clipboard.js";
 import { el } from "./dom.js";
 import { ago } from "./format.js";
 import { icon, logoMark } from "./icons.js";
+import { importPanel } from "./import-panel.js";
 import { syncPanel } from "./sync-panel.js";
 import {
   send,
@@ -1002,7 +1003,7 @@ function untitled(item: DecryptedItem): string {
 let query = "";
 let selectedId: string | undefined;
 let listScope: "site" | "all" = "site";
-let unlockedScreen: "vault" | "new" | "edit" | "settings" | "sync" | "generator" | "trash" = "vault";
+let unlockedScreen: "vault" | "new" | "edit" | "settings" | "sync" | "generator" | "trash" | "import" = "vault";
 let refocusSearch = false;
 
 function itemTitle(item: DecryptedItem): string {
@@ -1216,6 +1217,7 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
   const menu = el("div", { className: "overflow-menu", hidden: true });
   const destinations: { label: string; screen: typeof unlockedScreen }[] = [
     { label: "Password generator", screen: "generator" },
+    { label: "Import", screen: "import" },
     { label: "Sync & devices", screen: "sync" },
     { label: "Settings", screen: "settings" },
     { label: "Trash", screen: "trash" },
@@ -1269,6 +1271,7 @@ async function renderUnlocked(): Promise<void> {
   if (unlockedScreen === "settings") return renderUtility("Settings", settingsPanel());
   if (unlockedScreen === "sync") return renderUtility("Sync & devices", syncPanel(showError));
   if (unlockedScreen === "generator") return renderUtility("Password generator", generatorPanel());
+  if (unlockedScreen === "import") return renderUtility("Import", importPanel());
   if (unlockedScreen === "trash") {
     return renderUtility(
       "Trash",
