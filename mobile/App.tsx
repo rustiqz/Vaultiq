@@ -28,6 +28,7 @@ import { useConfirmDialog } from './src/ui';
 import * as vault from './src/vault';
 import type { DecryptedItem, Status } from './src/vault';
 import type { RootTabParamList, SettingsStackParamList, VaultStackParamList, VaultStackScreenProps } from './src/navigation';
+import CreateLocalVaultScreen from './src/screens/CreateLocalVaultScreen';
 import CreateVaultScreen from './src/screens/CreateVaultScreen';
 import GetStartedScreen from './src/screens/GetStartedScreen';
 import JoinVaultScreen from './src/screens/JoinVaultScreen';
@@ -210,7 +211,7 @@ function App(props: { autofillRequest?: AutofillRequest }) {
     };
   }, [colorScheme]);
   const [status, setStatus] = useState<Status | 'loading'>('loading');
-  const [onboardingMode, setOnboardingMode] = useState<'choose' | 'join' | 'create'>('choose');
+  const [onboardingMode, setOnboardingMode] = useState<'choose' | 'join' | 'create' | 'create-local'>('choose');
   const [enrolledDeviceName, setEnrolledDeviceName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -320,6 +321,10 @@ function App(props: { autofillRequest?: AutofillRequest }) {
               setError(null);
               setOnboardingMode('create');
             }}
+            onCreateLocal={() => {
+              setError(null);
+              setOnboardingMode('create-local');
+            }}
           />
         )}
         {status === 'not-enrolled' && onboardingMode === 'join' && (
@@ -351,6 +356,23 @@ function App(props: { autofillRequest?: AutofillRequest }) {
               run(async () => {
                 await vault.createVaultAndUnlock(serverUrl, token, submittedDeviceName, password);
                 setEnrolledDeviceName(submittedDeviceName.trim());
+                setStatus('unlocked');
+              })()
+            }
+          />
+        )}
+        {status === 'not-enrolled' && onboardingMode === 'create-local' && (
+          <CreateLocalVaultScreen
+            busy={busy}
+            error={error}
+            onExit={() => {
+              setError(null);
+              setOnboardingMode('choose');
+            }}
+            onSubmit={password =>
+              run(async () => {
+                await vault.createLocalVaultAndUnlock('', password);
+                setEnrolledDeviceName(null);
                 setStatus('unlocked');
               })()
             }

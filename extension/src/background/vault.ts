@@ -124,6 +124,27 @@ export async function setAutoLockMinutes(minutes: number): Promise<void> {
   await extendAutoLock();
 }
 
+/** Whether this vault has committed to never syncing. Off by default. */
+const LOCAL_ONLY_SETTING = "localOnly";
+
+export async function isLocalOnly(): Promise<boolean> {
+  const stored = await browser.storage.local.get(LOCAL_ONLY_SETTING);
+  return stored[LOCAL_ONLY_SETTING] === true;
+}
+
+/**
+ * Commits this vault to never syncing, or reverses that.
+ *
+ * Refuses to turn it on while a server is connected — the caller disconnects
+ * first, explicitly, rather than this silently doing both at once.
+ */
+export async function setLocalOnly(value: boolean): Promise<void> {
+  if (value && (await readState())) {
+    throw new Error("Disconnect from the server before going local-only.");
+  }
+  await browser.storage.local.set({ [LOCAL_ONLY_SETTING]: value });
+}
+
 /** Pushes the auto-lock deadline out. Called on every successful request. */
 export async function extendAutoLock(): Promise<void> {
   await browser.alarms.clear(AUTO_LOCK_ALARM);
@@ -327,8 +348,14 @@ export async function changeMasterPassword(current: string, next: string): Promi
  * Not awaited: an unreachable server must not hold the vault shut. The
  * failure is recorded on the sync state and reported by the popup.
  */
+/** Runs a sync, unless this vault has committed to never syncing. */
+async function syncIfAllowed(): Promise<SyncOutcome | undefined> {
+  if (await isLocalOnly()) return undefined;
+  return await syncNow();
+}
+
 function syncOnUnlock(): void {
-  void syncNow().catch(() => {});
+  void syncIfAllowed().catch(() => {});
 }
 
 async function requireUnlocked(): Promise<VaultKeyHandle> {
@@ -1208,6 +1235,9 @@ export async function connectServer(
   deviceName: string,
   masterPassword: string,
 ): Promise<void> {
+  if (await isLocalOnly()) {
+    throw new Error("This vault is set to never sync. Turn that off in Settings first.");
+  }
   if (await readState()) throw new Error("This device is already connected.");
   const vault = await getVault();
   if (!vault) throw new Error("No vault on this device yet.");
@@ -1257,6 +1287,9 @@ export async function enrollWithServer(
   deviceName: string,
   masterPassword: string,
 ): Promise<void> {
+  if (await isLocalOnly()) {
+    throw new Error("This vault is set to never sync. Turn that off in Settings first.");
+  }
   if (await readState()) throw new Error("This device is already connected.");
 
   const base = assertUsableServer(server).toString();
@@ -1437,7 +1470,7 @@ export function scheduleSync(): void {
   if (pushTimer !== undefined) clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     pushTimer = undefined;
-    void syncNow().catch(() => {
+    void syncIfAllowed().catch(() => {
       // Already recorded on the sync state; the popup reports it.
     });
   }, PUSH_DEBOUNCE_MS);

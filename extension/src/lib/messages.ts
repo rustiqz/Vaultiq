@@ -333,6 +333,9 @@ export type Request =
   | { kind: "unlockWithPin"; pin: string }
   | { kind: "autoLock" }
   | { kind: "setAutoLock"; minutes: number }
+  // Whether this vault has committed to never syncing.
+  | { kind: "localOnly" }
+  | { kind: "setLocalOnly"; value: boolean }
   | { kind: "addItem"; content: ItemContent }
   | { kind: "updateItem"; id: string; content: ItemContent }
   // Moves to the trash: the content is kept and can be restored.
@@ -407,6 +410,8 @@ export type Response =
   | { ok: true; kind: "unlockWithPin" }
   | { ok: true; kind: "autoLock"; minutes: number }
   | { ok: true; kind: "setAutoLock" }
+  | { ok: true; kind: "localOnly"; value: boolean }
+  | { ok: true; kind: "setLocalOnly" }
   | { ok: true; kind: "addItem"; id: string }
   | { ok: true; kind: "updateItem" }
   | { ok: true; kind: "trashItem" }

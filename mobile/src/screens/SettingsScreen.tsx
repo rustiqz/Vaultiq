@@ -27,6 +27,7 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
   onThemeChange: (mode: storage.ThemeMode) => void;
 }) {
   const [serverUrl, setServerUrl] = useState<string | null>(null);
+  const [localOnly, setLocalOnly] = useState(false);
   const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [autoLockMinutes, setAutoLockMinutes] = useState(15);
@@ -39,15 +40,20 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
   const { show, dialog } = useConfirmDialog();
 
   const loadDevices = useCallback(() => {
-    vault
-      .listDevices()
-      .then(setDevices)
-      .catch(thrown => setError(thrown instanceof Error ? thrown.message : String(thrown)));
+    // No server, no device list -- vault.listDevices() would just refuse.
+    vault.isLocalOnly().then(isLocal => {
+      if (isLocal) return;
+      vault
+        .listDevices()
+        .then(setDevices)
+        .catch(thrown => setError(thrown instanceof Error ? thrown.message : String(thrown)));
+    });
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       vault.serverUrl().then(setServerUrl);
+      vault.isLocalOnly().then(setLocalOnly);
       storage.readAutoLockMinutes().then(setAutoLockMinutes);
       vault.biometricAvailable().then(setBiometricAvailable);
       vault.biometricEnabled().then(setBiometricEnabled);
@@ -113,12 +119,16 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
       <View style={styles.section}>
         <SectionLabel>This vault</SectionLabel>
         <Card style={styles.vaultRow}>
-          <LogoMark variant={devices === null ? 'syncing' : 'compact'} size={34} color={colors.ink} stateColor={colors.sage} />
+          <LogoMark variant={localOnly || devices !== null ? 'compact' : 'syncing'} size={34} color={colors.ink} stateColor={colors.sage} />
           <View style={styles.rowText}>
-            <Text style={styles.rowName}>{serverUrl ?? '—'}</Text>
-            <Text style={styles.mono}>{activeDevices.length} device{activeDevices.length === 1 ? '' : 's'} enrolled</Text>
+            <Text style={styles.rowName}>{localOnly ? 'Local (no server)' : (serverUrl ?? '—')}</Text>
+            <Text style={styles.mono}>
+              {localOnly
+                ? 'Stored on this device only'
+                : `${String(activeDevices.length)} device${activeDevices.length === 1 ? '' : 's'} enrolled`}
+            </Text>
           </View>
-          <View style={styles.syncDot} />
+          {!localOnly && <View style={styles.syncDot} />}
         </Card>
       </View>
 
@@ -181,65 +191,67 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
         </Card>
       </View>
 
-      <View style={styles.section}>
-        <View style={styles.sectionHeaderRow}>
-          <SectionLabel>{`Devices · ${activeDevices.length}`}</SectionLabel>
-          <View style={styles.sectionRule} />
-        </View>
-        <Card style={styles.group}>
-          {activeDevices.map((device, index) => (
-            <View key={device.id} style={[styles.deviceRow, index > 0 && styles.groupRowDivider]}>
-              <Icon name={device.current ? 'smartphone' : 'monitor'} size={20} color={colors.ink} />
-              <View style={styles.rowText}>
-                <View style={styles.deviceNameRow}>
-                  <Text style={styles.rowLabel}>{device.name}</Text>
-                  {device.current && (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>This device</Text>
-                    </View>
-                  )}
+      {!localOnly && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <SectionLabel>{`Devices · ${activeDevices.length}`}</SectionLabel>
+            <View style={styles.sectionRule} />
+          </View>
+          <Card style={styles.group}>
+            {activeDevices.map((device, index) => (
+              <View key={device.id} style={[styles.deviceRow, index > 0 && styles.groupRowDivider]}>
+                <Icon name={device.current ? 'smartphone' : 'monitor'} size={20} color={colors.ink} />
+                <View style={styles.rowText}>
+                  <View style={styles.deviceNameRow}>
+                    <Text style={styles.rowLabel}>{device.name}</Text>
+                    {device.current && (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>This device</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.mono}>Enrolled {new Date(device.enrolledAt).toLocaleDateString()}</Text>
                 </View>
-                <Text style={styles.mono}>Enrolled {new Date(device.enrolledAt).toLocaleDateString()}</Text>
+                {!device.current && (
+                  <Pressable style={styles.revokeButton} onPress={() => confirmRevoke(device)}>
+                    <Text style={styles.revokeButtonText}>Revoke</Text>
+                  </Pressable>
+                )}
               </View>
-              {!device.current && (
-                <Pressable style={styles.revokeButton} onPress={() => confirmRevoke(device)}>
-                  <Text style={styles.revokeButtonText}>Revoke</Text>
-                </Pressable>
-              )}
-            </View>
-          ))}
-        </Card>
-
-        {invite === null ? (
-          <Button
-            title={invitingBusy ? 'Generating…' : 'Invite a device'}
-            variant="outline"
-            disabled={invitingBusy}
-            onPress={inviteDevice}
-          />
-        ) : (
-          <Card style={styles.inviteCard}>
-            {serverUrl !== null && (
-              <View style={styles.inviteQr}>
-                <QRCode
-                  value={buildEnrollmentQr(serverUrl, invite.token)}
-                  size={180}
-                  // react-native-qrcode-svg types these as plain `string`,
-                  // but it renders react-native-svg primitives underneath,
-                  // whose own `fill`/`stroke` accept ColorValue directly (see
-                  // LogoMark.tsx) -- a typing gap in the wrapper, not a real
-                  // runtime constraint.
-                  color={colors.ink as string}
-                  backgroundColor={colors.background as string}
-                />
-              </View>
-            )}
-            <Text style={styles.mono}>{invite.token}</Text>
-            <Text style={styles.inviteHint}>Scan or paste on the new device. Expires {new Date(invite.expiresAt).toLocaleTimeString()}.</Text>
-            <Button title="Done" variant="outline" onPress={() => setInvite(null)} />
+            ))}
           </Card>
-        )}
-      </View>
+
+          {invite === null ? (
+            <Button
+              title={invitingBusy ? 'Generating…' : 'Invite a device'}
+              variant="outline"
+              disabled={invitingBusy}
+              onPress={inviteDevice}
+            />
+          ) : (
+            <Card style={styles.inviteCard}>
+              {serverUrl !== null && (
+                <View style={styles.inviteQr}>
+                  <QRCode
+                    value={buildEnrollmentQr(serverUrl, invite.token)}
+                    size={180}
+                    // react-native-qrcode-svg types these as plain `string`,
+                    // but it renders react-native-svg primitives underneath,
+                    // whose own `fill`/`stroke` accept ColorValue directly (see
+                    // LogoMark.tsx) -- a typing gap in the wrapper, not a real
+                    // runtime constraint.
+                    color={colors.ink as string}
+                    backgroundColor={colors.background as string}
+                  />
+                </View>
+              )}
+              <Text style={styles.mono}>{invite.token}</Text>
+              <Text style={styles.inviteHint}>Scan or paste on the new device. Expires {new Date(invite.expiresAt).toLocaleTimeString()}.</Text>
+              <Button title="Done" variant="outline" onPress={() => setInvite(null)} />
+            </Card>
+          )}
+        </View>
+      )}
 
       <Button title="Lock vault now" variant="outline" onPress={onLock} />
     </ScrollView>

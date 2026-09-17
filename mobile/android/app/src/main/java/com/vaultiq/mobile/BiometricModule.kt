@@ -179,45 +179,61 @@ class BiometricModule(private val reactContext: ReactApplicationContext) :
      * exactly once. `onAuthenticationFailed` (one wrong finger) is the one
      * callback that must NOT settle it: the prompt itself stays open and
      * lets the user retry.
+     *
+     * The whole body runs on [activity]'s UI thread ([runOnUiThreadThenCall],
+     * shared with every caller of this method) -- `@ReactMethod` calls land
+     * on React Native's own native-modules thread, and `BiometricPrompt`
+     * (via its internal `FragmentManager` transaction) throws
+     * `IllegalStateException: Must be called from main thread of fragment
+     * host` if constructed or asked to authenticate from anywhere else. That
+     * was the actual cause of a first-tap failure that a second, identical
+     * tap would then "fix" -- found only by attaching a debugger, since the
+     * exception was silently swallowed into a rejected promise. It was
+     * previously misdiagnosed as the hosting activity not yet being
+     * `RESUMED` (`authenticateWhenResumed`'s wait-for-resume logic below is
+     * still correct and worth keeping -- a prompt genuinely can't show
+     * before then -- it just wasn't the actual bug).
      */
     private fun prompt(activity: FragmentActivity, title: String, cipher: Cipher, promise: Promise, onSuccess: (Cipher) -> Any) {
-        val executor = ContextCompat.getMainExecutor(reactContext)
-        val callback =
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    val authenticatedCipher = result.cryptoObject?.cipher
-                    if (authenticatedCipher == null) {
-                        promise.reject("biometric_error", "no cipher came back from the prompt")
-                        return
+        runOnUiThreadThenCall(activity) {
+            val executor = ContextCompat.getMainExecutor(reactContext)
+            val callback =
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        val authenticatedCipher = result.cryptoObject?.cipher
+                        if (authenticatedCipher == null) {
+                            promise.reject("biometric_error", "no cipher came back from the prompt")
+                            return
+                        }
+                        try {
+                            promise.resolve(onSuccess(authenticatedCipher))
+                        } catch (error: Exception) {
+                            promise.reject("biometric_error", error.message ?: "cryptographic operation failed", error)
+                        }
                     }
-                    try {
-                        promise.resolve(onSuccess(authenticatedCipher))
-                    } catch (error: Exception) {
-                        promise.reject("biometric_error", error.message ?: "cryptographic operation failed", error)
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        // Covers both the user backing out and a genuine prompt-level
+                        // error (lockout, hardware unavailable mid-prompt, etc.) -- JS
+                        // treats this one code as "no password recovered," same as a
+                        // cancellation, and falls back to asking for it normally.
+                        promise.reject("biometric_cancelled", errString.toString())
+                    }
+
+                    override fun onAuthenticationFailed() {
+                        // One wrong finger. The prompt stays open on its own; nothing
+                        // to settle yet.
                     }
                 }
 
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    // Covers both the user backing out and a genuine prompt-level
-                    // error (lockout, hardware unavailable mid-prompt, etc.) -- JS
-                    // treats this one code as "no password recovered," same as a
-                    // cancellation, and falls back to asking for it normally.
-                    promise.reject("biometric_cancelled", errString.toString())
-                }
-
-                override fun onAuthenticationFailed() {
-                    // One wrong finger. The prompt stays open on its own; nothing
-                    // to settle yet.
-                }
-            }
-
-        val biometricPrompt = BiometricPrompt(activity, executor, callback)
-        val info =
-            BiometricPrompt.PromptInfo.Builder()
-                .setTitle(title)
-                .setNegativeButtonText("Use password instead")
-                .build()
-        authenticateWhenResumed(activity, biometricPrompt, info, BiometricPrompt.CryptoObject(cipher), promise)
+            val biometricPrompt = BiometricPrompt(activity, executor, callback)
+            val info =
+                BiometricPrompt.PromptInfo.Builder()
+                    .setTitle(title)
+                    .setNegativeButtonText("Use password instead")
+                    .build()
+            authenticateWhenResumed(activity, biometricPrompt, info, BiometricPrompt.CryptoObject(cipher), promise)
+        }
     }
 
     /**
@@ -227,7 +243,7 @@ class BiometricModule(private val reactContext: ReactApplicationContext) :
      * race, rejecting with no prompt ever shown at all. A fixed delay before
      * calling this was tried first and wasn't reliable (device-dependent);
      * waiting for the real lifecycle event is deterministic instead of a
-     * guess.
+     * guess. Callable only from the UI thread -- see [runOnUiThreadThenCall].
      */
     private fun authenticateWhenResumed(
         activity: FragmentActivity,

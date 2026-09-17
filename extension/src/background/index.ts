@@ -25,10 +25,12 @@ import {
   autoLockMinutes,
   device,
   forgetPin,
+  isLocalOnly,
   itemsForUrl,
   recordUse,
   renameDevice,
   setAutoLockMinutes,
+  setLocalOnly,
   setPin,
   unlockWithPin,
   newPassword,
@@ -109,6 +111,11 @@ async function handle(
     case "setAutoLock":
       await setAutoLockMinutes(request.minutes);
       return { ok: true, kind: "setAutoLock" };
+    case "localOnly":
+      return { ok: true, kind: "localOnly", value: await isLocalOnly() };
+    case "setLocalOnly":
+      await setLocalOnly(request.value);
+      return { ok: true, kind: "setLocalOnly" };
     case "addItem": {
       const id = await addItem(request.content);
       await extendAutoLock();
