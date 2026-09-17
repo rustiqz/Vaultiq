@@ -167,6 +167,16 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
       </View>
 
       <View style={styles.section}>
+        <SectionLabel>Data</SectionLabel>
+        <Card style={styles.group}>
+          <Pressable style={styles.groupRow} onPress={() => navigation.navigate('Import')}>
+            <Text style={[styles.rowLabel, styles.groupRowFlex]}>Import from CSV</Text>
+            <Icon name="chevronRight" size={16} color={colors.ink} />
+          </Pressable>
+        </Card>
+      </View>
+
+      <View style={styles.section}>
         <SectionLabel>Appearance</SectionLabel>
         <Card style={styles.group}>
           <Pressable style={styles.groupRow} onPress={() => onThemeChange(themeMode === 'dark' ? 'light' : 'dark')}>

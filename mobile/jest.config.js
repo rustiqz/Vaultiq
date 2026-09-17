@@ -20,6 +20,7 @@ module.exports = {
         '@react-native(-community)?',
         '@react-native-async-storage',
         '@react-native-clipboard',
+        '@react-native-documents',
         '@react-native-vector-icons',
         '@react-navigation',
         'react-native-.*',
