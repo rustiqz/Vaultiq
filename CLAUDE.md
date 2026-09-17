@@ -876,11 +876,17 @@ Update this section when it stops being true.
    the vault-key indirection, or the data model. If something is genuinely
    unworkable, stop and explain why *before* deviating — never silently
    substitute an approach.
-3. **Deferred means deferred.** Sharing, recovery flows, passkeys, import,
-   breach checking — not now, not partially, not "just the types for later".
-   Item types beyond login and TOTP were on this list until phases 1–3 were
-   done end to end, which was the condition PROJECT.md set for them; they
-   have since been built. Nothing else has moved.
+3. **Deferred means deferred.** Sharing, recovery flows, passkeys, breach
+   checking — not now, not partially, not "just the types for later". Item
+   types beyond login and TOTP were on this list until phases 1–3 were done
+   end to end, which was the condition PROJECT.md set for them; they have
+   since been built. Import was on this list too, deliberately un-deferred:
+   every parsed row still only ever crosses into the vault through the
+   existing `addItem` path, so it needed no new trust boundary, no server
+   change, and no crypto decision — the same bar item types cleared. See
+   CLAUDE.md §0 for what shipped and what stayed explicitly out of scope
+   (cards/identities/TOTP rows, de-duplication). Nothing else on this list
+   has moved.
 4. **No shortcuts justified by "it's only me".** Single-user today does not
    license plaintext metadata, skipped auth separation, or hardcoded paths.
 
