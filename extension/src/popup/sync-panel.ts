@@ -258,9 +258,24 @@ function connected(panel: HTMLElement, sync: SyncSummary, fail: Fail): HTMLEleme
   return body;
 }
 
+/** Shown instead of the connect form once this vault has gone local-only. */
+function localOnlyNotice(): HTMLElement {
+  return el("p", {
+    className: "muted",
+    textContent:
+      "This vault is set to never sync. Turn that off in Settings to connect it to a server.",
+  });
+}
+
 async function repaint(panel: HTMLElement, fail: Fail): Promise<void> {
   const heading = el("h2", { textContent: "Sync" });
   try {
+    const localOnly = unwrap(await send({ kind: "localOnly" }));
+    if (localOnly.kind === "localOnly" && localOnly.value) {
+      panel.replaceChildren(heading, localOnlyNotice());
+      return;
+    }
+
     const response = unwrap(await send({ kind: "syncStatus" }));
     if (response.kind !== "syncStatus") return;
     panel.replaceChildren(

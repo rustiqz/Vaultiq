@@ -48,6 +48,11 @@ Master password ──Argon2id(salt, 64 MiB, t=3, p=4)──▶ Master key
 | Item ciphertext | IndexedDB, and the server's `items` rows | Permanent |
 | Device credential | Encrypted under the vault key in `storage.local` | Until revoked |
 
+A vault created in local-only mode (extension and mobile, see CLAUDE.md §0)
+never derives an auth key and has no device credential at all — the Auth key
+row and the server-side half of the Wrapped vault key / Item ciphertext rows
+simply don't exist for it. Everything else in the hierarchy is unchanged.
+
 The two HKDF `info` strings are what make the auth key useless for decryption:
 the key that goes to the server and the key that unwraps the vault come from
 the same master key under different, versioned contexts — never from splitting
@@ -163,6 +168,13 @@ keeps it in `storage.session` only. Thirteen bits of PIN would fall to an
 offline search in minutes — so there is nothing offline to attack. Closing the
 browser ends it, and five wrong guesses tear it down.
 
+**A device with no server relationship at all.** A local-only vault
+(extension and mobile) never contacts a server, never derives an auth key,
+and holds no device credential — there is nothing here for a compromised or
+hostile server to defend against because there is no server in the picture.
+Item encryption, key wrapping and the AEAD associated-data discipline are
+identical to a synced vault; only the sync layer is absent.
+
 ---
 
 ## Not defended against
@@ -209,6 +221,13 @@ memory has it — but they already have everything else on that machine too.
 
 **Losing the master password.** There is no recovery, no reset, no escrow, no
 backdoor. This is a design decision, not an oversight.
+
+**No offsite backup, for a local-only vault.** Choosing "use without a
+server" trades away the one thing a server incidentally provides today: a
+second copy. Losing or wiping the device loses the vault, exactly as losing
+the master password does for any vault. Nothing in this feature adds a
+recovery, export or backup mechanism — that is a separate, later question
+(see the import/export discussion), not solved by local-only mode itself.
 
 **The supply chain.** Dependencies are pinned to exact versions, kept minimal,
 preferred from RustCrypto, and checked weekly against the RustSec advisory

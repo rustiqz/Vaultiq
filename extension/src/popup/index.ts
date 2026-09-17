@@ -317,6 +317,45 @@ function settingsPanel(): HTMLElement {
 
   panel.append(el("label", {}, ["This device", name]));
 
+  // --- local-only mode ---
+  const localOnlyToggle = el("input", { type: "checkbox" });
+  void send({ kind: "localOnly" }).then((response) => {
+    if (response.ok && response.kind === "localOnly") localOnlyToggle.checked = response.value;
+  });
+  localOnlyToggle.addEventListener("change", () => {
+    const next = localOnlyToggle.checked;
+    void (async () => {
+      if (next) {
+        const status = unwrap(await send({ kind: "syncStatus" }));
+        if (status.kind === "syncStatus" && status.sync.connected) {
+          if (
+            !confirm(
+              `This will disconnect from ${status.sync.server ?? "the server"} and stop this vault from syncing anywhere. Continue?`,
+            )
+          ) {
+            localOnlyToggle.checked = false;
+            return;
+          }
+          unwrap(await send({ kind: "disconnectServer" }));
+        }
+      }
+      unwrap(await send({ kind: "setLocalOnly", value: next }));
+    })().catch((error: unknown) => {
+      localOnlyToggle.checked = !next;
+      showError(error instanceof Error ? error.message : "Failed.");
+    });
+  });
+
+  panel.append(
+    el("h3", { textContent: "Vault mode" }),
+    el("label", {}, [localOnlyToggle, " Never sync this vault"]),
+    el("p", {
+      className: "muted",
+      textContent:
+        "Keeps this vault on this device only. Turning it on disconnects any server this device is using. Turning it off does not connect anywhere by itself — it only makes syncing available again.",
+    }),
+  );
+
   // --- master password ---
   const currentPassword = el("input", { type: "password", autocomplete: "off" });
   const nextPassword = el("input", { type: "password", autocomplete: "new-password" });
