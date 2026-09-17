@@ -25,3 +25,13 @@ jest.mock('react-native-vision-camera', () => ({
   useCameraPermission: jest.fn(() => ({ hasPermission: false, requestPermission: jest.fn() })),
   useCodeScanner: jest.fn(() => undefined),
 }));
+
+// The package ships its own jest mock (jest/build/jest/setup.js), but it
+// isn't reachable through its package.json's exports map from outside the
+// package -- ERR_PACKAGE_PATH_NOT_EXPORTED. A hand-written stand-in, same as
+// the other native modules above.
+jest.mock('@react-native-documents/picker', () => ({
+  pick: jest.fn(() => Promise.resolve([{ uri: 'file:///mock/mock.csv', name: 'mock.csv' }])),
+  errorCodes: { OPERATION_CANCELED: 'OPERATION_CANCELED' },
+  isErrorWithCode: jest.fn(() => false),
+}));
