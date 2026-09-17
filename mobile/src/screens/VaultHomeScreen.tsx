@@ -135,7 +135,11 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
           <Icon name="plus" size={21} color={colors.ink} />
         </Pressable>
       </View>
-      {isEmptyVault ? (
+      {items === null ? (
+        <View style={styles.loading}>
+          <LogoMark size={40} color={colors.ink} />
+        </View>
+      ) : isEmptyVault ? (
         <EmptyVault onAddFirst={() => setPickerVisible(true)} />
       ) : (
         <FlatList
@@ -377,6 +381,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     color: colors.ink,
+  },
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   empty: {
     flex: 1,
