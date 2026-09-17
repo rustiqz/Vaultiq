@@ -19,28 +19,51 @@ type VaultRecord = {
   wrappedVaultKey: WrappedVaultKey;
 };
 
-type EnrollmentState = {
-  serverUrl: string;
-  deviceId: string;
+/**
+ * The one thing every enrollment has: a wrapped vault key and the costs it
+ * was wrapped with, plus the master password's biometric cache when that's
+ * on. Everything else -- the server this device talks to, the device
+ * credential that authenticates it there -- only exists for a vault that
+ * has a server at all.
+ */
+type CommonEnrollmentState = {
   /** Human-readable name chosen during enrollment. Optional for older installs. */
   deviceName?: string;
-  sealedCredential: EncryptedItem;
   vault: VaultRecord;
   /**
    * The master password, encrypted under a Keystore key that only decrypts
    * behind biometric auth (BiometricModule.kt) -- absent when fingerprint
    * unlock is off. Storing ciphertext here is no different from
-   * `sealedCredential` above: it's only as sensitive as any other
+   * `sealedCredential` below: it's only as sensitive as any other
    * AEAD-protected blob, and this one is gated by hardware besides.
    */
   biometric?: SealedPassword;
 };
 
+/** A vault created and kept entirely on this device -- no server, ever. */
+type LocalEnrollmentState = CommonEnrollmentState & { mode: 'local' };
+
+type ServerEnrollmentState = CommonEnrollmentState & {
+  mode: 'server';
+  serverUrl: string;
+  deviceId: string;
+  sealedCredential: EncryptedItem;
+};
+
+type EnrollmentState = LocalEnrollmentState | ServerEnrollmentState;
+
 const STORAGE_KEY = 'vaultiq:enrollment';
 
 async function readEnrollment(): Promise<EnrollmentState | null> {
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
-  return raw === null ? null : (JSON.parse(raw) as EnrollmentState);
+  if (raw === null) return null;
+  const parsed = JSON.parse(raw) as Partial<EnrollmentState>;
+  // Every record written before `mode` existed was server-backed -- the only
+  // kind that existed then. Not a migration: nothing is written back, this
+  // just fills in a field the record always implicitly had.
+  return parsed.mode === 'local'
+    ? (parsed as LocalEnrollmentState)
+    : ({ ...parsed, mode: 'server' } as ServerEnrollmentState);
 }
 
 async function writeEnrollment(state: EnrollmentState): Promise<void> {
@@ -97,15 +120,40 @@ async function recordItemUsed(itemId: string): Promise<void> {
   await AsyncStorage.setItem(LAST_USED_KEY, JSON.stringify(lastUsed));
 }
 
+// The local item store for a mode: 'local' vault -- the mobile analogue of
+// the extension's IndexedDB `items` store (extension/src/lib/vault-db.ts).
+// A server-backed vault has no use for this: `vault.pullItems()` re-pulls
+// and re-decrypts from the server on every call instead, deliberately (see
+// its own doc comment). `EncryptedItem`'s shape here is exactly the wire
+// shape `nativeCryptoCore.ts` already defines -- base64 ciphertext/nonce,
+// matching the server sync DTO -- so nothing here invents a second format.
+const LOCAL_ITEMS_KEY = 'vaultiq:localItems';
+
+async function readLocalItems(): Promise<EncryptedItem[]> {
+  const raw = await AsyncStorage.getItem(LOCAL_ITEMS_KEY);
+  return raw === null ? [] : (JSON.parse(raw) as EncryptedItem[]);
+}
+
+async function writeLocalItems(items: EncryptedItem[]): Promise<void> {
+  await AsyncStorage.setItem(LOCAL_ITEMS_KEY, JSON.stringify(items));
+}
+
+async function clearLocalItems(): Promise<void> {
+  await AsyncStorage.removeItem(LOCAL_ITEMS_KEY);
+}
+
 export {
   clearEnrollment,
+  clearLocalItems,
   readAutoLockMinutes,
   readEnrollment,
   readLastUsed,
+  readLocalItems,
   readThemeMode,
   recordItemUsed,
   writeAutoLockMinutes,
+  writeLocalItems,
   writeThemeMode,
   writeEnrollment,
 };
-export type { EnrollmentState, ThemeMode, VaultRecord };
+export type { EnrollmentState, LocalEnrollmentState, ServerEnrollmentState, ThemeMode, VaultRecord };

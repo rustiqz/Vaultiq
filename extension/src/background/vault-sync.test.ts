@@ -317,3 +317,48 @@ describe("changing the master password", () => {
     expect(db.vault).toBe(before);
   });
 });
+
+describe("local-only mode", () => {
+  it("is off by default", async () => {
+    expect(await vault.isLocalOnly()).toBe(false);
+  });
+
+  it("can be turned on and off", async () => {
+    await vault.setLocalOnly(true);
+    expect(await vault.isLocalOnly()).toBe(true);
+
+    await vault.setLocalOnly(false);
+    expect(await vault.isLocalOnly()).toBe(false);
+  });
+
+  it("refuses to connect a server once set", async () => {
+    await vault.create(PASSWORD);
+    await vault.setLocalOnly(true);
+
+    await expect(vault.connectServer("https://v.test", "reg-token", "Desktop", PASSWORD)).rejects.toThrow(
+      /never sync/i,
+    );
+  });
+
+  it("refuses to join a server once set", async () => {
+    await vault.setLocalOnly(true);
+
+    await expect(vault.enrollWithServer("https://v.test", "token", "Laptop", PASSWORD)).rejects.toThrow(
+      /never sync/i,
+    );
+  });
+
+  it("refuses to turn on while a server is connected", async () => {
+    await vault.create(PASSWORD);
+    server(
+      { deviceId: "dev-1", credential: "secret-value" },
+      LOCAL_VAULT,
+      { items: [], cursor: "0", more: false },
+      { accepted: [], conflicts: [], cursor: "0" },
+    );
+    await vault.connectServer("https://v.test", "reg-token", "Desktop", PASSWORD);
+
+    await expect(vault.setLocalOnly(true)).rejects.toThrow(/disconnect/i);
+    expect(await vault.isLocalOnly()).toBe(false);
+  });
+});
