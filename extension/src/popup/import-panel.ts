@@ -6,8 +6,30 @@
 // request, one at a time, exactly as if it had been typed in.
 
 import { el } from "./dom.js";
-import { parseCsv, rowsToItems } from "../lib/csvImport.js";
+import { parseCsv, rowsToItems, type ImportResult } from "../lib/csvImport.js";
+import { parseBitwardenJson } from "../lib/bitwardenImport.js";
+import { parseProtonPassJson } from "../lib/protonPassImport.js";
 import { send, type ItemContent, type Response } from "../lib/messages.js";
+
+/**
+ * Tries each recognised JSON export shape before falling back to CSV.
+ *
+ * A file that looks like JSON (starts with `{`) but matches neither shape
+ * throws "not a Proton Pass export" from the second attempt, which the
+ * caller already turns into "Could not read that file." -- no separate
+ * error path needed for an unrecognised JSON export.
+ */
+function detectAndParse(text: string): ImportResult {
+  if (text.trim().startsWith("{")) {
+    try {
+      return parseBitwardenJson(text);
+    } catch {
+      // Not a Bitwarden export -- fall through to the other JSON shape.
+    }
+    return parseProtonPassJson(text);
+  }
+  return rowsToItems(parseCsv(text));
+}
 
 function unwrap(response: Response): Response & { ok: true } {
   if (!response.ok) throw new Error(response.error);
@@ -16,13 +38,14 @@ function unwrap(response: Response): Response & { ok: true } {
 
 /** What the preview list shows for one parsed row. */
 function describe(item: ItemContent): string {
-  if (item.type === "login") {
-    if (item.name !== undefined) return item.name;
-    if (item.username !== "") return item.username;
-    if (item.url !== "") return item.url;
-    return "(untitled)";
+  if (item.name !== undefined) return item.name;
+  if (item.type === "login") return item.username !== "" ? item.username : item.url !== "" ? item.url : "(untitled)";
+  if (item.type === "card") return item.number !== "" ? `Card ···· ${item.number.slice(-4)}` : "(untitled card)";
+  if (item.type === "identity") {
+    const fullName = [item.firstName, item.lastName].filter((part) => part !== "").join(" ");
+    return fullName !== "" ? fullName : "(untitled identity)";
   }
-  return item.name ?? "(untitled note)";
+  return "(untitled note)";
 }
 
 interface Parsed {
@@ -43,15 +66,14 @@ export function importPanel(): HTMLElement {
   };
 
   const pickStage = (): HTMLElement[] => {
-    const input = el("input", { type: "file", accept: ".csv,text/csv" });
+    const input = el("input", { type: "file", accept: ".csv,text/csv,.json,application/json" });
     input.addEventListener("change", () => {
       const file = input.files?.[0];
       if (!file) return;
       file
         .text()
         .then((text) => {
-          const rows = parseCsv(text);
-          const mapped = rowsToItems(rows);
+          const mapped = detectAndParse(text);
           parsed = mapped.items.map((item) => ({ item, included: true }));
           skipped = mapped.skipped;
           result = null;
@@ -66,7 +88,7 @@ export function importPanel(): HTMLElement {
       el("p", {
         className: "muted",
         textContent:
-          "Pick a CSV export from Chrome, Firefox, Bitwarden, LastPass, 1Password, or similar. Only logins and secure notes are recognised — anything else in the file is skipped and counted below.",
+          "Pick a CSV export from Chrome, Firefox, LastPass, 1Password, or similar, a Bitwarden JSON export (logins, secure notes, cards and identities), or a Proton Pass JSON export (logins and secure notes). Anything else in the file is skipped and counted below.",
       }),
       el("label", {}, ["CSV file", input]),
     ];
