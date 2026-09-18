@@ -975,6 +975,84 @@ fast and clever, every time.
     this session, so creating a local vault, adding/editing/deleting items,
     and confirming they persist across a restart haven't been exercised on
     hardware.
+- **Encrypted backup/restore (extension + mobile)**, closing the gap
+  local-only vault mode deliberately left open (§0's earlier entry, and
+  SECURITY.md's "No offsite backup"). No `pw-crypto-core` change at all:
+  every field a backup needs — the wrapped vault key, its salt and costs,
+  every item — is already a serializable, already-encrypted structure the
+  crate produces; this is pure bundling at the application layer, not a new
+  crypto format.
+  - **The envelope**: `{kind: "vaultiq-backup", format, exportedAt, vault:
+    {saltB64, memoryKib/argon2, iterations, parallelism, wrappedVaultKey},
+    items}`, versioned from the first commit like every other persisted
+    format (CLAUDE.md §4.9). No file-level encryption on top — every field is
+    already ciphertext or a wrapped key at the same strength as at-rest
+    storage, so a second KDF layer would protect nothing new; see
+    SECURITY.md's new "An exported backup file" entry for the reasoning and
+    the one real difference from at-rest storage (portability, not
+    protection). Trashed-but-not-purged items are included (still real,
+    restorable content); nothing is filtered or decrypted to build the file.
+  - **Extension**: `vault.ts`'s `exportBackup`/`restoreBackup`, reusing
+    `getVault`/`putVault`/`allItems`/`putItem` exactly as `create()` and
+    `unlock()` already do. Export touches no key material and needs no
+    unlock — it reads IndexedDB straight through, the same property the
+    crypto core's "zero network calls" rule is stated for. Restore verifies
+    the password by unwrapping the backup's own wrapped key before writing
+    anything (`unwrapVaultKey(...).free()` pattern already used in
+    `connectServer`), then leaves the vault unlocked exactly as `create`
+    does, since the caller just proved they know the password. Local-only
+    bookkeeping fields (`synced_version`, `conflict_of`) are stripped on
+    export — they describe this device's relationship to a server, not the
+    vault's content. Popup: "Export backup" in the overflow menu (a Blob +
+    `<a download>`, no new dependency), and a third "Restore backup" tab
+    alongside Create/Join on the welcome screen.
+  - **Mobile** needed one new dependency mid-session: `@react-native-documents
+    /picker`'s `saveDocuments()` only saves an *existing* source file, not
+    raw bytes — unlike CSV import, which only ever needed to *read* a picked
+    file — so writing one temp file first needed real filesystem access,
+    which neither core React Native nor the picker package has. Checked npm
+    directly rather than assuming (same discipline as the picker choice
+    itself): the original `react-native-fs` was last published February
+    2025 with uncertain New Architecture support; `@dr.pogodin/react-native-fs`
+    is the actively-maintained fork and the current de facto choice for this
+    exact reason. Exact-pinned `2.40.3`. `SettingsScreen.tsx`'s "Export
+    backup" row writes to `RNFS.CachesDirectoryPath` (app-private, no storage
+    permission needed at any Android version), hands that to
+    `saveDocuments()` for the real "Save as" dialog, and removes the temp
+    file whether the save succeeded, failed, or was cancelled.
+  - **Mobile restore always lands as a local-only vault** (`mode: 'local'`),
+    regardless of whether the backup's original vault was server-backed —
+    simplest, fully symmetric with the extension, needs no invite token or
+    network round trip, and is exactly what `createLocalVaultAndUnlock`
+    already writes. `RestoreBackupScreen.tsx` is a fourth option on
+    `GetStartedScreen` alongside join/create/create-local, reusing
+    `@react-native-documents/picker`'s `pick()` + `fetch(uri).then(r =>
+    r.text())` the same way `ImportScreen.tsx` already reads a CSV.
+  - **Mobile export asymmetry, stated rather than papered over**: a
+    local-only vault's export touches no key material either, reading
+    `storage.readLocalItems()` straight through — but a server-backed
+    vault's local cache (`storage.ts`'s `SyncCache`) is only ever
+    *guaranteed* complete once something has actually caught it up, so
+    `exportBackup()` calls the same `syncCiphertext` helper `pullItems()`
+    uses first, which does need the vault unlocked and a network round
+    trip. Not a bug — the alternative (trusting a cache that might be empty
+    right after enrollment) would silently produce an incomplete backup.
+  - **Verified**: extension — `pnpm typecheck`/`lint`/`test` (304 tests, 8
+    new for `exportBackup`/`restoreBackup`: round-trip, no-key-material-
+    touched, refuses-existing-vault, refuses-wrong-format, writes-nothing-
+    on-wrong-password) and `pnpm build`. Mobile — `tsc`, `eslint`, jest (17
+    tests, the existing suite unaffected — no vault.ts unit tests were added
+    here, following this project's existing mobile convention of relying on
+    `tsc`/`eslint`/on-device checks for `vault.ts` rather than a fakes-based
+    unit layer like the extension's), and `:app:assembleDebug` (full native
+    build, confirming the new dependency autolinks and compiles — only
+    deprecation warnings from the library's own `AsyncTask` usage, not
+    errors). **Not verified on a real device or in a real browser** — no
+    physical device was connected and no headless Chromium was available
+    this session, so the actual export → move-the-file → restore round trip
+    hasn't been exercised end to end on either app, including whether
+    Android's real "Save as" dialog behaves as expected against the
+    app-private cache path.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the

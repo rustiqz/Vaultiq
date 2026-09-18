@@ -1,5 +1,7 @@
+import { errorCodes, isErrorWithCode, saveDocuments } from '@react-native-documents/picker';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
+import * as RNFS from '@dr.pogodin/react-native-fs';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import Icon from '../icons';
@@ -37,6 +39,7 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
   const [autofillEnabled, setAutofillEnabled] = useState(false);
   const [invite, setInvite] = useState<{ token: string; expiresAt: string } | null>(null);
   const [invitingBusy, setInvitingBusy] = useState(false);
+  const [exportingBusy, setExportingBusy] = useState(false);
   const { show, dialog } = useConfirmDialog();
 
   const loadDevices = useCallback(() => {
@@ -109,6 +112,35 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
       .finally(() => setInvitingBusy(false));
   };
 
+  /**
+   * A full, offline copy of the vault, saved wherever the user picks via the
+   * system "Save as" dialog. `saveDocuments` only saves an *existing* source
+   * file, not raw bytes, so the backup is written to a temp file first and
+   * removed again once the save either completes or is cancelled.
+   */
+  const exportVault = async () => {
+    setError(null);
+    setExportingBusy(true);
+    const tempPath = `${RNFS.CachesDirectoryPath}/vaultiq-backup.json`;
+    try {
+      const backup = await vault.exportBackup();
+      await RNFS.writeFile(tempPath, JSON.stringify(backup, null, 2), 'utf8');
+      const [saved] = await saveDocuments({
+        sourceUris: [`file://${tempPath}`],
+        mimeType: 'application/json',
+        fileName: `vaultiq-backup-${backup.exportedAt.slice(0, 10)}.json`,
+      });
+      if (saved.error !== null) throw new Error(saved.error);
+    } catch (thrown) {
+      if (!(isErrorWithCode(thrown) && thrown.code === errorCodes.OPERATION_CANCELED)) {
+        setError(thrown instanceof Error ? thrown.message : String(thrown));
+      }
+    } finally {
+      await RNFS.unlink(tempPath).catch(() => {});
+      setExportingBusy(false);
+    }
+  };
+
   const activeDevices = (devices ?? []).filter(device => device.revokedAt === null);
 
   return (
@@ -171,6 +203,10 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
         <Card style={styles.group}>
           <Pressable style={styles.groupRow} onPress={() => navigation.navigate('Import')}>
             <Text style={[styles.rowLabel, styles.groupRowFlex]}>Import from CSV</Text>
+            <Icon name="chevronRight" size={16} color={colors.ink} />
+          </Pressable>
+          <Pressable style={[styles.groupRow, styles.groupRowDivider]} onPress={exportVault} disabled={exportingBusy}>
+            <Text style={[styles.rowLabel, styles.groupRowFlex]}>{exportingBusy ? 'Exporting…' : 'Export backup'}</Text>
             <Icon name="chevronRight" size={16} color={colors.ink} />
           </Pressable>
           <Pressable style={[styles.groupRow, styles.groupRowDivider]} onPress={() => navigation.navigate('Trash')}>

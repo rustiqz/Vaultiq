@@ -14,6 +14,7 @@ import type {
   LoginContent,
   NoteContent,
   TotpContent,
+  VaultBackup,
 } from "../lib/messages.js";
 import { activeTab } from "../test/setup.js";
 import {
@@ -181,6 +182,93 @@ describe("purge", () => {
     const id = await withOneItem();
     await vault.purgeItem(id);
     expect(await vault.listItems()).toHaveLength(0);
+  });
+});
+
+describe("backup", () => {
+  it("exports the wrapped key and every stored item", async () => {
+    const id = await withOneItem();
+
+    const backup = await vault.exportBackup();
+
+    expect(backup.kind).toBe("vaultiq-backup");
+    expect(backup.vault.saltB64).toBe(db.vault?.saltB64);
+    expect(backup.vault.wrappedVaultKey).toEqual(db.vault?.wrappedVaultKey);
+    expect(backup.items).toHaveLength(1);
+    expect(backup.items[0]?.id).toBe(id);
+    expect(backup.items[0]?.deleted).toBe(false);
+  });
+
+  it("touches no key material", async () => {
+    await withOneItem();
+    await vault.lock();
+    const unwrapCalls = cryptoFake.unwrapVaultKey.mock.calls.length;
+    const deriveCalls = cryptoFake.deriveMasterKey.mock.calls.length;
+
+    // Every field here is already ciphertext or a wrapped key, so exporting
+    // a locked vault must not derive or unwrap anything to do it.
+    await vault.exportBackup();
+
+    expect(cryptoFake.unwrapVaultKey.mock.calls).toHaveLength(unwrapCalls);
+    expect(cryptoFake.deriveMasterKey.mock.calls).toHaveLength(deriveCalls);
+  });
+
+  it("refuses when there is no vault yet", async () => {
+    await expect(vault.exportBackup()).rejects.toThrow(/no vault/i);
+  });
+
+  it("round-trips into a working, unlocked vault on a fresh device", async () => {
+    const id = await withOneItem();
+    const backup = await vault.exportBackup();
+    db.vault = undefined;
+    db.items.clear();
+
+    await vault.restoreBackup(backup, "correct horse battery staple");
+
+    expect(db.vault).toMatchObject({ saltB64: backup.vault.saltB64 });
+    expect(db.items.has(id)).toBe(true);
+    expect(await vault.status()).toBe("unlocked");
+  });
+
+  it("refuses when a vault already exists", async () => {
+    await withOneItem();
+    const backup = await vault.exportBackup();
+
+    await expect(vault.restoreBackup(backup, "correct horse battery staple")).rejects.toThrow(
+      /already exists/i,
+    );
+  });
+
+  it("refuses a file that is not a Vaultiq backup", async () => {
+    await expect(
+      vault.restoreBackup({} as unknown as VaultBackup, "correct horse battery staple"),
+    ).rejects.toThrow(/not a Vaultiq backup/i);
+  });
+
+  it("refuses a backup from a newer, unrecognised format", async () => {
+    await withOneItem();
+    const backup = await vault.exportBackup();
+    db.vault = undefined;
+    db.items.clear();
+
+    await expect(
+      vault.restoreBackup({ ...backup, format: 99 }, "correct horse battery staple"),
+    ).rejects.toThrow(/version of Vaultiq/i);
+  });
+
+  it("writes nothing on a wrong password", async () => {
+    await withOneItem();
+    const backup = await vault.exportBackup();
+    db.vault = undefined;
+    db.items.clear();
+    cryptoFake.unwrapVaultKey.mockImplementation(() => {
+      throw new Error("decryption failed");
+    });
+
+    await expect(vault.restoreBackup(backup, "wrong")).rejects.toThrow(/decryption failed/);
+
+    expect(db.vault).toBeUndefined();
+    expect(db.items.size).toBe(0);
   });
 });
 
