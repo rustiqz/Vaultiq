@@ -1,6 +1,6 @@
 import Biometric from './nativeBiometric';
 import CryptoCore from './nativeCryptoCore';
-import type { EncryptedItem } from './nativeCryptoCore';
+import type { EncryptedItem, PasswordStrength } from './nativeCryptoCore';
 import * as storage from './storage';
 import type { EnrollmentState } from './storage';
 import * as syncClient from './syncClient';
@@ -22,6 +22,15 @@ type DecryptedItem = {
   /** In the trash. The content is still here and can be restored -- see trashItem/restoreItem below. */
   deleted: boolean;
   content: Record<string, unknown>;
+  /**
+   * Derived, login-only facts computed by pullItems -- never persisted.
+   * These must stay siblings of `content`, not fields inside it: `content`
+   * is exactly what a later `updateItem` pushes back verbatim (see
+   * ItemEditScreen.tsx), so a derived field leaking in there would get
+   * saved by accident on the next edit. Mirrors the extension's
+   * `item.strength`/`item.reusedBy` (extension/src/background/vault.ts).
+   */
+  login?: { strength: PasswordStrength; reusedBy: number };
 };
 
 const CREDENTIAL_HEADER = {
@@ -215,6 +224,17 @@ async function unlock(password: string): Promise<void> {
 async function lock(): Promise<void> {
   await CryptoCore.lock();
   credential = null;
+}
+
+/**
+ * Scores a password. Needs no vault key, so it works while locked -- the
+ * mobile analogue of the extension's `checkStrength`
+ * (extension/src/background/vault.ts). `CryptoCore.estimateStrength` bridges
+ * to pw-crypto-core's `estimate_strength_ffi` (CryptoCoreModule.kt); this
+ * function was the only missing piece.
+ */
+function checkStrength(password: string): Promise<PasswordStrength> {
+  return CryptoCore.estimateStrength(password);
 }
 
 /** Whether this device can even do biometric auth right now. */
@@ -425,6 +445,34 @@ async function decryptAll(items: EncryptedItem[]): Promise<DecryptedItem[]> {
 }
 
 /**
+ * Attaches derived, non-persisted strength/reuse facts to login items --
+ * mutates and returns the same array. Applied once over the *whole* decrypted
+ * set (both vault modes), never per-page: reuse is counted across the
+ * entire vault, not one server pull page at a time.
+ *
+ * Reuse is counted over live logins only -- a password sitting in the trash
+ * isn't one you're relying on anywhere. Mirrors the extension's `listItems`
+ * (extension/src/background/vault.ts).
+ */
+async function withLoginFacts(items: DecryptedItem[]): Promise<DecryptedItem[]> {
+  const shared = new Map<string, number>();
+  for (const item of items) {
+    if (item.deleted || item.itemType !== 'login') continue;
+    const password = typeof item.content.password === 'string' ? item.content.password : '';
+    if (password) shared.set(password, (shared.get(password) ?? 0) + 1);
+  }
+  for (const item of items) {
+    if (item.itemType !== 'login') continue;
+    const password = typeof item.content.password === 'string' ? item.content.password : '';
+    item.login = {
+      strength: await CryptoCore.estimateStrength(password),
+      reusedBy: item.deleted ? 0 : Math.max((shared.get(password) ?? 1) - 1, 0),
+    };
+  }
+  return items;
+}
+
+/**
  * Pulls and decrypts the vault's current items.
  *
  * A local-only vault reads and decrypts straight from `storage.ts`'s local
@@ -441,7 +489,7 @@ async function pullItems(): Promise<DecryptedItem[]> {
   const enrollment = await storage.readEnrollment();
   if (enrollment === null) throw new Error('not enrolled on this device yet');
 
-  if (enrollment.mode === 'local') return decryptAll(await storage.readLocalItems());
+  if (enrollment.mode === 'local') return withLoginFacts(await decryptAll(await storage.readLocalItems()));
 
   return authenticated(async (url, deviceId, cred) => {
     const decrypted: DecryptedItem[] = [];
@@ -452,7 +500,7 @@ async function pullItems(): Promise<DecryptedItem[]> {
       cursor = page.cursor;
       if (!page.more) break;
     }
-    return decrypted;
+    return withLoginFacts(decrypted);
   });
 }
 
@@ -558,6 +606,7 @@ export {
   biometricAvailable,
   biometricEnabled,
   changeMasterPassword,
+  checkStrength,
   createLocalVaultAndUnlock,
   createVaultAndUnlock,
   purgeItem,

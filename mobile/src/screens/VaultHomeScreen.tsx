@@ -187,7 +187,12 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
                 <View style={styles.row}>
                   <ItemAvatar itemType={item.itemType} content={item.content} id={item.id} />
                   <View style={styles.rowText}>
-                    <Text style={styles.rowName}>{name}</Text>
+                    <View style={styles.rowNameLine}>
+                      <Text style={styles.rowName}>{name}</Text>
+                      {item.login !== undefined && item.login.reusedBy > 0 && (
+                        <Icon name="alertTriangle" size={13} color={colors.amber} />
+                      )}
+                    </View>
                     {sub !== '' && <Text style={styles.rowSub}>{sub}</Text>}
                   </View>
                   <Pressable
@@ -358,6 +363,11 @@ const styles = StyleSheet.create({
   rowText: {
     flex: 1,
     gap: 3,
+  },
+  rowNameLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   rowName: {
     fontFamily: fonts.semiCondensedSemiBold,

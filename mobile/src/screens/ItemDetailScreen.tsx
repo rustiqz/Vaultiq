@@ -5,6 +5,7 @@ import CardPreview from '../CardPreview';
 import Icon from '../icons';
 import ItemAvatar from '../ItemAvatar';
 import { copyForAWhile } from '../lib/clipboard';
+import { strengthColor, strengthLabel } from '../lib/passwordStrength';
 import type { VaultStackScreenProps } from '../navigation';
 import { colors, fonts, spacing } from '../theme';
 import { Button, DetailField, SecretField, showComingSoon, useConfirmDialog } from '../ui';
@@ -101,6 +102,19 @@ export default function ItemDetailScreen({ route }: VaultStackScreenProps<'ItemD
         {item.itemType === 'login' && (
           <>
             <SecretField label="Password" value={text(c, 'password')} onCopy={copy(text(c, 'password'))} />
+            {item.login !== undefined && (
+              <Text style={[styles.strengthMeter, { color: strengthColor(item.login.strength.level) }]}>
+                {strengthLabel(item.login.strength)}
+              </Text>
+            )}
+            {item.login !== undefined && item.login.reusedBy > 0 && (
+              <View style={styles.reuseNote}>
+                <Icon name="alertTriangle" size={14} color={colors.amber} />
+                <Text style={styles.reuseNoteText}>
+                  Also used by {item.login.reusedBy} other login{item.login.reusedBy === 1 ? '' : 's'}.
+                </Text>
+              </View>
+            )}
             {text(c, 'url') !== '' && <DetailField label="URL" value={text(c, 'url')} link onCopy={copy(text(c, 'url'))} />}
             <DetailField label="Username" value={text(c, 'username')} onCopy={copy(text(c, 'username'))} />
             <DetailField label="Email" value={text(c, 'email')} onCopy={copy(text(c, 'email'))} />
@@ -224,6 +238,22 @@ const styles = StyleSheet.create({
   },
   noteHeader: {
     gap: 4,
+  },
+  strengthMeter: {
+    fontFamily: fonts.mono,
+    fontSize: 11.5,
+    marginTop: -spacing.xs,
+  },
+  reuseNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
+  },
+  reuseNoteText: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: colors.ink,
+    flexShrink: 1,
   },
   noteTitle: {
     fontFamily: fonts.condensedSemiBold,
