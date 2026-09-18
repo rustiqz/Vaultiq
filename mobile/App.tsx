@@ -44,6 +44,7 @@ import AutoLockScreen from './src/screens/AutoLockScreen';
 import ChangeMasterPasswordScreen from './src/screens/ChangeMasterPasswordScreen';
 import EnableBiometricScreen from './src/screens/EnableBiometricScreen';
 import ImportScreen from './src/screens/ImportScreen';
+import TrashScreen from './src/screens/TrashScreen';
 import AutofillFillScreen from './src/screens/AutofillFillScreen';
 import AutofillSaveScreen from './src/screens/AutofillSaveScreen';
 
@@ -104,14 +105,14 @@ function ItemDetailHeaderActions(props: { item: DecryptedItem; navigation: Vault
       <Pressable
         style={styles.headerAction}
         onPress={() =>
-          show('Delete this item?', 'This permanently removes it. It cannot be recovered.', [
+          show('Move to trash?', 'You can restore it from Trash later.', [
             { text: 'Keep it' },
             {
-              text: 'Delete forever',
+              text: 'Move to trash',
               destructive: true,
               onPress: async () => {
                 try {
-                  await vault.deleteItem(props.item.id, props.item.version, props.item.itemType);
+                  await vault.trashItem(props.item.id, props.item.version, props.item.itemType, props.item.content);
                   props.navigation.navigate('VaultHome');
                 } catch (thrown) {
                   show('Could not delete', thrown instanceof Error ? thrown.message : String(thrown), [{ text: 'OK' }]);
@@ -176,6 +177,7 @@ function SettingsTab(props: { onLock: () => void; themeMode: storage.ThemeMode; 
       <SettingsStack.Screen name="ChangeMasterPassword" component={ChangeMasterPasswordScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="EnableBiometric" component={EnableBiometricScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="Import" component={ImportScreen} options={{ headerShown: false }} />
+      <SettingsStack.Screen name="Trash" component={TrashScreen} options={{ headerShown: false }} />
     </SettingsStack.Navigator>
   );
 }

@@ -63,7 +63,7 @@ export default function AutofillFillScreen(props: { domain: string; caller: stri
     vault
       .pullItems()
       .then(pulled => {
-        const logins = pulled.filter(item => item.itemType === 'login');
+        const logins = pulled.filter(item => !item.deleted && item.itemType === 'login');
         logins.sort((a, b) => {
           const aMatch = matchesDomain(text(a.content, 'url'), props.domain);
           const bMatch = matchesDomain(text(b.content, 'url'), props.domain);

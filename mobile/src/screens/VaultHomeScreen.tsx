@@ -76,7 +76,7 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
     setError(null);
     try {
       const [pulled, usage] = await Promise.all([vault.pullItems(), storage.readLastUsed()]);
-      setItems(pulled);
+      setItems(pulled.filter(item => !item.deleted));
       setLastUsed(usage);
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
