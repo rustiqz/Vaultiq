@@ -1111,13 +1111,43 @@ function detailForItem(item: DecryptedItem, currentSite: string | null, isForSit
     void renderUnlocked();
   });
 
+  const del = el("button", { className: "quiet-button danger", type: "button" }, [
+    icon("trash", { size: 15 }),
+    "Delete",
+  ]);
+  del.addEventListener("click", () => {
+    if (!confirm("Move to trash? You can restore it from Trash later.")) return;
+    del.disabled = true;
+    void send({ kind: "trashItem", id: item.id })
+      .then(unwrap)
+      .then(refresh)
+      .catch((error: unknown) => {
+        del.disabled = false;
+        showError(error instanceof Error ? error.message : "Could not delete.");
+      });
+  });
+
   const fields = el("div", { className: "detail-card" });
   if (item.type === "login") {
+    const meter = el("div", { className: `meter level-${item.strength.level}` }, [
+      `${STRENGTH_LABEL[item.strength.level]} · ~${String(item.strength.bits)} bits`,
+    ]);
     fields.append(
       detailField(item, "Username", item.username),
       detailField(item, "Password", item.password, { masked: true }),
-      detailField(item, "Website", item.url),
+      meter,
     );
+    if (item.reusedBy > 0) {
+      fields.append(
+        el("div", { className: "reuse-note" }, [
+          icon("alertTriangle", { size: 14, color: "var(--warn)" }),
+          el("span", {
+            textContent: `Also used by ${String(item.reusedBy)} other login${item.reusedBy === 1 ? "" : "s"}.`,
+          }),
+        ]),
+      );
+    }
+    fields.append(detailField(item, "Website", item.url));
   } else if (item.type === "card") {
     fields.append(
       detailField(item, "Cardholder", item.cardholder),
@@ -1151,6 +1181,7 @@ function detailForItem(item: DecryptedItem, currentSite: string | null, isForSit
         el("p", { className: "detail-subtitle", textContent: item.type === "login" ? (currentSite ?? item.url) : TYPE_LABEL[item.type] }),
       ]),
       edit,
+      del,
     ]),
   ];
 
