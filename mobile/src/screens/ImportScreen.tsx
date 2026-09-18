@@ -5,7 +5,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '../icons';
 import type { ItemContent } from '../itemContent';
 import { displayName } from '../itemContent';
-import { parseCsv, rowsToItems } from '../lib/csvImport';
+import { parseBitwardenJson } from '../lib/bitwardenImport';
+import { parseCsv, rowsToItems, type ImportResult } from '../lib/csvImport';
+import { parseProtonPassJson } from '../lib/protonPassImport';
 import type { SettingsStackScreenProps } from '../navigation';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button } from '../ui';
@@ -15,9 +17,32 @@ type Row = { item: ItemContent; included: boolean };
 type Stage = 'pick' | 'preview' | 'importing' | 'done';
 
 /**
+ * Tries each recognised JSON export shape before falling back to CSV.
+ *
+ * A file that looks like JSON (starts with `{`) but matches neither shape
+ * throws "not a Proton Pass export" from the second attempt, which the
+ * caller already turns into a generic "nothing recognisable" message -- no
+ * separate error path needed for an unrecognised JSON export.
+ */
+function detectAndParse(text: string): ImportResult {
+  if (text.trim().startsWith('{')) {
+    try {
+      return parseBitwardenJson(text);
+    } catch {
+      // Not a Bitwarden export -- fall through to the other JSON shape.
+    }
+    return parseProtonPassJson(text);
+  }
+  return rowsToItems(parseCsv(text));
+}
+
+/**
  * Imports logins and secure notes from a CSV export -- Chrome, Firefox,
- * Bitwarden, LastPass, 1Password and similar all produce something this
- * recognises (see lib/csvImport.ts for the exact column mapping). Parsing
+ * LastPass, 1Password and similar all produce something this recognises
+ * (see lib/csvImport.ts for the exact column mapping) -- plus a Bitwarden
+ * JSON export (logins, secure notes, cards and identities) or a Proton
+ * Pass JSON export (logins and secure notes; see lib/bitwardenImport.ts
+ * and lib/protonPassImport.ts for what each does and doesn't map). Parsing
  * happens entirely on-device before anything is encrypted, and each row
  * then goes through `vault.addItem` exactly as if it had been typed into
  * the "New item" form by hand -- `addItem` is already mode-aware, so this
@@ -33,11 +58,13 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
   const choose = async () => {
     setError(null);
     try {
-      const [picked] = await pick({ type: ['text/csv', 'text/comma-separated-values', 'text/plain'] });
+      const [picked] = await pick({
+        type: ['text/csv', 'text/comma-separated-values', 'text/plain', 'application/json'],
+      });
       // React Native's fetch can read a content:// (Android) or file:// (iOS)
       // uri directly -- no extra filesystem dependency needed for this.
       const text = await (await fetch(picked.uri)).text();
-      const parsed = rowsToItems(parseCsv(text));
+      const parsed = detectAndParse(text);
       if (parsed.items.length === 0) {
         setError('Nothing recognisable in that file -- see the note above for what this can read.');
         return;
@@ -88,11 +115,12 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
       {stage === 'pick' && (
         <View style={styles.content}>
           <Text style={styles.intro}>
-            Pick a CSV export from Chrome, Firefox, Bitwarden, LastPass, 1Password, or similar. Only logins and
-            secure notes are recognised -- anything else in the file is skipped and counted before you confirm.
+            Pick a CSV export from Chrome, Firefox, LastPass, 1Password, or similar, a Bitwarden JSON export
+            (logins, secure notes, cards and identities), or a Proton Pass JSON export (logins and secure notes).
+            Anything else in the file is skipped and counted before you confirm.
           </Text>
           {error !== null && <Text style={styles.error}>{error}</Text>}
-          <Button title="Choose CSV file" onPress={choose} />
+          <Button title="Choose file" onPress={choose} />
         </View>
       )}
 
