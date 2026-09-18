@@ -32,6 +32,17 @@ jest.mock('react-native-vision-camera', () => ({
 // the other native modules above.
 jest.mock('@react-native-documents/picker', () => ({
   pick: jest.fn(() => Promise.resolve([{ uri: 'file:///mock/mock.csv', name: 'mock.csv' }])),
+  saveDocuments: jest.fn(() => Promise.resolve([{ uri: 'file:///mock/saved.json', name: 'saved.json', error: null }])),
   errorCodes: { OPERATION_CANCELED: 'OPERATION_CANCELED' },
   isErrorWithCode: jest.fn(() => false),
+}));
+
+// Ships an ESM entry (and pulls in http-status-codes, another ESM package)
+// Jest can't parse untransformed -- same class of issue as every other
+// RN-ecosystem native module above. Nothing here runs real disk I/O either
+// way, so a stand-in is the right fix, not a transform.
+jest.mock('@dr.pogodin/react-native-fs', () => ({
+  CachesDirectoryPath: '/mock/caches',
+  writeFile: jest.fn(() => Promise.resolve()),
+  unlink: jest.fn(() => Promise.resolve()),
 }));
