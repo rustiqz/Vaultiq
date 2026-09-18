@@ -122,9 +122,9 @@ async function recordItemUsed(itemId: string): Promise<void> {
 
 // The local item store for a mode: 'local' vault -- the mobile analogue of
 // the extension's IndexedDB `items` store (extension/src/lib/vault-db.ts).
-// A server-backed vault has no use for this: `vault.pullItems()` re-pulls
-// and re-decrypts from the server on every call instead, deliberately (see
-// its own doc comment). `EncryptedItem`'s shape here is exactly the wire
+// A server-backed vault has its own, separate cache below (`SyncCache`):
+// this store is the *only* copy a local-only vault has, never something
+// rebuilt from a server. `EncryptedItem`'s shape here is exactly the wire
 // shape `nativeCryptoCore.ts` already defines -- base64 ciphertext/nonce,
 // matching the server sync DTO -- so nothing here invents a second format.
 const LOCAL_ITEMS_KEY = 'vaultiq:localItems';
@@ -142,18 +142,48 @@ async function clearLocalItems(): Promise<void> {
   await AsyncStorage.removeItem(LOCAL_ITEMS_KEY);
 }
 
+/**
+ * A read-through cache of a server-backed vault's ciphertext, so
+ * `vault.ts`'s `pullItems()` doesn't have to re-pull and re-decrypt the
+ * whole vault on every call -- only what's new since `cursor` (the
+ * server's `since` cursor, see `syncClient.ts`'s `pull`). Distinct from
+ * `LOCAL_ITEMS_KEY` above: that store is a mode: 'local' vault's *only*
+ * copy of its items; this one is always rebuildable from the server and
+ * exists purely as a performance cache, even though the `EncryptedItem[]`
+ * wire format is the same for both.
+ */
+type SyncCache = { cursor: string; items: EncryptedItem[] };
+const SYNC_CACHE_KEY = 'vaultiq:syncCache';
+const EMPTY_SYNC_CACHE: SyncCache = { cursor: '0', items: [] };
+
+async function readSyncCache(): Promise<SyncCache> {
+  const raw = await AsyncStorage.getItem(SYNC_CACHE_KEY);
+  return raw === null ? EMPTY_SYNC_CACHE : (JSON.parse(raw) as SyncCache);
+}
+
+async function writeSyncCache(cache: SyncCache): Promise<void> {
+  await AsyncStorage.setItem(SYNC_CACHE_KEY, JSON.stringify(cache));
+}
+
+async function clearSyncCache(): Promise<void> {
+  await AsyncStorage.removeItem(SYNC_CACHE_KEY);
+}
+
 export {
   clearEnrollment,
   clearLocalItems,
+  clearSyncCache,
   readAutoLockMinutes,
   readEnrollment,
   readLastUsed,
   readLocalItems,
+  readSyncCache,
   readThemeMode,
   recordItemUsed,
   writeAutoLockMinutes,
   writeLocalItems,
+  writeSyncCache,
   writeThemeMode,
   writeEnrollment,
 };
-export type { EnrollmentState, LocalEnrollmentState, ServerEnrollmentState, ThemeMode, VaultRecord };
+export type { EnrollmentState, LocalEnrollmentState, ServerEnrollmentState, SyncCache, ThemeMode, VaultRecord };

@@ -473,17 +473,43 @@ async function withLoginFacts(items: DecryptedItem[]): Promise<DecryptedItem[]> 
 }
 
 /**
+ * Pulls everything new since the cache's cursor and merges it into the
+ * cached ciphertext (storage.ts's readSyncCache/writeSyncCache) by id --
+ * upsert, since versions only move forward, so a re-seen id always replaces
+ * the old entry with the newer one. Returns the full merged set, already
+ * persisted. Follows the server's `more` flag until caught up, the same
+ * loop extension/src/sync/engine.ts's pull side runs. Server-backed vaults
+ * only -- a local-only vault's `storage.readLocalItems()` already is the
+ * one full copy, nothing to cache incrementally.
+ */
+async function syncCiphertext(url: string, deviceId: string, cred: string): Promise<EncryptedItem[]> {
+  const cache = await storage.readSyncCache();
+  const byId = new Map(cache.items.map(item => [item.id, item]));
+  let cursor = cache.cursor;
+  for (;;) {
+    const page = await syncClient.pull(url, deviceId, cred, cursor);
+    for (const item of page.items) byId.set(item.id, item);
+    cursor = page.cursor;
+    if (!page.more) break;
+  }
+  const merged = [...byId.values()];
+  await storage.writeSyncCache({ cursor, items: merged });
+  return merged;
+}
+
+/**
  * Pulls and decrypts the vault's current items.
  *
  * A local-only vault reads and decrypts straight from `storage.ts`'s local
  * item store -- there is no server to pull from, and that store is the only
- * copy that exists. A server-backed vault still always pulls from the
- * beginning rather than tracking a cursor: this app does not keep a local
- * item cache *for that case* (nothing is persisted here but ciphertext-free
- * enrollment state), so every call needs the full set to render from
- * anyway. A cursor only pays for itself once there is a cache to advance
- * incrementally; premature here. Follows the server's `more` flag until
- * caught up, the same loop extension/src/sync/engine.ts's pull side runs.
+ * copy that exists. A server-backed vault uses the read-through ciphertext
+ * cache above (`syncCiphertext`): only what's new since the last call is
+ * actually pulled and decrypted, not the whole vault from scratch every
+ * time. If a cached item fails to decrypt (e.g. the vault key rotated via
+ * changeMasterPassword since the cache was written), the cache is dropped
+ * and rebuilt from a full pull, once -- no special error is surfaced for
+ * this, same DecryptionFailed-for-everything rule as any other tampered or
+ * mismatched ciphertext (CLAUDE.md §2.4).
  */
 async function pullItems(): Promise<DecryptedItem[]> {
   const enrollment = await storage.readEnrollment();
@@ -492,15 +518,14 @@ async function pullItems(): Promise<DecryptedItem[]> {
   if (enrollment.mode === 'local') return withLoginFacts(await decryptAll(await storage.readLocalItems()));
 
   return authenticated(async (url, deviceId, cred) => {
-    const decrypted: DecryptedItem[] = [];
-    let cursor = '0';
-    for (;;) {
-      const page = await syncClient.pull(url, deviceId, cred, cursor);
-      decrypted.push(...(await decryptAll(page.items)));
-      cursor = page.cursor;
-      if (!page.more) break;
+    const merged = await syncCiphertext(url, deviceId, cred);
+    try {
+      return await withLoginFacts(await decryptAll(merged));
+    } catch {
+      await storage.clearSyncCache();
+      const fresh = await syncCiphertext(url, deviceId, cred);
+      return withLoginFacts(await decryptAll(fresh));
     }
-    return withLoginFacts(decrypted);
   });
 }
 
