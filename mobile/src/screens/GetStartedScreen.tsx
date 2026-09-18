@@ -14,6 +14,7 @@ export default function GetStartedScreen(props: {
   onJoin: () => void;
   onCreate: () => void;
   onCreateLocal: () => void;
+  onRestore: () => void;
 }) {
   return (
     <SafeAreaView style={styles.container}>
@@ -26,6 +27,7 @@ export default function GetStartedScreen(props: {
         <Button title="I have an invite" onPress={props.onJoin} />
         <Button title="Create a new vault" variant="outline" onPress={props.onCreate} />
         <Button title="Use without a server" variant="outline" onPress={props.onCreateLocal} />
+        <Button title="Restore from backup" variant="outline" onPress={props.onRestore} />
       </View>
     </SafeAreaView>
   );

@@ -53,6 +53,7 @@ import type {
   PasswordOptions,
   PasswordStrength,
   SyncSummary,
+  VaultBackup,
   VaultStatus,
 } from "../lib/messages.js";
 import { renameDevice as storeDeviceName, thisDevice } from "../lib/device.js";
@@ -98,6 +99,9 @@ function emptyUsage(): ItemUsage {
   return { useCount: 0, counts: {}, devices: [] };
 }
 const VAULT_FORMAT = 1;
+
+/** Format version for {@link VaultBackup}. Bump on any layout change. */
+const BACKUP_FORMAT = 1;
 
 /**
  * The unlocked key, when this context happens to be alive and warm.
@@ -237,6 +241,108 @@ export async function create(masterPassword: string): Promise<void> {
     parallelism: params.parallelism,
     wrappedVaultKey: wrapped,
   });
+
+  await stashVaultKey(vaultKey);
+  warmVaultKey = vaultKey;
+}
+
+/**
+ * A full, offline copy of the vault: the wrapped key, its salt and costs,
+ * and every item exactly as stored — restorable with the master password
+ * alone, on this device or any other.
+ *
+ * No key material is touched. Every field here is already ciphertext or a
+ * wrapped key, so this reads IndexedDB straight through and needs no unlock
+ * — the same reason it needs no crypto import. Local-only bookkeeping
+ * (`synced_version`, `conflict_of`) describes this device's relationship to
+ * a server, not the vault's content, so it is stripped rather than carried
+ * into the file.
+ */
+export async function exportBackup(): Promise<VaultBackup> {
+  const vault = await getVault();
+  if (!vault) throw new Error("No vault on this device yet.");
+
+  const items = await allItems();
+  return {
+    kind: "vaultiq-backup",
+    format: BACKUP_FORMAT,
+    exportedAt: new Date().toISOString(),
+    vault: {
+      saltB64: vault.saltB64,
+      memoryKib: vault.memoryKib,
+      iterations: vault.iterations,
+      parallelism: vault.parallelism,
+      wrappedVaultKey: vault.wrappedVaultKey,
+    },
+    items: items.map(({ id, item_type, format, ciphertext, nonce, version, updated_at, deleted }) => ({
+      id,
+      item_type,
+      format,
+      ciphertext,
+      nonce,
+      version,
+      updated_at,
+      deleted,
+    })),
+  };
+}
+
+function isVaultBackup(value: unknown): value is VaultBackup {
+  if (typeof value !== "object" || value === null) return false;
+  const backup = value as Partial<VaultBackup>;
+  return (
+    backup.kind === "vaultiq-backup" &&
+    typeof backup.format === "number" &&
+    typeof backup.vault === "object" &&
+    backup.vault !== null &&
+    typeof backup.vault.saltB64 === "string" &&
+    Array.isArray(backup.items)
+  );
+}
+
+/**
+ * Restores a vault from {@link exportBackup}'s output, onto a device that
+ * does not have one yet.
+ *
+ * The password is verified by unwrapping the backup's own wrapped key —
+ * identically to a wrong password on `unlock` — before a single record is
+ * written, and the vault is left unlocked afterward exactly as `create`
+ * leaves a fresh one, since the caller just proved they know the password.
+ * Every item is written exactly as the backup carries it: this is a restore
+ * of specific ciphertext records, not a re-encryption, so ids, versions and
+ * tombstones must round-trip unchanged or their authentication tags stop
+ * matching.
+ */
+export async function restoreBackup(backup: VaultBackup, masterPassword: string): Promise<void> {
+  if (await getVault()) throw new Error("A vault already exists.");
+  if (!isVaultBackup(backup)) throw new Error("That file is not a Vaultiq backup.");
+  if (backup.format !== BACKUP_FORMAT) {
+    throw new Error("This backup was made by a version of Vaultiq this build cannot read.");
+  }
+
+  const params = {
+    memory_kib: backup.vault.memoryKib,
+    iterations: backup.vault.iterations,
+    parallelism: backup.vault.parallelism,
+  };
+  // A wrong password fails here, indistinguishably from a tampered record —
+  // the same crypto-core error `unlock` surfaces for either.
+  const vaultKey = withMasterKey(masterPassword, backup.vault.saltB64, params, (masterKey) =>
+    unwrapVaultKey(backup.vault.wrappedVaultKey, masterKey),
+  );
+
+  await putVault({
+    id: "vault",
+    format: VAULT_FORMAT,
+    saltB64: backup.vault.saltB64,
+    memoryKib: backup.vault.memoryKib,
+    iterations: backup.vault.iterations,
+    parallelism: backup.vault.parallelism,
+    wrappedVaultKey: backup.vault.wrappedVaultKey,
+  });
+  for (const item of backup.items) {
+    await putItem(item);
+  }
 
   await stashVaultKey(vaultKey);
   warmVaultKey = vaultKey;
