@@ -26,6 +26,7 @@ import {
   type Request,
   type Response,
   type StrengthLevel,
+  type VaultBackup,
   type VaultStatus,
 } from "../lib/messages.js";
 
@@ -121,6 +122,15 @@ function unwrap(response: Response): Response & { ok: true } {
   return response;
 }
 
+/** Saves a backup as a downloaded file — the browser's own save-as prompt does the rest. */
+function downloadBackup(backup: VaultBackup): void {
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = el("a", { href: url, download: `vaultiq-backup-${backup.exportedAt.slice(0, 10)}.json` });
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 async function refresh(): Promise<void> {
   root.replaceChildren(el("main", {}, [el("p", { className: "muted", textContent: "Loading…" })]));
   try {
@@ -158,7 +168,60 @@ function passwordForm(label: string, action: (value: string) => Promise<void>): 
   return form;
 }
 
-let emptyMode: "create" | "join" = "create";
+let emptyMode: "create" | "join" | "restore" = "create";
+
+/** A backup file, picked and parsed, plus the password to unlock it with. */
+function restoreForm(): HTMLFormElement {
+  let backup: VaultBackup | null = null;
+
+  const input = el("input", { type: "file", accept: ".json,application/json", required: true });
+  const fileError = el("p", { className: "error", hidden: true });
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    backup = null;
+    fileError.hidden = true;
+    if (!file) return;
+    void file
+      .text()
+      .then((text) => {
+        backup = JSON.parse(text) as VaultBackup;
+      })
+      .catch(() => {
+        fileError.hidden = false;
+        fileError.textContent = "Could not read that file.";
+      });
+  });
+
+  const password = el("input", { type: "password", required: true, autocomplete: "off" });
+  const submit = el("button", { className: "primary", type: "submit", textContent: "Restore vault" });
+
+  const form = el("form", {}, [
+    el("label", {}, ["Backup file", input]),
+    fileError,
+    el("label", {}, ["Master password", password]),
+    submit,
+  ]);
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!backup) {
+      showError("Pick a backup file first.");
+      return;
+    }
+    submit.disabled = true;
+    submit.textContent = "Working…";
+    void send({ kind: "restoreBackup", backup, masterPassword: password.value })
+      .then(unwrap)
+      .then(refresh)
+      .catch((error: unknown) => {
+        submit.disabled = false;
+        submit.textContent = "Restore vault";
+        showError(error instanceof Error ? error.message : "Failed.");
+      });
+  });
+
+  return form;
+}
 
 /** Server URL, invite token (with a paste button), device name, and master password. */
 function joinForm(): HTMLFormElement {
@@ -225,6 +288,15 @@ function renderEmpty(): void {
     emptyMode = "join";
     renderEmpty();
   });
+  const restoreTab = el(
+    "button",
+    { className: `scope-tab${emptyMode === "restore" ? " active" : ""}`, type: "button" },
+    ["Restore backup"],
+  );
+  restoreTab.addEventListener("click", () => {
+    emptyMode = "restore";
+    renderEmpty();
+  });
 
   const body =
     emptyMode === "create"
@@ -238,19 +310,28 @@ function renderEmpty(): void {
             unwrap(await send({ kind: "create", masterPassword: value }));
           }),
         ]
-      : [
-          el("p", {
-            className: "muted",
-            textContent:
-              "Uses a token from a device that's already in your vault. Your master password stays on this device — it's only used to unwrap the vault key once you're in.",
-          }),
-          joinForm(),
-        ];
+      : emptyMode === "join"
+        ? [
+            el("p", {
+              className: "muted",
+              textContent:
+                "Uses a token from a device that's already in your vault. Your master password stays on this device — it's only used to unwrap the vault key once you're in.",
+            }),
+            joinForm(),
+          ]
+        : [
+            el("p", {
+              className: "muted",
+              textContent:
+                "Restores a vault from a file made with “Export backup.” Every item comes back exactly as it was, and the vault is not connected to any server unless you connect it afterward.",
+            }),
+            restoreForm(),
+          ];
 
   root.replaceChildren(
     el("main", { className: "onboard" }, [
       el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Welcome to Vaultiq" })]),
-      el("div", { className: "scope-tabs" }, [createTab, joinTab]),
+      el("div", { className: "scope-tabs" }, [createTab, joinTab, restoreTab]),
       ...body,
     ]),
   );
@@ -1261,6 +1342,18 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
     });
     menu.append(button);
   }
+  const exportBackup = el("button", { className: "menu-item", type: "button", textContent: "Export backup" });
+  exportBackup.addEventListener("click", () => {
+    void send({ kind: "exportBackup" })
+      .then(unwrap)
+      .then((response) => {
+        if (response.kind !== "exportBackup") throw new Error("unexpected reply");
+        downloadBackup(response.backup);
+      })
+      .catch((error: unknown) => showError(error instanceof Error ? error.message : "Failed."));
+  });
+  menu.append(exportBackup);
+
   const lock = el("button", { className: "menu-item", type: "button" }, [icon("lock", { size: 14 }), "Lock vault"]);
   lock.addEventListener("click", () => void send({ kind: "lock" }).then(refresh));
   menu.append(lock);

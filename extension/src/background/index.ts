@@ -44,8 +44,10 @@ import {
   connectServer,
   disconnectServer,
   enrollWithServer,
+  exportBackup,
   newEnrollmentToken,
   remoteDevices,
+  restoreBackup,
   revokeRemoteDevice,
   syncNow,
   syncStatus,
@@ -84,6 +86,12 @@ async function handle(
       await create(request.masterPassword);
       await extendAutoLock();
       return { ok: true, kind: "create" };
+    case "exportBackup":
+      return { ok: true, kind: "exportBackup", backup: await exportBackup() };
+    case "restoreBackup":
+      await restoreBackup(request.backup, request.masterPassword);
+      await extendAutoLock();
+      return { ok: true, kind: "restoreBackup" };
     case "unlock":
       await unlock(request.masterPassword);
       await extendAutoLock();
