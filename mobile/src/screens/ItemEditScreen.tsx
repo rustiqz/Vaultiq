@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ItemContent } from '../itemContent';
 import { emptyContent } from '../itemContent';
 import CardPreview from '../CardPreview';
 import Icon from '../icons';
+import { strengthColor, strengthLabel } from '../lib/passwordStrength';
 import { awaitQrScan } from '../lib/qrScanResult';
+import type { PasswordStrength } from '../nativeCryptoCore';
 import IdentityWizard from './IdentityWizard';
 import type { VaultStackScreenProps } from '../navigation';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
@@ -90,6 +92,23 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
 
   const set = (key: string) => (value: string) => setContent(current => ({ ...current, [key]: value }));
   const value = (key: string) => str(content, key);
+
+  // Scored as you type, mirroring the extension's itemForm meter
+  // (extension/src/popup/index.ts) -- a token guard drops a stale response
+  // if the field changed again before this call's promise resolved.
+  const [passwordStrength, setPasswordStrength] = useState<PasswordStrength | null>(null);
+  const strengthToken = useRef(0);
+  const setPassword = (text: string) => {
+    set('password')(text);
+    const token = ++strengthToken.current;
+    if (!text) {
+      setPasswordStrength(null);
+      return;
+    }
+    vault.checkStrength(text).then(result => {
+      if (token === strengthToken.current) setPasswordStrength(result);
+    });
+  };
 
   const loginOptional = useOptionalFields(
     [
@@ -203,7 +222,12 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
             </View>
             <Field label="Name" value={value('name')} onChangeText={set('name')} placeholder="Login" hint="How it appears in your vault list." />
             <Field label="Username" value={value('username')} onChangeText={set('username')} autoCapitalize="none" />
-            <SecretField label="Password" value={value('password')} onChangeText={set('password')} />
+            <SecretField label="Password" value={value('password')} onChangeText={setPassword} />
+            {passwordStrength !== null && (
+              <Text style={[styles.strengthMeter, { color: strengthColor(passwordStrength.level) }]}>
+                {strengthLabel(passwordStrength)}
+              </Text>
+            )}
             {loginOptional.visible.map(renderOptionalField)}
             <SometimesChips fields={loginOptional.remaining} onAdd={loginOptional.add} />
           </>
@@ -306,6 +330,11 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: spacing.screen,
     gap: spacing.md,
+  },
+  strengthMeter: {
+    fontFamily: fonts.mono,
+    fontSize: 11.5,
+    marginTop: -spacing.xs,
   },
   sectionRow: {
     flexDirection: 'row',
