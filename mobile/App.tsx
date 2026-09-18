@@ -31,6 +31,7 @@ import type { RootTabParamList, SettingsStackParamList, VaultStackParamList, Vau
 import CreateLocalVaultScreen from './src/screens/CreateLocalVaultScreen';
 import CreateVaultScreen from './src/screens/CreateVaultScreen';
 import GetStartedScreen from './src/screens/GetStartedScreen';
+import RestoreBackupScreen from './src/screens/RestoreBackupScreen';
 import JoinVaultScreen from './src/screens/JoinVaultScreen';
 import UnlockScreen from './src/screens/UnlockScreen';
 import VaultHomeScreen from './src/screens/VaultHomeScreen';
@@ -213,7 +214,7 @@ function App(props: { autofillRequest?: AutofillRequest }) {
     };
   }, [colorScheme]);
   const [status, setStatus] = useState<Status | 'loading'>('loading');
-  const [onboardingMode, setOnboardingMode] = useState<'choose' | 'join' | 'create' | 'create-local'>('choose');
+  const [onboardingMode, setOnboardingMode] = useState<'choose' | 'join' | 'create' | 'create-local' | 'restore'>('choose');
   const [enrolledDeviceName, setEnrolledDeviceName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -327,6 +328,10 @@ function App(props: { autofillRequest?: AutofillRequest }) {
               setError(null);
               setOnboardingMode('create-local');
             }}
+            onRestore={() => {
+              setError(null);
+              setOnboardingMode('restore');
+            }}
           />
         )}
         {status === 'not-enrolled' && onboardingMode === 'join' && (
@@ -375,6 +380,23 @@ function App(props: { autofillRequest?: AutofillRequest }) {
               run(async () => {
                 await vault.createLocalVaultAndUnlock('', password);
                 setEnrolledDeviceName(null);
+                setStatus('unlocked');
+              })()
+            }
+          />
+        )}
+        {status === 'not-enrolled' && onboardingMode === 'restore' && (
+          <RestoreBackupScreen
+            busy={busy}
+            error={error}
+            onExit={() => {
+              setError(null);
+              setOnboardingMode('choose');
+            }}
+            onSubmit={(backup, password, submittedDeviceName) =>
+              run(async () => {
+                await vault.restoreBackup(backup, password, submittedDeviceName);
+                setEnrolledDeviceName(submittedDeviceName.trim() === '' ? null : submittedDeviceName.trim());
                 setStatus('unlocked');
               })()
             }

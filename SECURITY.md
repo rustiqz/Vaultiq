@@ -79,6 +79,22 @@ hash of an auth key that decrypts nothing.
 backup, an intercepted sync payload: all the same thing, all XChaCha20-Poly1305
 under a 256-bit random vault key that was never derived from the password.
 
+**An exported backup file, wherever it ends up.** "Export backup" writes the
+wrapped vault key and every item exactly as stored — the same ciphertext,
+under the same key, at the same Argon2id/XChaCha20-Poly1305 strength as the
+"ciphertext at rest" entry above. No second encryption layer is added on top:
+every field in the file is already ciphertext or a wrapped key, so a file-level
+password would only protect fields that are already as protected as the master
+password makes them. What's different from at-rest storage isn't protection,
+it's portability — the file is meant to be moved (downloaded, emailed, put in
+a cloud drive), which is exposure the fixed location of a browser's IndexedDB
+or a phone's app storage doesn't have. Producing the file needs no unlock and
+touches no key material at all on the extension, and on mobile only when a
+server-backed vault's local cache isn't already known to be complete; restoring
+one still needs the master password, verified by unwrapping the file's own
+wrapped key before a single record is written, identically to a wrong password
+on a normal unlock.
+
 **Tampering with stored blobs.** Every item binds its format, id, type,
 version and tombstone flag into the AEAD's associated data. A server that moves
 one item's ciphertext onto another item's id, relabels its type, rolls its
@@ -222,12 +238,13 @@ memory has it — but they already have everything else on that machine too.
 **Losing the master password.** There is no recovery, no reset, no escrow, no
 backdoor. This is a design decision, not an oversight.
 
-**No offsite backup, for a local-only vault.** Choosing "use without a
-server" trades away the one thing a server incidentally provides today: a
-second copy. Losing or wiping the device loses the vault, exactly as losing
-the master password does for any vault. Nothing in this feature adds a
-recovery, export or backup mechanism — that is a separate, later question
-(see the import/export discussion), not solved by local-only mode itself.
+**No offsite backup, unless one is made.** Choosing "use without a server"
+trades away the one thing a server incidentally provides today: a second
+copy. A vault (local-only or server-backed) can now be exported to a file
+and restored from one — see the "Defended against" entry below — but that is
+opt-in and manual. A vault that has never been exported still has exactly one
+copy, and losing or wiping that device loses it, the same as losing the
+master password does for any vault.
 
 **The supply chain.** Dependencies are pinned to exact versions, kept minimal,
 preferred from RustCrypto, and checked weekly against the RustSec advisory

@@ -2,10 +2,25 @@ import Biometric from './nativeBiometric';
 import CryptoCore from './nativeCryptoCore';
 import type { EncryptedItem, PasswordStrength } from './nativeCryptoCore';
 import * as storage from './storage';
-import type { EnrollmentState } from './storage';
+import type { EnrollmentState, VaultRecord } from './storage';
 import * as syncClient from './syncClient';
 import { randomItemId } from './lib/id';
 import type { ItemContent } from './itemContent';
+
+/** Format version for {@link VaultBackup}. Bump on any layout change. */
+const BACKUP_FORMAT = 1;
+
+/**
+ * A full, offline copy of a vault: the wrapped key and every item exactly as
+ * stored, restorable with the master password alone. See CLAUDE.md §0.
+ */
+export interface VaultBackup {
+  kind: 'vaultiq-backup';
+  format: number;
+  exportedAt: string;
+  vault: VaultRecord;
+  items: EncryptedItem[];
+}
 
 /**
  * Vault enrollment/unlock orchestration -- the mobile analogue of
@@ -192,6 +207,92 @@ async function createLocalVaultAndUnlock(deviceName: string, password: string): 
     mode: 'local',
     ...(normalizedDeviceName === '' ? {} : { deviceName: normalizedDeviceName }),
     vault: { saltB64, argon2, wrappedVaultKey },
+  };
+  await storage.writeEnrollment(enrollment);
+}
+
+function isVaultBackup(value: unknown): value is VaultBackup {
+  if (typeof value !== 'object' || value === null) return false;
+  const backup = value as Partial<VaultBackup>;
+  return (
+    backup.kind === 'vaultiq-backup' &&
+    typeof backup.format === 'number' &&
+    typeof backup.vault === 'object' &&
+    backup.vault !== null &&
+    typeof backup.vault.saltB64 === 'string' &&
+    Array.isArray(backup.items)
+  );
+}
+
+/**
+ * A full, offline copy of the vault: the wrapped key, its salt and costs,
+ * and every item exactly as stored.
+ *
+ * A local-only vault touches no key material to produce this -- `EncryptedItem`
+ * is already exactly the wire shape `storage.readLocalItems()` holds, so this
+ * is a straight read. A server-backed vault has no guarantee its local cache
+ * (`storage.ts`'s `SyncCache`) already holds every item -- only that it will,
+ * once caught up -- so this calls the same `syncCiphertext` helper
+ * `pullItems()` uses to catch it up first, which does need the vault
+ * unlocked and a network round trip.
+ */
+async function exportBackup(): Promise<VaultBackup> {
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null) throw new Error('not enrolled on this device yet');
+
+  const items =
+    enrollment.mode === 'local'
+      ? await storage.readLocalItems()
+      : await authenticated((url, deviceId, cred) => syncCiphertext(url, deviceId, cred));
+
+  return {
+    kind: 'vaultiq-backup',
+    format: BACKUP_FORMAT,
+    exportedAt: new Date().toISOString(),
+    vault: enrollment.vault,
+    items,
+  };
+}
+
+/**
+ * Restores a vault from {@link exportBackup}'s output, onto a device that
+ * does not have one yet.
+ *
+ * Always lands as a local-only vault (`mode: 'local'`), regardless of
+ * whether the backup's original vault was server-backed -- simplest, needs
+ * no invite token or network round trip, and matches exactly what
+ * `createLocalVaultAndUnlock` already writes. The password is verified by
+ * unlocking with the backup's own salt/costs/wrapped key -- identically to a
+ * wrong password on a normal `unlock` -- before anything is written; items
+ * are written first and the enrollment record last, so an interruption
+ * between the two leaves the device reading as not-enrolled rather than as
+ * an enrolled, empty vault.
+ */
+async function restoreBackup(backup: VaultBackup, masterPassword: string, deviceName?: string): Promise<void> {
+  if ((await storage.readEnrollment()) !== null) throw new Error('This device already has a vault.');
+  if (!isVaultBackup(backup)) throw new Error('That file is not a Vaultiq backup.');
+  if (backup.format !== BACKUP_FORMAT) {
+    throw new Error('This backup was made by a version of Vaultiq this build cannot read.');
+  }
+
+  // A wrong password fails here, indistinguishably from a tampered record --
+  // the same crypto-core error `unlock` surfaces for either -- and leaves
+  // the module holding the key on success, exactly as a normal unlock does.
+  await CryptoCore.unlock(
+    masterPassword,
+    backup.vault.saltB64,
+    backup.vault.argon2.memoryKib,
+    backup.vault.argon2.iterations,
+    backup.vault.argon2.parallelism,
+    backup.vault.wrappedVaultKey,
+  );
+
+  await storage.writeLocalItems(backup.items);
+  const normalizedDeviceName = deviceName?.trim();
+  const enrollment: EnrollmentState = {
+    mode: 'local',
+    ...(normalizedDeviceName ? { deviceName: normalizedDeviceName } : {}),
+    vault: backup.vault,
   };
   await storage.writeEnrollment(enrollment);
 }
@@ -639,11 +740,13 @@ export {
   disableBiometric,
   enableBiometric,
   enrollAndUnlock,
+  exportBackup,
   isLocalOnly,
   listDevices,
   lock,
   newEnrollmentToken,
   pullItems,
+  restoreBackup,
   restoreItem,
   revokeDevice,
   serverUrl,
