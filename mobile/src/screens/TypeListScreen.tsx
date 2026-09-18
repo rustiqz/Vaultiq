@@ -21,7 +21,7 @@ export default function TypeListScreen({ route, navigation }: VaultStackScreenPr
 
   const sync = useCallback(async () => {
     const [pulled, lastUsed] = await Promise.all([vault.pullItems(), storage.readLastUsed()]);
-    const filtered = pulled.filter(item => item.itemType === itemType);
+    const filtered = pulled.filter(item => !item.deleted && item.itemType === itemType);
     filtered.sort((a, b) => (lastUsed[b.id] ?? 0) - (lastUsed[a.id] ?? 0));
     setItems(filtered);
   }, [itemType]);
