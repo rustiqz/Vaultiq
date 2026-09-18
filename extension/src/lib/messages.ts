@@ -320,6 +320,41 @@ export interface SyncSummary {
 /** Ordering the list offers. */
 export type SortOrder = "recent" | "name";
 
+/**
+ * One record from `VaultBackup.items`, exactly as `pw-crypto-core` produced
+ * it — the same shape as IndexedDB's `StoredItem`, minus the two local-only
+ * bookkeeping fields (`synced_version`, `conflict_of`) that describe this
+ * device's relationship to a server, not the vault's content.
+ */
+export interface BackupItem {
+  id: string;
+  item_type: string;
+  format: number;
+  ciphertext: number[];
+  nonce: number[];
+  version: number;
+  updated_at: number;
+  deleted: boolean;
+}
+
+/**
+ * A full, offline copy of a vault: the wrapped key and every item exactly as
+ * stored, restorable with the master password alone. See CLAUDE.md §0.
+ */
+export interface VaultBackup {
+  kind: "vaultiq-backup";
+  format: number;
+  exportedAt: string;
+  vault: {
+    saltB64: string;
+    memoryKib: number;
+    iterations: number;
+    parallelism: number;
+    wrappedVaultKey: unknown;
+  };
+  items: BackupItem[];
+}
+
 export type Request =
   | { kind: "status" }
   | { kind: "create"; masterPassword: string }
@@ -397,7 +432,9 @@ export type Request =
   | { kind: "disconnectServer" }
   | { kind: "remoteDevices" }
   | { kind: "newEnrollmentToken" }
-  | { kind: "revokeRemoteDevice"; deviceId: string };
+  | { kind: "revokeRemoteDevice"; deviceId: string }
+  | { kind: "exportBackup" }
+  | { kind: "restoreBackup"; backup: VaultBackup; masterPassword: string };
 
 export type Response =
   | { ok: true; kind: "status"; status: VaultStatus }
@@ -443,6 +480,8 @@ export type Response =
   | { ok: true; kind: "remoteDevices"; devices: RemoteDevice[] }
   | { ok: true; kind: "newEnrollmentToken"; token: string; expiresAt: string }
   | { ok: true; kind: "revokeRemoteDevice" }
+  | { ok: true; kind: "exportBackup"; backup: VaultBackup }
+  | { ok: true; kind: "restoreBackup" }
   | { ok: false; error: string };
 
 export async function send(request: Request): Promise<Response> {
