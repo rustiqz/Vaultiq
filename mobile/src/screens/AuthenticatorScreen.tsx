@@ -33,7 +33,7 @@ export default function AuthenticatorScreen() {
   const sync = useCallback(async () => {
     setError(null);
     try {
-      setItems((await vault.pullItems()).filter(item => item.itemType === 'totp'));
+      setItems((await vault.pullItems()).filter(item => !item.deleted && item.itemType === 'totp'));
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     }
