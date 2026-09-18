@@ -173,6 +173,10 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
             <Text style={[styles.rowLabel, styles.groupRowFlex]}>Import from CSV</Text>
             <Icon name="chevronRight" size={16} color={colors.ink} />
           </Pressable>
+          <Pressable style={[styles.groupRow, styles.groupRowDivider]} onPress={() => navigation.navigate('Trash')}>
+            <Text style={[styles.rowLabel, styles.groupRowFlex]}>Trash</Text>
+            <Icon name="chevronRight" size={16} color={colors.ink} />
+          </Pressable>
         </Card>
       </View>
 

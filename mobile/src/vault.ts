@@ -19,6 +19,8 @@ type DecryptedItem = {
   id: string;
   itemType: string;
   version: number;
+  /** In the trash. The content is still here and can be restored -- see trashItem/restoreItem below. */
+  deleted: boolean;
   content: Record<string, unknown>;
 };
 
@@ -401,13 +403,23 @@ function newEnrollmentToken(): Promise<{ token: string; expiresAt: string }> {
   return authenticated((url, deviceId, cred) => syncClient.createEnrollmentToken(url, deviceId, cred));
 }
 
-/** Decrypts every non-tombstoned item in a batch, in the shared `DecryptedItem` shape. */
-async function decryptLive(items: EncryptedItem[]): Promise<DecryptedItem[]> {
+/**
+ * Decrypts a ciphertext batch into the shared `DecryptedItem` shape.
+ *
+ * Keeps trashed items (`deleted: true`, content intact) so a Trash screen
+ * has something to show and restore -- only a purged tombstone (content
+ * `{purged: true}`) is dropped, the same distinction the extension's
+ * `listItems` draws (extension/src/background/vault.ts). Callers that want
+ * the live vault filter `!item.deleted` themselves.
+ */
+async function decryptAll(items: EncryptedItem[]): Promise<DecryptedItem[]> {
   const decrypted: DecryptedItem[] = [];
   for (const item of items) {
-    if (item.deleted) continue;
-    const content = JSON.parse(await CryptoCore.decryptItem(item)) as Record<string, unknown>;
-    decrypted.push({ id: item.id, itemType: item.itemType, version: item.version, content });
+    const content = JSON.parse(await CryptoCore.decryptItem(item)) as Record<string, unknown> & {
+      purged?: boolean;
+    };
+    if (content.purged === true) continue;
+    decrypted.push({ id: item.id, itemType: item.itemType, version: item.version, deleted: item.deleted, content });
   }
   return decrypted;
 }
@@ -429,14 +441,14 @@ async function pullItems(): Promise<DecryptedItem[]> {
   const enrollment = await storage.readEnrollment();
   if (enrollment === null) throw new Error('not enrolled on this device yet');
 
-  if (enrollment.mode === 'local') return decryptLive(await storage.readLocalItems());
+  if (enrollment.mode === 'local') return decryptAll(await storage.readLocalItems());
 
   return authenticated(async (url, deviceId, cred) => {
     const decrypted: DecryptedItem[] = [];
     let cursor = '0';
     for (;;) {
       const page = await syncClient.pull(url, deviceId, cred, cursor);
-      decrypted.push(...(await decryptLive(page.items)));
+      decrypted.push(...(await decryptAll(page.items)));
       cursor = page.cursor;
       if (!page.more) break;
     }
@@ -504,16 +516,38 @@ async function updateItem(id: string, version: number, content: ItemContent): Pr
 }
 
 /**
- * Permanently erases an item: a tombstone (`deleted: true`) with its content
- * replaced, the mobile analogue of the extension's `purgeItem` -- there's no
- * trash/restore screen here to make a recoverable soft-delete meaningful, so
- * this is the only kind of delete. The record itself is kept (with the new
- * version and tombstone), for a server-backed vault so the deletion still
- * propagates to other devices, and for a local-only one for the same reason
- * `vault_item.rs` never hard-deletes anywhere: a version number that could
- * vanish and be reused is a rollback vulnerability, not a storage saving.
+ * Moves an item to the trash: the same content, re-encrypted at the next
+ * version with `deleted: true` -- the mobile analogue of the extension's
+ * `trashItem` (extension/src/background/vault.ts). Recoverable via
+ * restoreItem below, unlike purgeItem's permanent tombstone. Callers pass
+ * the content they already have (from a just-pulled DecryptedItem) since
+ * there is no local store of server-vault ciphertext to re-read it from.
+ * Works the same for both vault modes -- `persist` already routes to the
+ * local item store or the server as appropriate.
  */
-async function deleteItem(id: string, version: number, itemType: string): Promise<void> {
+async function trashItem(id: string, version: number, itemType: string, content: Record<string, unknown>): Promise<void> {
+  const header = { id, itemType, version: version + 1, updatedAt: Date.now(), deleted: true };
+  const encrypted = await CryptoCore.encryptItem(JSON.stringify(content), header);
+  await persist(encrypted);
+}
+
+/** Restores a trashed item: the same content, re-encrypted with `deleted: false`. */
+async function restoreItem(id: string, version: number, itemType: string, content: Record<string, unknown>): Promise<void> {
+  const header = { id, itemType, version: version + 1, updatedAt: Date.now(), deleted: false };
+  const encrypted = await CryptoCore.encryptItem(JSON.stringify(content), header);
+  await persist(encrypted);
+}
+
+/**
+ * Permanently erases an item: a tombstone (`deleted: true`) with its content
+ * replaced, the mobile analogue of the extension's `purgeItem`. The record
+ * itself is kept (with the new version and tombstone), for a server-backed
+ * vault so the deletion still propagates to other devices, and for a
+ * local-only one for the same reason `vault_item.rs` never hard-deletes
+ * anywhere: a version number that could vanish and be reused is a rollback
+ * vulnerability, not a storage saving.
+ */
+async function purgeItem(id: string, version: number, itemType: string): Promise<void> {
   const header = { id, itemType, version: version + 1, updatedAt: Date.now(), deleted: true };
   const encrypted = await CryptoCore.encryptItem(JSON.stringify({ purged: true }), header);
   await persist(encrypted);
@@ -526,7 +560,7 @@ export {
   changeMasterPassword,
   createLocalVaultAndUnlock,
   createVaultAndUnlock,
-  deleteItem,
+  purgeItem,
   enrolledDeviceName,
   disableBiometric,
   enableBiometric,
@@ -536,9 +570,11 @@ export {
   lock,
   newEnrollmentToken,
   pullItems,
+  restoreItem,
   revokeDevice,
   serverUrl,
   status,
+  trashItem,
   unlock,
   unlockWithBiometric,
   updateItem,
