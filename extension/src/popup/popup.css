@@ -200,6 +200,7 @@ li .row { margin-top: 8px; flex-wrap: wrap; }
 .level-fair { color: var(--warn); }
 .level-strong { color: var(--good); }
 .level-excellent { color: var(--accent); }
+.reuse-note { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .devices li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .devices li > span:first-child { flex: 1; min-width: 0; }
 .token { user-select: all; font: 12px/1.4 "IBMPlexMono-Regular", monospace; overflow-wrap: anywhere; }
