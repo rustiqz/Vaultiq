@@ -975,6 +975,64 @@ fast and clever, every time.
     this session, so creating a local vault, adding/editing/deleting items,
     and confirming they persist across a restart haven't been exercised on
     hardware.
+- **More import formats: Bitwarden JSON and Proton Pass JSON**, on top of
+  the CSV importer. Research came first, not a parser: both formats were
+  looked up fresh against primary sources rather than assumed, per this
+  project's own discipline for the CSV importer.
+  - **Bitwarden JSON**: schema confirmed solidly — Bitwarden's own docs plus
+    several independently-built community import/export tools agree on the
+    same shape, `{ items: [{ type, name, notes, login|card|identity }] }`
+    with a numeric `type` (1 login, 2 secure note, 3 card, 4 identity).
+    Solid enough to cover one type further than the CSV importer: login,
+    secure note, card, and identity. `identity`'s `company`/`dateOfBirth`/
+    `nationalId` were not confirmed present in this schema, so they are not
+    mapped; type 5 (SSH key) and anything else is skipped and counted, not
+    guessed at, the same rule the CSV importer states for an unrecognised
+    CSV column.
+  - **Proton Pass JSON**: the trail ran out partway through. The vault
+    wrapper and `login` item fields are confirmed against a real exported
+    file (via an independently-built Proton-Pass-to-CSV converter script)
+    and a forum thread quoting real exported JSON —
+    `{ vaults: { <id>: { items: [{ state, data: { type, metadata: {name,
+    note}, content: {username, password, urls, totpUri} } }] } } }`. What
+    is *not* confirmed: the field names Proton uses for `alias`,
+    `creditCard`, or `identity` items. Proton's own docs don't show the
+    schema, and their open-source `proton-pass-common` repo stores items as
+    protobuf internally — a different, unrelated schema from the exported
+    DTO, so the Rust-side type names give no shortcut to the JSON field
+    names. Rather than guess from those names alone, this version maps only
+    `login` and `note` — matching the CSV importer's scope exactly — and
+    skips and counts everything else. Trashed items (`state: 2`, confirmed
+    from `proton-pass-common`'s `ItemState` enum) are skipped too:
+    importing something the user deleted back to life isn't "the same
+    content typed by hand," the bar every import here holds to.
+  - **Format detection, both apps**: a picked file starting with `{` is
+    tried against `parseBitwardenJson` first, then `parseProtonPassJson` —
+    whichever throws "not a Bitwarden/Proton Pass export" is skipped in
+    favor of the other; anything else falls back to the existing CSV path.
+    No format picker in the UI — the same "just pick a file" flow as
+    before, now reading three shapes instead of one.
+  - **Extension**: new `lib/bitwardenImport.ts` / `lib/protonPassImport.ts`,
+    following `lib/csvImport.ts`'s exact shape (`ImportResult`, one parse
+    function). `popup/import-panel.ts`'s file input now accepts `.json`
+    alongside `.csv`, and its preview-row `describe()` now labels a card
+    (last four digits) and an identity (full name), not just a login/note.
+  - **Mobile**: `lib/bitwardenImport.ts` / `lib/protonPassImport.ts`, ported
+    from the extension's rather than shared (this repo's established
+    pattern) and adapted to this app's `ItemContent`, where every field is
+    optional. `ImportScreen.tsx`'s picker now also accepts
+    `application/json`.
+  - **Verified**: extension — `pnpm typecheck`/`lint`/`test` (319 tests, 23
+    new) and `pnpm build`. Mobile — `tsc`, `eslint`, `jest` (40 tests, 23
+    new), and `:app:assembleDebug` (full native build; no new native
+    dependency this time). **Not verified against a real Bitwarden or
+    Proton Pass export** — no account on either service was available this
+    session, so both parsers are built and tested against fixtures matching
+    the confirmed schema, not a file either service actually produced. A
+    reasonable follow-up before relying on this for a real migration:
+    generate one real export from each and run it through, especially for
+    Bitwarden's card/identity mapping, which went further than what a
+    single confirmatory source covers.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
