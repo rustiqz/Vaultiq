@@ -9,6 +9,7 @@ import { el } from "./dom.js";
 import { parseCsv, rowsToItems, type ImportResult } from "../lib/csvImport.js";
 import { parseBitwardenJson } from "../lib/bitwardenImport.js";
 import { parseProtonPassJson } from "../lib/protonPassImport.js";
+import { findMatch, type DedupeMatch } from "../lib/importDedupe.js";
 import { send, type ItemContent, type Response } from "../lib/messages.js";
 
 /**
@@ -51,6 +52,9 @@ function describe(item: ItemContent): string {
 interface Parsed {
   item: ItemContent;
   included: boolean;
+  match: DedupeMatch | null;
+  /** Only meaningful when `match` is set and included: update it instead of adding a new item. */
+  replace: boolean;
 }
 
 export function importPanel(): HTMLElement {
@@ -72,9 +76,14 @@ export function importPanel(): HTMLElement {
       if (!file) return;
       file
         .text()
-        .then((text) => {
+        .then(async (text) => {
           const mapped = detectAndParse(text);
-          parsed = mapped.items.map((item) => ({ item, included: true }));
+          const existing = unwrap(await send({ kind: "listItems" }));
+          if (existing.kind !== "listItems") throw new Error("unexpected reply");
+          parsed = mapped.items.map((item) => {
+            const match = findMatch(item, existing.items);
+            return { item, match, included: !(match?.identical ?? false), replace: false };
+          });
           skipped = mapped.skipped;
           result = null;
           repaint();
@@ -99,16 +108,41 @@ export function importPanel(): HTMLElement {
       const checkbox = el("input", { type: "checkbox", checked: row.included });
       checkbox.addEventListener("change", () => {
         parsed[index] = { ...row, included: checkbox.checked };
+        repaint();
       });
-      return el("li", {}, [
-        el("label", {}, [checkbox, ` ${describe(row.item)} · ${row.item.type}`]),
-      ]);
+
+      const children: (Node | string)[] = [el("label", {}, [checkbox, ` ${describe(row.item)} · ${row.item.type}`])];
+
+      if (row.match !== null) {
+        children.push(
+          el("p", {
+            className: "muted",
+            textContent: row.match.identical
+              ? `Already in your vault as "${row.match.label}".`
+              : `Differs from existing "${row.match.label}".`,
+          }),
+        );
+      }
+
+      if (row.match !== null && !row.match.identical && row.included) {
+        const replaceCheckbox = el("input", { type: "checkbox", checked: row.replace });
+        replaceCheckbox.addEventListener("change", () => {
+          parsed[index] = { ...row, replace: replaceCheckbox.checked };
+        });
+        children.push(el("label", {}, [replaceCheckbox, " Replace the existing entry instead of adding a new one"]));
+      }
+
+      return el("li", {}, children);
     });
 
-    const summary =
-      skipped > 0
-        ? `${String(parsed.length)} ready to import, ${String(skipped)} skipped (unrecognised type or empty).`
-        : `${String(parsed.length)} ready to import.`;
+    const duplicates = parsed.filter((row) => row.match?.identical ?? false).length;
+    const ready = parsed.filter((row) => row.included).length;
+    const summaryParts = [
+      `${String(ready)} ready to import`,
+      skipped > 0 ? `${String(skipped)} skipped (unrecognised type or empty)` : null,
+      duplicates > 0 ? `${String(duplicates)} already in your vault` : null,
+    ].filter((part): part is string => part !== null);
+    const summary = `${summaryParts.join(", ")}.`;
 
     const submit = el("button", {
       className: "primary",
@@ -125,7 +159,11 @@ export function importPanel(): HTMLElement {
         for (const row of parsed) {
           if (!row.included) continue;
           try {
-            unwrap(await send({ kind: "addItem", content: row.item }));
+            if (row.match !== null && row.replace) {
+              unwrap(await send({ kind: "updateItem", id: row.match.id, content: row.item }));
+            } else {
+              unwrap(await send({ kind: "addItem", content: row.item }));
+            }
             imported += 1;
           } catch (error: unknown) {
             errors.push(`${describe(row.item)}: ${error instanceof Error ? error.message : "failed"}`);
