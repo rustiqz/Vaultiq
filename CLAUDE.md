@@ -855,8 +855,9 @@ fast and clever, every time.
   recognises) — deliberately **not** cards, identities, or TOTP: their CSV
   schemas diverge too much between vendors to map correctly without a real
   sample from each, so a row whose `type` column says anything else is
-  skipped and counted, not guessed at. No de-duplication against existing
-  items either — both are reasonable v2 follow-ups, not oversights.
+  skipped and counted, not guessed at — a reasonable v2 follow-up, not an
+  oversight. No de-duplication against existing items either, at the time —
+  see the later, dedicated entry below for that.
   - **Parsing** (`extension/src/lib/csvImport.ts`, ported — not shared — to
     `mobile/src/lib/csvImport.ts`, the same relationship `itemContent.ts`
     already has with `messages.ts`): a hand-rolled ~150-line RFC4180-ish
@@ -1111,6 +1112,53 @@ fast and clever, every time.
     hasn't been exercised end to end on either app, including whether
     Android's real "Save as" dialog behaves as expected against the
     app-private cache path.
+- **Import de-duplication (extension + mobile)**, the follow-up the CSV
+  importer entry above deferred. Every importer (CSV, Bitwarden JSON, Proton
+  Pass JSON) still only ever produces `ItemContent` rows for the existing
+  preview screen — this changes what that screen does with a row that looks
+  like something already in the vault, not the parsers themselves.
+  - **Two levels, not one flag**: an "identity" match (plausibly the same
+    real-world login/card/identity/TOTP account/note, by the fields that
+    actually name it — username+site for a login, digits-only card number,
+    first+last name for an identity, issuer+account for TOTP, name or body
+    for a note) and, within that, an "identical" match (every field an
+    import can set agrees too). Only the identical case defaults to
+    excluded ("auto-merge" in the sense that a byte-for-byte repeat of
+    something already there doesn't clutter the list); a same-identity-
+    different-content match (a password rotated since the export, say) is
+    always surfaced, never silently skipped or overwritten — it defaults to
+    **included, as a new item**, with a "Replace the existing entry instead
+    of adding a new one" toggle so the user picks, rather than the importer
+    guessing which copy is current.
+  - **New module**, `extension/src/lib/importDedupe.ts` ported (not shared)
+    to `mobile/src/lib/importDedupe.ts`, the same relationship every other
+    importer file already has. `findMatch(item, existing)` returns the
+    matched id (and, on mobile, its `version`, since `vault.updateItem`
+    needs one and mobile's `DecryptedItem` carries it while the extension's
+    background re-reads its own IndexedDB copy instead) plus a display
+    label and the `identical` flag. Deliberately not `site.ts`'s
+    public-suffix-aware `siteScope`/`tldts` for the login URL comparison —
+    a light hostname strip instead: a dedup false-positive costs nothing
+    worse than a badge on the wrong row, unlike the real trust boundary
+    `site.ts` exists for, so it wasn't worth a second `tldts` dependency on
+    mobile, which had never needed one.
+  - **Popup/screen change**: both `import-panel.ts` and `ImportScreen.tsx`
+    now fetch the existing vault (`listItems`/`vault.pullItems()`) once,
+    right after parsing, before showing the preview list; trashed items are
+    excluded from matching. Each row gets a caption when matched ("Already
+    in your vault as …" or "Differs from existing …") and, for a differing
+    match, the replace toggle. Import still goes through `addItem` for
+    every row except an explicit replace, which calls `updateItem` on the
+    matched id instead — an ordinary edit, same version-bump path
+    everything else already uses, not a new write path.
+  - **Verified**: extension — `pnpm typecheck`/`lint`/`test` (339 tests, 12
+    new for `importDedupe.ts`) and mobile — `tsc`, `eslint`, jest (53
+    tests, 13 new), and `:app:assembleDebug` (no new native dependency, so
+    mostly confirming the JS bundle still compiles). **Not verified on a
+    real device or in a real browser** — no physical device was connected
+    and no headless Chromium was available this session, so the actual
+    preview-list interaction (checkbox/replace-toggle behaviour, the
+    caption text) hasn't been exercised end to end on either app.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the

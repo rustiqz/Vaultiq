@@ -7,13 +7,14 @@ import type { ItemContent } from '../itemContent';
 import { displayName } from '../itemContent';
 import { parseBitwardenJson } from '../lib/bitwardenImport';
 import { parseCsv, rowsToItems, type ImportResult } from '../lib/csvImport';
+import { findMatch, type DedupeMatch } from '../lib/importDedupe';
 import { parseProtonPassJson } from '../lib/protonPassImport';
 import type { SettingsStackScreenProps } from '../navigation';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button } from '../ui';
 import * as vault from '../vault';
 
-type Row = { item: ItemContent; included: boolean };
+type Row = { item: ItemContent; included: boolean; match: DedupeMatch | null; replace: boolean };
 type Stage = 'pick' | 'preview' | 'importing' | 'done';
 
 /**
@@ -47,6 +48,10 @@ function detectAndParse(text: string): ImportResult {
  * then goes through `vault.addItem` exactly as if it had been typed into
  * the "New item" form by hand -- `addItem` is already mode-aware, so this
  * screen never needs to know whether the vault is local-only or synced.
+ * Rows are matched against `vault.pullItems()` first (lib/importDedupe.ts):
+ * a row identical to something already there starts unchecked, and a row
+ * that shares the same login/card/identity/etc. but differs is flagged with
+ * an option to replace the existing item instead of adding a second one.
  */
 export default function ImportScreen({ navigation }: SettingsStackScreenProps<'Import'>) {
   const [stage, setStage] = useState<Stage>('pick');
@@ -69,7 +74,13 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
         setError('Nothing recognisable in that file -- see the note above for what this can read.');
         return;
       }
-      setRows(parsed.items.map(item => ({ item, included: true })));
+      const existingItems = await vault.pullItems();
+      setRows(
+        parsed.items.map(item => {
+          const match = findMatch(item, existingItems);
+          return { item, match, included: !(match?.identical ?? false), replace: false };
+        }),
+      );
       setSkipped(parsed.skipped);
       setStage('preview');
     } catch (thrown) {
@@ -85,7 +96,11 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
     for (const row of rows) {
       if (!row.included) continue;
       try {
-        await vault.addItem(row.item);
+        if (row.match !== null && row.replace) {
+          await vault.updateItem(row.match.id, row.match.version, row.item);
+        } else {
+          await vault.addItem(row.item);
+        }
         imported += 1;
       } catch (thrown) {
         errors.push(`${displayName(row.item.type, row.item, String(imported + errors.length))}: ${thrown instanceof Error ? thrown.message : String(thrown)}`);
@@ -101,7 +116,17 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
     setRows(current => current.map((row, i) => (i === index ? { ...row, included: !row.included } : row)));
   };
 
+  const toggleReplace = (index: number) => {
+    setRows(current => current.map((row, i) => (i === index ? { ...row, replace: !row.replace } : row)));
+  };
+
   const includedCount = rows.filter(row => row.included).length;
+  const duplicateCount = rows.filter(row => row.match?.identical ?? false).length;
+  const summaryParts = [
+    `${String(includedCount)} ready to import`,
+    skipped > 0 ? `${String(skipped)} skipped (unrecognised type or empty)` : null,
+    duplicateCount > 0 ? `${String(duplicateCount)} already in your vault` : null,
+  ].filter((part): part is string => part !== null);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -126,25 +151,36 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
 
       {stage === 'preview' && (
         <>
-          <Text style={styles.summary}>
-            {skipped > 0
-              ? `${String(rows.length)} ready to import, ${String(skipped)} skipped (unrecognised type or empty).`
-              : `${String(rows.length)} ready to import.`}
-          </Text>
+          <Text style={styles.summary}>{`${summaryParts.join(', ')}.`}</Text>
           <FlatList
             data={rows}
             keyExtractor={(_, index) => String(index)}
             contentContainerStyle={styles.list}
             renderItem={({ item: row, index }) => (
-              <Pressable style={styles.row} onPress={() => toggleRow(index)}>
-                <Icon name={row.item.type === 'note' ? 'note' : 'login'} size={18} color={colors.ink} />
-                <Text style={[styles.rowLabel, !row.included && styles.rowLabelExcluded]} numberOfLines={1}>
-                  {displayName(row.item.type, row.item, String(index))}
-                </Text>
-                <View style={[styles.toggleOff, row.included && styles.toggleOn]}>
-                  <View style={styles.toggleThumb} />
-                </View>
-              </Pressable>
+              <View>
+                <Pressable style={styles.row} onPress={() => toggleRow(index)}>
+                  <Icon name={row.item.type === 'note' ? 'note' : 'login'} size={18} color={colors.ink} />
+                  <View style={styles.rowTextGroup}>
+                    <Text style={[styles.rowLabel, !row.included && styles.rowLabelExcluded]} numberOfLines={1}>
+                      {displayName(row.item.type, row.item, String(index))}
+                    </Text>
+                    {row.match !== null && (
+                      <Text style={styles.rowCaption} numberOfLines={1}>
+                        {row.match.identical ? `Already in your vault as "${row.match.label}"` : `Differs from existing "${row.match.label}"`}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={[styles.toggleOff, row.included && styles.toggleOn]}>
+                    <View style={styles.toggleThumb} />
+                  </View>
+                </Pressable>
+                {row.match !== null && !row.match.identical && row.included && (
+                  <Pressable style={styles.replaceRow} onPress={() => toggleReplace(index)} hitSlop={8}>
+                    <View style={[styles.checkboxOff, row.replace && styles.checkboxOn]} />
+                    <Text style={styles.replaceLabel}>Replace the existing entry instead of adding a new one</Text>
+                  </Pressable>
+                )}
+              </View>
             )}
           />
           <View style={styles.footer}>
@@ -236,14 +272,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  rowLabel: {
+  rowTextGroup: {
     flex: 1,
+  },
+  rowLabel: {
     fontFamily: fonts.body,
     fontSize: 14,
     color: colors.ink,
   },
   rowLabelExcluded: {
     opacity: 0.4,
+  },
+  rowCaption: {
+    fontFamily: fonts.body,
+    fontSize: 11.5,
+    color: inkAlpha(0.6),
+  },
+  replaceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingLeft: 30,
+    paddingBottom: 10,
+  },
+  checkboxOff: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.ink,
+  },
+  checkboxOn: {
+    backgroundColor: colors.ink,
+  },
+  replaceLabel: {
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 12.5,
+    color: colors.ink,
   },
   toggleOff: {
     width: 40,
