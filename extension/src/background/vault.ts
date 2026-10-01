@@ -33,6 +33,7 @@ import {
 export { assertSessionStorage, loadCrypto };
 export type { SyncSummary };
 import { cardBrand, lastFour, normalizeCardNumber } from "../lib/card.js";
+import { normalizeBackup } from "../lib/backupFormat.js";
 import { TOTP_DEFAULTS } from "../lib/otpauth.js";
 import { matchesSite, siteScope } from "../lib/site.js";
 import type {
@@ -287,19 +288,6 @@ export async function exportBackup(): Promise<VaultBackup> {
   };
 }
 
-function isVaultBackup(value: unknown): value is VaultBackup {
-  if (typeof value !== "object" || value === null) return false;
-  const backup = value as Partial<VaultBackup>;
-  return (
-    backup.kind === "vaultiq-backup" &&
-    typeof backup.format === "number" &&
-    typeof backup.vault === "object" &&
-    backup.vault !== null &&
-    typeof backup.vault.saltB64 === "string" &&
-    Array.isArray(backup.items)
-  );
-}
-
 /**
  * Restores a vault from {@link exportBackup}'s output, onto a device that
  * does not have one yet.
@@ -313,34 +301,31 @@ function isVaultBackup(value: unknown): value is VaultBackup {
  * tombstones must round-trip unchanged or their authentication tags stop
  * matching.
  */
-export async function restoreBackup(backup: VaultBackup, masterPassword: string): Promise<void> {
+export async function restoreBackup(backup: unknown, masterPassword: string): Promise<void> {
   if (await getVault()) throw new Error("A vault already exists.");
-  if (!isVaultBackup(backup)) throw new Error("That file is not a Vaultiq backup.");
-  if (backup.format !== BACKUP_FORMAT) {
-    throw new Error("This backup was made by a version of Vaultiq this build cannot read.");
-  }
+  const normalized = normalizeBackup(backup);
 
   const params = {
-    memory_kib: backup.vault.memoryKib,
-    iterations: backup.vault.iterations,
-    parallelism: backup.vault.parallelism,
+    memory_kib: normalized.vault.memoryKib,
+    iterations: normalized.vault.iterations,
+    parallelism: normalized.vault.parallelism,
   };
   // A wrong password fails here, indistinguishably from a tampered record —
   // the same crypto-core error `unlock` surfaces for either.
-  const vaultKey = withMasterKey(masterPassword, backup.vault.saltB64, params, (masterKey) =>
-    unwrapVaultKey(backup.vault.wrappedVaultKey, masterKey),
+  const vaultKey = withMasterKey(masterPassword, normalized.vault.saltB64, params, (masterKey) =>
+    unwrapVaultKey(normalized.vault.wrappedVaultKey, masterKey),
   );
 
   await putVault({
     id: "vault",
     format: VAULT_FORMAT,
-    saltB64: backup.vault.saltB64,
-    memoryKib: backup.vault.memoryKib,
-    iterations: backup.vault.iterations,
-    parallelism: backup.vault.parallelism,
-    wrappedVaultKey: backup.vault.wrappedVaultKey,
+    saltB64: normalized.vault.saltB64,
+    memoryKib: normalized.vault.memoryKib,
+    iterations: normalized.vault.iterations,
+    parallelism: normalized.vault.parallelism,
+    wrappedVaultKey: normalized.vault.wrappedVaultKey,
   });
-  for (const item of backup.items) {
+  for (const item of normalized.items) {
     await putItem(item);
   }
 
