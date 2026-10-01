@@ -128,7 +128,7 @@ export default function AutofillFillScreen(props: { domain: string; caller: stri
             {mode === 'search' && <Text style={styles.subtitle}>Search your vault</Text>}
             {mode === 'create' && <Text style={styles.subtitle}>Save a new login</Text>}
           </View>
-          <Pressable style={styles.closeButton} onPress={() => Autofill.cancelFill()} hitSlop={8}>
+          <Pressable style={styles.closeButton} onPress={() => Autofill.cancelFill()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
             <Icon name="close" size={18} color={colors.ink} />
           </Pressable>
         </View>

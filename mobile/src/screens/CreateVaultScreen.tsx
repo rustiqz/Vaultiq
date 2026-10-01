@@ -8,6 +8,7 @@ import { parseEnrollmentQr } from '../lib/enrollmentQr';
 import QrScannerView from '../QrScannerView';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, Field, SecretField } from '../ui';
+import { useHardwareBack } from '../useHardwareBack';
 
 type Step = 'welcome' | 'device' | 'password';
 const STEP_INDEX: Record<Step, number> = { welcome: 0, device: 1, password: 2 };
@@ -36,6 +37,13 @@ export default function CreateVaultScreen(props: {
   const [deviceName, setDeviceName] = useState(DEV_DEVICE_NAME);
   const [password, setPassword] = useState('');
   const [scanning, setScanning] = useState(false);
+  useHardwareBack(() => {
+    if (scanning) return false;
+    if (step === 'password') { setStep('device'); return true; }
+    if (step === 'device') { setStep('welcome'); return true; }
+    if (props.onExit !== undefined) { props.onExit(); return true; }
+    return false;
+  });
 
   if (scanning) {
     return (
@@ -61,6 +69,8 @@ export default function CreateVaultScreen(props: {
         <View style={styles.appBar}>
           <Pressable
             style={styles.back}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
             onPress={() => (step === 'welcome' ? props.onExit?.() : setStep(step === 'password' ? 'device' : 'welcome'))}
             hitSlop={8}
           >
@@ -117,7 +127,7 @@ export default function CreateVaultScreen(props: {
                 onChangeText={setToken}
                 error={props.error ?? undefined}
               />
-              <Pressable style={styles.pasteButton} onPress={() => Clipboard.getString().then(setToken)}>
+              <Pressable style={styles.pasteButton} onPress={() => Clipboard.getString().then(setToken)} accessibilityRole="button" accessibilityLabel="Paste from clipboard">
                 <Icon name="copy" size={18} color={colors.ink} />
               </Pressable>
             </View>

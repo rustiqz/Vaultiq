@@ -97,14 +97,16 @@ function ItemDetailHeaderActions(props: { item: DecryptedItem; navigation: Vault
     <View style={styles.headerActions}>
       {/* Filled vs outline only -- no color change. Rust/amber/sage are reserved
           state colors (design rule 7); favoriting isn't one of those states. */}
-      <Pressable style={styles.headerAction} onPress={toggleFavorite} disabled={togglingFavorite}>
+      <Pressable style={styles.headerAction} onPress={toggleFavorite} disabled={togglingFavorite} accessibilityRole="button" accessibilityLabel={favorite ? 'Remove from favorites' : 'Add to favorites'}>
         <Icon name="heart" size={20} color={colors.ink} filled={favorite} />
       </Pressable>
-      <Pressable style={styles.headerAction} onPress={() => props.navigation.navigate('ItemEdit', { mode: 'edit', item: props.item })}>
+      <Pressable style={styles.headerAction} onPress={() => props.navigation.navigate('ItemEdit', { mode: 'edit', item: props.item })} accessibilityRole="button" accessibilityLabel="Edit item">
         <Icon name="edit" size={20} color={colors.ink} />
       </Pressable>
       <Pressable
         style={styles.headerAction}
+        accessibilityRole="button"
+        accessibilityLabel="Move to trash"
         onPress={() =>
           show('Move to trash?', 'You can restore it from Trash later.', [
             { text: 'Keep it' },
@@ -232,6 +234,8 @@ function App(props: { autofillRequest?: AutofillRequest }) {
       Appearance.setColorScheme(mode === 'system' ? 'unspecified' : mode);
     });
   }, []);
+
+  useEffect(() => storage.subscribeAutoLockMinutes(setAutoLockMinutes), []);
 
   const changeTheme = (mode: storage.ThemeMode) => {
     setThemeMode(mode);

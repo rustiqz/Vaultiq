@@ -131,7 +131,7 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.appBar}>
-        <Pressable style={styles.back} onPress={() => navigation.goBack()} hitSlop={8}>
+        <Pressable style={styles.back} onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
           <Icon name="chevronLeft" size={22} color={colors.ink} />
         </Pressable>
         <Text style={styles.appBarTitle}>Import</Text>
@@ -207,7 +207,7 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
               {message}
             </Text>
           ))}
-          <Text style={styles.intro}>Delete the CSV file now that it's imported -- it holds your passwords in plain text.</Text>
+          <Text style={styles.intro}>Delete the file now that it's imported -- it holds your passwords in plain text.</Text>
           <Button title="Import another file" variant="outline" onPress={() => setStage('pick')} />
         </View>
       )}

@@ -50,6 +50,7 @@ const STRENGTH_LABEL: Record<StrengthLevel, string> = {
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("popup root missing");
 const root = app;
+let currentError: HTMLElement | null = null;
 
 /**
  * A value that copies itself when clicked.
@@ -113,7 +114,9 @@ function copyable(
 }
 
 function showError(message: string): void {
-  root.append(el("p", { className: "error", textContent: message }));
+  currentError?.remove();
+  currentError = el("p", { className: "error", textContent: message });
+  root.append(currentError);
 }
 
 /** Narrows a response, surfacing the background's message unchanged. */
