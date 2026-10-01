@@ -207,7 +207,7 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
               {message}
             </Text>
           ))}
-          <Text style={styles.intro}>Delete the CSV file now that it's imported -- it holds your passwords in plain text.</Text>
+          <Text style={styles.intro}>Delete the file now that it's imported -- it holds your passwords in plain text.</Text>
           <Button title="Import another file" variant="outline" onPress={() => setStage('pick')} />
         </View>
       )}
