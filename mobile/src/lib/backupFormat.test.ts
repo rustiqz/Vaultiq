@@ -81,4 +81,14 @@ describe('backup shape conversion', () => {
     expect(() => fromAnyBackup(changed({format: 2}))).toThrow(new BackupFormatError(unsupported));
     expect(() => fromAnyBackup(changed({format: '1'}))).toThrow(new BackupFormatError(invalid));
   });
+
+  it('round-trips a ciphertext too large to spread into one call', () => {
+    const big = Array.from({length: 300000}, (_, i) => i % 256);
+    const canonical = {
+      ...CANONICAL,
+      items: [{...CANONICAL.items[0], ciphertext: big}],
+    };
+    const internal = fromAnyBackup(canonical);
+    expect(toCanonicalBackup(internal).items[0].ciphertext).toEqual(big);
+  });
 });

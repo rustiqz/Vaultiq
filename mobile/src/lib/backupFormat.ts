@@ -46,7 +46,13 @@ function normalizedBytes(value: unknown): string {
       if (!integer(byte) || byte < 0 || byte > 255) throw new BackupFormatError(INVALID);
       bytes.push(byte);
     }
-    return btoa(String.fromCharCode(...bytes));
+    // Chunked: spreading one argument per byte can exceed the engine's
+    // argument limit for a large ciphertext (e.g. a big secure note).
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode(...bytes.slice(i, i + 8192));
+    }
+    return btoa(binary);
   }
   if (typeof value === 'string' && BASE64.test(value)) return value;
   throw new BackupFormatError(INVALID);
