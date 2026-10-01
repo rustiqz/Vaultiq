@@ -260,7 +260,22 @@ describe("backup", () => {
 
     await vault.restoreBackup(mobileShape(backup), "correct horse battery staple");
 
-    expect(db.vault).toMatchObject({ saltB64: backup.vault.saltB64 });
+    // The costs must come out of the nested `argon2` object: the fake crypto
+    // ignores them, so only this assertion tells the old reader (which read
+    // them as undefined) from the new one.
+    expect(cryptoFake.deriveMasterKey).toHaveBeenLastCalledWith(
+      expect.any(String),
+      backup.vault.saltB64,
+      backup.vault.memoryKib,
+      backup.vault.iterations,
+      backup.vault.parallelism,
+    );
+    expect(db.vault).toMatchObject({
+      saltB64: backup.vault.saltB64,
+      memoryKib: backup.vault.memoryKib,
+      iterations: backup.vault.iterations,
+      parallelism: backup.vault.parallelism,
+    });
     expect(db.items.has(id)).toBe(true);
     expect(await vault.status()).toBe("unlocked");
   });

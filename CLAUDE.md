@@ -929,8 +929,9 @@ fast and clever, every time.
     `vault.ts`, same shape as `autoLockMinutes`), enforced at the source —
     `connectServer`/`enrollWithServer` refuse outright while it's set, and
     `setLocalOnly(true)` itself (background) still refuses while a server is
-    connected. The popup's Settings toggle therefore asks for confirmation,
-    disconnects, then sets the flag, so the user never sees the refusal.
+    connected. The popup's Settings toggle therefore, when a server is
+    connected, asks for confirmation and disconnects before setting the flag,
+    so the user never sees the refusal; with no server it sets the flag directly.
     `scheduleSync`/`syncOnUnlock` short-circuit before ever reaching
     `connectedClient()`. Settings gained a "Never sync this vault" toggle;
     the Sync screen shows an explanatory line instead of the connect form
