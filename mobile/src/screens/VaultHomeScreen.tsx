@@ -6,6 +6,7 @@ import type { ItemContent } from '../itemContent';
 import Icon from '../icons';
 import ItemAvatar from '../ItemAvatar';
 import { copyForAWhile } from '../lib/clipboard';
+import { countLogins, countUserItems } from '../lib/itemCount';
 import { displayName, text } from '../itemContent';
 import LogoMark from '../LogoMark';
 import type { VaultStackScreenProps } from '../navigation';
@@ -122,7 +123,7 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
       return (lastUsed[b.id] ?? 0) - (lastUsed[a.id] ?? 0);
     });
 
-  const isEmptyVault = items !== null && items.length === 0;
+  const isEmptyVault = items !== null && countUserItems(items) === 0;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -151,7 +152,7 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
           ItemSeparatorComponent={() => <View style={styles.rowGap} />}
           ListHeaderComponent={
             <View style={styles.header}>
-              <SearchBar value={query} onChangeText={setQuery} placeholder={`Search ${(items ?? []).length} items`} />
+              <SearchBar value={query} onChangeText={setQuery} placeholder={`Search ${countLogins(items ?? [])} logins`} />
               <View style={styles.browseSection}>
                 <Text style={styles.sectionLabel}>Browse</Text>
                 <View style={styles.browseGrid}>
