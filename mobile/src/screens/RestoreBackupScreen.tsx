@@ -6,6 +6,7 @@ import Icon from '../icons';
 import type { VaultBackup } from '../vault';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, Field, SecretField } from '../ui';
+import { useHardwareBack } from '../useHardwareBack';
 
 /**
  * Restores a vault from a file made with Settings' "Export backup" -- on
@@ -27,6 +28,10 @@ export default function RestoreBackupScreen(props: {
   const [pickError, setPickError] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [deviceName, setDeviceName] = useState('');
+  useHardwareBack(() => {
+    if (props.onExit !== undefined) { props.onExit(); return true; }
+    return false;
+  });
 
   const choose = async () => {
     setPickError(null);
