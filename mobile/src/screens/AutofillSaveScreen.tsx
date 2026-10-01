@@ -48,7 +48,7 @@ export default function AutofillSaveScreen(props: { domain: string; caller: stri
               </Text>
             </View>
           </View>
-          <Pressable style={styles.closeButton} onPress={() => Autofill.discardSave()} hitSlop={8}>
+          <Pressable style={styles.closeButton} onPress={() => Autofill.discardSave()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
             <Icon name="close" size={18} color={colors.ink} />
           </Pressable>
         </View>

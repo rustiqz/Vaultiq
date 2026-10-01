@@ -38,7 +38,7 @@ export default function ChangeMasterPasswordScreen({ navigation }: SettingsStack
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.appBar}>
-        <Pressable style={styles.back} onPress={() => navigation.goBack()} hitSlop={8}>
+        <Pressable style={styles.back} onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
           <Icon name="chevronLeft" size={22} color={colors.ink} />
         </Pressable>
         <Text style={styles.appBarTitle}>Change master password</Text>
@@ -48,11 +48,10 @@ export default function ChangeMasterPasswordScreen({ navigation }: SettingsStack
           Re-wraps the vault key, so no item is re-encrypted and nothing has to re-sync. Other devices pick the change up the
           next time they sync. The old password then opens nothing, and there is no way back.
         </Text>
-        <SecretField label="Current password" value={current} onChangeText={setCurrent} />
-        <SecretField label="New password" value={next} onChangeText={setNext} />
-        <SecretField label="Confirm new password" value={confirm} onChangeText={setConfirm} />
-        {mismatch && <Text style={styles.error}>Passwords don't match.</Text>}
-        {error !== null && <Text style={styles.error}>{error}</Text>}
+        <SecretField label="Current password" value={current} onChangeText={value => { setCurrent(value); setError(null); }} />
+        <SecretField label="New password" value={next} onChangeText={value => { setNext(value); setError(null); }} />
+        <SecretField label="Confirm new password" value={confirm} onChangeText={value => { setConfirm(value); setError(null); }} />
+        {mismatch ? <Text style={styles.error}>Passwords don't match.</Text> : error !== null ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
       <View style={styles.footer}>
         <Button title={busy ? 'Changing…' : 'Change password'} disabled={!canSubmit} onPress={submit} />

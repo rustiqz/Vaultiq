@@ -43,7 +43,7 @@ export default function QrScannerView(props: {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appBar}>
-        <Pressable style={styles.back} onPress={props.onCancel}>
+        <Pressable style={styles.back} onPress={props.onCancel} accessibilityRole="button" accessibilityLabel="Back">
           <Icon name="chevronLeft" size={22} color={colors.onInk} />
         </Pressable>
         <Text style={styles.appBarTitle}>{props.title}</Text>
