@@ -55,7 +55,7 @@ export default function RestoreBackupScreen(props: {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.appBar}>
-        <Pressable style={styles.back} onPress={() => props.onExit?.()} hitSlop={8}>
+        <Pressable style={styles.back} onPress={() => props.onExit?.()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
           <Icon name="chevronLeft" size={22} color={colors.ink} />
         </Pressable>
       </View>

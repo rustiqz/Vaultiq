@@ -69,6 +69,8 @@ export default function CreateVaultScreen(props: {
         <View style={styles.appBar}>
           <Pressable
             style={styles.back}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
             onPress={() => (step === 'welcome' ? props.onExit?.() : setStep(step === 'password' ? 'device' : 'welcome'))}
             hitSlop={8}
           >
@@ -125,7 +127,7 @@ export default function CreateVaultScreen(props: {
                 onChangeText={setToken}
                 error={props.error ?? undefined}
               />
-              <Pressable style={styles.pasteButton} onPress={() => Clipboard.getString().then(setToken)}>
+              <Pressable style={styles.pasteButton} onPress={() => Clipboard.getString().then(setToken)} accessibilityRole="button" accessibilityLabel="Paste from clipboard">
                 <Icon name="copy" size={18} color={colors.ink} />
               </Pressable>
             </View>

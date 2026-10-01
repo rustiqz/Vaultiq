@@ -63,6 +63,8 @@ export default function AuthenticatorScreen() {
         <Text style={styles.title}>Codes</Text>
         <Pressable
           style={styles.appBarAction}
+          accessibilityRole="button"
+          accessibilityLabel="Add authenticator"
           onPress={() => navigation.navigate('Vault', { screen: 'ItemEdit', params: { mode: 'create', itemType: 'totp' } })}
         >
           <Icon name="plus" size={21} color={colors.ink} />
