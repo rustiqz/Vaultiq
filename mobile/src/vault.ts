@@ -5,6 +5,7 @@ import * as storage from './storage';
 import type { EnrollmentState, VaultRecord } from './storage';
 import * as syncClient from './syncClient';
 import { randomItemId } from './lib/id';
+import { contentWithType } from './lib/itemType';
 import type { ItemContent } from './itemContent';
 
 /** Format version for {@link VaultBackup}. Bump on any layout change. */
@@ -540,7 +541,7 @@ async function decryptAll(items: EncryptedItem[]): Promise<DecryptedItem[]> {
       purged?: boolean;
     };
     if (content.purged === true) continue;
-    decrypted.push({ id: item.id, itemType: item.itemType, version: item.version, deleted: item.deleted, content });
+    decrypted.push({ id: item.id, itemType: item.itemType, version: item.version, deleted: item.deleted, content: contentWithType(item.itemType, content) });
   }
   return decrypted;
 }
