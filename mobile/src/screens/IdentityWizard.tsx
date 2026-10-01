@@ -7,6 +7,7 @@ import type { VaultStackScreenProps } from '../navigation';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, Chip, Field } from '../ui';
 import * as vault from '../vault';
+import { useHardwareBack } from '../useHardwareBack';
 
 type Step = 0 | 1 | 2 | 3;
 const STEP_LABELS = ['Name', 'Contact', 'Address', 'Review'] as const;
@@ -44,6 +45,10 @@ export default function IdentityWizard({ route, navigation }: VaultStackScreenPr
   const [content, setContent] = useState<Record<string, unknown>>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useHardwareBack(() => {
+    if (step > 0) { setStep(s => (s - 1) as Step); return true; }
+    return false;
+  });
 
   const set = (key: string) => (value: string) => setContent(current => ({ ...current, [key]: value }));
   const value = (key: string) => str(content, key);
