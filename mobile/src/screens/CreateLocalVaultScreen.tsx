@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '../icons';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, SecretField } from '../ui';
+import { useHardwareBack } from '../useHardwareBack';
 
 /**
  * Creates a vault that stays on this device only -- no server, no
@@ -20,11 +21,15 @@ export default function CreateLocalVaultScreen(props: {
   onExit?: () => void;
 }) {
   const [password, setPassword] = useState('');
+  useHardwareBack(() => {
+    if (props.onExit !== undefined) { props.onExit(); return true; }
+    return false;
+  });
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.appBar}>
-        <Pressable style={styles.back} onPress={() => props.onExit?.()} hitSlop={8}>
+        <Pressable style={styles.back} onPress={() => props.onExit?.()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
           <Icon name="chevronLeft" size={22} color={colors.ink} />
         </Pressable>
       </View>

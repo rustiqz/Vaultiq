@@ -79,6 +79,8 @@ async function clearEnrollment(): Promise<void> {
 // reset it). 0 means "never", matching the extension's setting.
 const AUTO_LOCK_KEY = 'vaultiq:autoLockMinutes';
 const DEFAULT_AUTO_LOCK_MINUTES = 15;
+type AutoLockListener = (minutes: number) => void;
+const autoLockListeners = new Set<AutoLockListener>();
 
 const THEME_MODE_KEY = 'vaultiq:themeMode';
 type ThemeMode = 'system' | 'light' | 'dark';
@@ -90,6 +92,19 @@ async function readAutoLockMinutes(): Promise<number> {
 
 async function writeAutoLockMinutes(minutes: number): Promise<void> {
   await AsyncStorage.setItem(AUTO_LOCK_KEY, String(minutes));
+  for (const listener of autoLockListeners) {
+    try {
+      listener(minutes);
+    } catch {
+      // A failing subscriber must not prevent the others from updating.
+    }
+  }
+}
+
+/** Calls the listener after successful writes. Unsubscribing twice is safe. */
+function subscribeAutoLockMinutes(listener: AutoLockListener): () => void {
+  autoLockListeners.add(listener);
+  return () => { autoLockListeners.delete(listener); };
 }
 
 async function readThemeMode(): Promise<ThemeMode> {
@@ -174,6 +189,7 @@ export {
   clearLocalItems,
   clearSyncCache,
   readAutoLockMinutes,
+  subscribeAutoLockMinutes,
   readEnrollment,
   readLastUsed,
   readLocalItems,

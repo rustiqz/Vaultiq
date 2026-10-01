@@ -2,25 +2,19 @@ import Biometric from './nativeBiometric';
 import CryptoCore from './nativeCryptoCore';
 import type { EncryptedItem, PasswordStrength } from './nativeCryptoCore';
 import * as storage from './storage';
-import type { EnrollmentState, VaultRecord } from './storage';
+import type { EnrollmentState } from './storage';
 import * as syncClient from './syncClient';
 import { randomItemId } from './lib/id';
+import { contentWithType } from './lib/itemType';
+import { fromAnyBackup, toCanonicalBackup } from './lib/backupFormat';
+import type { CanonicalBackup, InternalBackup } from './lib/backupFormat';
 import type { ItemContent } from './itemContent';
 
 /** Format version for {@link VaultBackup}. Bump on any layout change. */
 const BACKUP_FORMAT = 1;
 
-/**
- * A full, offline copy of a vault: the wrapped key and every item exactly as
- * stored, restorable with the master password alone. See CLAUDE.md §0.
- */
-export interface VaultBackup {
-  kind: 'vaultiq-backup';
-  format: number;
-  exportedAt: string;
-  vault: VaultRecord;
-  items: EncryptedItem[];
-}
+/** A parsed backup file is untrusted until fromAnyBackup validates it. */
+export type VaultBackup = Record<string, unknown>;
 
 /**
  * Vault enrollment/unlock orchestration -- the mobile analogue of
@@ -211,32 +205,19 @@ async function createLocalVaultAndUnlock(deviceName: string, password: string): 
   await storage.writeEnrollment(enrollment);
 }
 
-function isVaultBackup(value: unknown): value is VaultBackup {
-  if (typeof value !== 'object' || value === null) return false;
-  const backup = value as Partial<VaultBackup>;
-  return (
-    backup.kind === 'vaultiq-backup' &&
-    typeof backup.format === 'number' &&
-    typeof backup.vault === 'object' &&
-    backup.vault !== null &&
-    typeof backup.vault.saltB64 === 'string' &&
-    Array.isArray(backup.items)
-  );
-}
-
 /**
  * A full, offline copy of the vault: the wrapped key, its salt and costs,
- * and every item exactly as stored.
+ * and every item in the canonical file layout.
  *
- * A local-only vault touches no key material to produce this -- `EncryptedItem`
- * is already exactly the wire shape `storage.readLocalItems()` holds, so this
- * is a straight read. A server-backed vault has no guarantee its local cache
+ * A local-only vault touches no key material to produce this -- its stored
+ * ciphertext is converted to the canonical file layout after a straight read.
+ * A server-backed vault has no guarantee its local cache
  * (`storage.ts`'s `SyncCache`) already holds every item -- only that it will,
  * once caught up -- so this calls the same `syncCiphertext` helper
  * `pullItems()` uses to catch it up first, which does need the vault
  * unlocked and a network round trip.
  */
-async function exportBackup(): Promise<VaultBackup> {
+async function exportBackup(): Promise<CanonicalBackup> {
   const enrollment = await storage.readEnrollment();
   if (enrollment === null) throw new Error('not enrolled on this device yet');
 
@@ -245,18 +226,19 @@ async function exportBackup(): Promise<VaultBackup> {
       ? await storage.readLocalItems()
       : await authenticated((url, deviceId, cred) => syncCiphertext(url, deviceId, cred));
 
-  return {
+  const internal: InternalBackup = {
     kind: 'vaultiq-backup',
     format: BACKUP_FORMAT,
     exportedAt: new Date().toISOString(),
     vault: enrollment.vault,
     items,
   };
+  return toCanonicalBackup(internal);
 }
 
 /**
- * Restores a vault from {@link exportBackup}'s output, onto a device that
- * does not have one yet.
+ * Restores either the canonical or older mobile file layout onto a device
+ * that does not have a vault yet.
  *
  * Always lands as a local-only vault (`mode: 'local'`), regardless of
  * whether the backup's original vault was server-backed -- simplest, needs
@@ -270,29 +252,26 @@ async function exportBackup(): Promise<VaultBackup> {
  */
 async function restoreBackup(backup: VaultBackup, masterPassword: string, deviceName?: string): Promise<void> {
   if ((await storage.readEnrollment()) !== null) throw new Error('This device already has a vault.');
-  if (!isVaultBackup(backup)) throw new Error('That file is not a Vaultiq backup.');
-  if (backup.format !== BACKUP_FORMAT) {
-    throw new Error('This backup was made by a version of Vaultiq this build cannot read.');
-  }
+  const internal = fromAnyBackup(backup);
 
   // A wrong password fails here, indistinguishably from a tampered record --
   // the same crypto-core error `unlock` surfaces for either -- and leaves
   // the module holding the key on success, exactly as a normal unlock does.
   await CryptoCore.unlock(
     masterPassword,
-    backup.vault.saltB64,
-    backup.vault.argon2.memoryKib,
-    backup.vault.argon2.iterations,
-    backup.vault.argon2.parallelism,
-    backup.vault.wrappedVaultKey,
+    internal.vault.saltB64,
+    internal.vault.argon2.memoryKib,
+    internal.vault.argon2.iterations,
+    internal.vault.argon2.parallelism,
+    internal.vault.wrappedVaultKey,
   );
 
-  await storage.writeLocalItems(backup.items);
+  await storage.writeLocalItems(internal.items);
   const normalizedDeviceName = deviceName?.trim();
   const enrollment: EnrollmentState = {
     mode: 'local',
     ...(normalizedDeviceName ? { deviceName: normalizedDeviceName } : {}),
-    vault: backup.vault,
+    vault: internal.vault,
   };
   await storage.writeEnrollment(enrollment);
 }
@@ -540,7 +519,7 @@ async function decryptAll(items: EncryptedItem[]): Promise<DecryptedItem[]> {
       purged?: boolean;
     };
     if (content.purged === true) continue;
-    decrypted.push({ id: item.id, itemType: item.itemType, version: item.version, deleted: item.deleted, content });
+    decrypted.push({ id: item.id, itemType: item.itemType, version: item.version, deleted: item.deleted, content: contentWithType(item.itemType, content) });
   }
   return decrypted;
 }

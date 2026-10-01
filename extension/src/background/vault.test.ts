@@ -230,6 +230,56 @@ describe("backup", () => {
     expect(await vault.status()).toBe("unlocked");
   });
 
+  it("restores a backup written by the mobile app", async () => {
+    const id = await withOneItem();
+    const backup = await vault.exportBackup();
+    const mobileShape = (source: VaultBackup) => ({
+      ...source,
+      vault: {
+        saltB64: source.vault.saltB64,
+        argon2: {
+          memoryKib: source.vault.memoryKib,
+          iterations: source.vault.iterations,
+          parallelism: source.vault.parallelism,
+        },
+        wrappedVaultKey: source.vault.wrappedVaultKey,
+      },
+      items: source.items.map(item => ({
+        id: item.id,
+        itemType: item.item_type,
+        format: item.format,
+        ciphertext: btoa(String.fromCharCode(...item.ciphertext)),
+        nonce: btoa(String.fromCharCode(...item.nonce)),
+        version: item.version,
+        updatedAt: item.updated_at,
+        deleted: item.deleted,
+      })),
+    });
+    db.vault = undefined;
+    db.items.clear();
+
+    await vault.restoreBackup(mobileShape(backup), "correct horse battery staple");
+
+    // The costs must come out of the nested `argon2` object: the fake crypto
+    // ignores them, so only this assertion tells the old reader (which read
+    // them as undefined) from the new one.
+    expect(cryptoFake.deriveMasterKey).toHaveBeenLastCalledWith(
+      expect.any(String),
+      backup.vault.saltB64,
+      backup.vault.memoryKib,
+      backup.vault.iterations,
+      backup.vault.parallelism,
+    );
+    expect(db.vault).toMatchObject({
+      saltB64: backup.vault.saltB64,
+      memoryKib: backup.vault.memoryKib,
+      iterations: backup.vault.iterations,
+      parallelism: backup.vault.parallelism,
+    });
+    expect(db.items.has(id)).toBe(true);
+    expect(await vault.status()).toBe("unlocked");
+  });
+
   it("refuses when a vault already exists", async () => {
     await withOneItem();
     const backup = await vault.exportBackup();

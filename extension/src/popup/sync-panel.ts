@@ -135,11 +135,11 @@ function devices(fail: Fail): HTMLElement {
         if (response.kind !== "remoteDevices") return;
         list.replaceChildren(...response.devices.map((device) => row(device, paint, fail)));
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         list.replaceChildren(
           el("li", {
             className: "muted",
-            textContent: error instanceof Error ? error.message : "Could not list devices.",
+            textContent: "Device list unavailable.",
           }),
         );
       });
