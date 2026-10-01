@@ -233,6 +233,8 @@ function App(props: { autofillRequest?: AutofillRequest }) {
     });
   }, []);
 
+  useEffect(() => storage.subscribeAutoLockMinutes(setAutoLockMinutes), []);
+
   const changeTheme = (mode: storage.ThemeMode) => {
     setThemeMode(mode);
     Appearance.setColorScheme(mode === 'system' ? 'unspecified' : mode);
