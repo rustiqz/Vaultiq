@@ -202,7 +202,7 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
         <SectionLabel>Data</SectionLabel>
         <Card style={styles.group}>
           <Pressable style={styles.groupRow} onPress={() => navigation.navigate('Import')}>
-            <Text style={[styles.rowLabel, styles.groupRowFlex]}>Import from CSV</Text>
+            <Text style={[styles.rowLabel, styles.groupRowFlex]}>Import from file</Text>
             <Icon name="chevronRight" size={16} color={colors.ink} />
           </Pressable>
           <Pressable style={[styles.groupRow, styles.groupRowDivider]} onPress={exportVault} disabled={exportingBusy}>
