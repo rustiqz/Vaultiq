@@ -81,13 +81,15 @@ function SecretField(props: {
             {revealed ? props.value : '•'.repeat(Math.min(props.value.length, 14))}
           </Text>
         )}
-        <Pressable style={styles.secretAction} onPress={() => setRevealed(r => !r)}>
+        <Pressable style={styles.secretAction} onPress={() => setRevealed(r => !r)} accessibilityRole="button" accessibilityLabel={`${revealed ? 'Hide' : 'Show'} ${props.label}`}>
           {/* No separate closed-eye glyph in the design -- the toggle reuses this one. */}
           <Icon name="reveal" size={19} color={colors.ink} />
         </Pressable>
         {props.onCopy !== undefined && (
           <Pressable
             style={[styles.secretAction, styles.secretActionFilled]}
+            accessibilityRole="button"
+            accessibilityLabel={`Copy ${props.label}`}
             onPress={() => {
               props.onCopy?.();
               markCopied();
@@ -159,13 +161,15 @@ function DetailField(props: { label: string; value: string; secure?: boolean; on
         </Text>
         <View style={styles.detailActions}>
           {props.secure === true && (
-            <Pressable style={styles.detailAction} onPress={() => setRevealed(r => !r)}>
+            <Pressable style={styles.detailAction} onPress={() => setRevealed(r => !r)} accessibilityRole="button" accessibilityLabel={`${revealed ? 'Hide' : 'Show'} ${props.label}`}>
               <Icon name="reveal" size={16} color={colors.ink} />
             </Pressable>
           )}
           {props.onCopy !== undefined && (
             <Pressable
               style={styles.detailAction}
+              accessibilityRole="button"
+              accessibilityLabel={`Copy ${props.label}`}
               onPress={() => {
                 props.onCopy?.();
                 markCopied();
