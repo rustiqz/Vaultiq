@@ -128,6 +128,8 @@ export default function IdentityWizard({ route, navigation }: VaultStackScreenPr
       <View style={styles.appBar}>
         <Pressable
           style={styles.back}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
           onPress={() => (step === 0 ? navigation.goBack() : setStep(s => (s - 1) as Step))}
           hitSlop={8}
         >

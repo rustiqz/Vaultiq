@@ -132,7 +132,7 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
           <LogoMark size={26} color={colors.ink} />
           <Text style={styles.brandWordmark}>Vaultiq</Text>
         </View>
-        <Pressable style={styles.appBarAction} onPress={() => setPickerVisible(true)}>
+        <Pressable style={styles.appBarAction} onPress={() => setPickerVisible(true)} accessibilityRole="button" accessibilityLabel="New item">
           <Icon name="plus" size={21} color={colors.ink} />
         </Pressable>
       </View>
