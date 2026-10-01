@@ -183,11 +183,12 @@ fast and clever, every time.
     design (`extension/src/background/vault.ts`) rather than inventing a
     parallel one: every mutation is a fresh encryption at `version + 1`
     (never an in-place field change, since `version`/`deleted` are bound
-    into the AEAD), and delete is a tombstone — content replaced with
+    into the AEAD), and delete from Item Detail moves the item to Trash —
+    the same content re-encrypted with `deleted: true`, recoverable via
+    `restoreItem`. Trash is a separate screen reached from Settings;
+    `purgeItem` is the permanent tombstone — content replaced with
     `{"purged": true}`, `deleted: true` — the mobile analogue of the
-    extension's `purgeItem`. There's no separate soft-delete/trash screen
-    here, so unlike the extension's two-stage trash-then-purge, this is the
-    only kind of delete: permanent, with a confirmation dialog first.
+    extension's `purgeItem`.
     Deliberately simpler than the extension in two ways: pushes happen
     immediately per operation rather than through a debounced outbox (the
     extension's `synced_version`-vs-`version` dirty tracking exists to
@@ -889,10 +890,11 @@ fast and clever, every time.
     filesystem dependency needed. `errorCodes.OPERATION_CANCELED` is
     treated as "nothing happened," not an error, matching the existing
     `biometric_cancelled` convention in `vault.ts`. New `ImportScreen.tsx`,
-    reached from a new "Data" section in Settings, mirrors the same
-    pick → preview (toggleable `FlatList` rows) → import flow, looping
-    `vault.addItem` per included row in its own `try`/`catch` so one
-    failure doesn't abort the batch — `addItem` was already mode-aware
+    reached from a new "Data" section in Settings; the row is labelled
+    "Import from file" and handles CSV, Bitwarden JSON and Proton Pass JSON.
+    It mirrors the same pick → preview (toggleable `FlatList` rows) → import
+    flow, looping `vault.addItem` per included row in its own `try`/`catch`
+    so one failure doesn't abort the batch — `addItem` was already mode-aware
     (local-only-vault-mode work), so this screen never needs to know which
     kind of vault it's importing into. The package's own jest mock isn't
     reachable from outside it (`ERR_PACKAGE_PATH_NOT_EXPORTED` on its
@@ -926,8 +928,9 @@ fast and clever, every time.
     `browser.storage.local` flag (`isLocalOnly`/`setLocalOnly` in
     `vault.ts`, same shape as `autoLockMinutes`), enforced at the source —
     `connectServer`/`enrollWithServer` refuse outright while it's set, and
-    `setLocalOnly(true)` itself refuses while a server is connected, forcing
-    an explicit disconnect first rather than doing both silently.
+    `setLocalOnly(true)` itself (background) still refuses while a server is
+    connected. The popup's Settings toggle therefore asks for confirmation,
+    disconnects, then sets the flag, so the user never sees the refusal.
     `scheduleSync`/`syncOnUnlock` short-circuit before ever reaching
     `connectedClient()`. Settings gained a "Never sync this vault" toggle;
     the Sync screen shows an explanatory line instead of the connect form
@@ -1042,11 +1045,15 @@ fast and clever, every time.
   crate produces; this is pure bundling at the application layer, not a new
   crypto format.
   - **The envelope**: `{kind: "vaultiq-backup", format, exportedAt, vault:
-    {saltB64, memoryKib/argon2, iterations, parallelism, wrappedVaultKey},
+    {saltB64, memoryKib, iterations, parallelism, wrappedVaultKey},
     items}`, versioned from the first commit like every other persisted
-    format (CLAUDE.md §4.9). No file-level encryption on top — every field is
-    already ciphertext or a wrapped key at the same strength as at-rest
-    storage, so a second KDF layer would protect nothing new; see
+    format (CLAUDE.md §4.9). Both clients write the extension's flat layout
+    (`vault.memoryKib`, `item_type`, `ciphertext`/`nonce` as byte arrays) and
+    read either that or mobile's earlier nested layout; see ADR-1
+    (`.design/adr/1-backup-envelope-canonical-shape.md`). No file-level
+    encryption on top — every field is already ciphertext or a wrapped key
+    at the same strength as at-rest storage, so a second KDF layer would
+    protect nothing new; see
     SECURITY.md's new "An exported backup file" entry for the reasoning and
     the one real difference from at-rest storage (portability, not
     protection). Trashed-but-not-purged items are included (still real,
