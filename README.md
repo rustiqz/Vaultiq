@@ -72,6 +72,9 @@ The full key hierarchy, and what an attacker gets in each scenario, is in
 
 ## Getting started
 
+The user guide is at [vaultiq.rustiq.in/docs](https://vaultiq.rustiq.in/docs/)
+(source in [`guide/`](guide/)).
+
 Short versions below. The full build, test and deployment guide, including the
 manual autofill test page and server test setup, is in
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
@@ -138,6 +141,7 @@ cargo build --features wasm
 | `mobile/` | React Native Android app |
 | `server/` | NestJS and PostgreSQL sync server, plus the admin CLI |
 | `site/` | Static landing page |
+| `guide/` | mdBook user guide, published under `/docs/` |
 
 ## Known limitations
 
