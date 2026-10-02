@@ -59,3 +59,8 @@ output/
 
 # Personal working-rules file for local tooling; not part of the project.
 CLAUDE.md
+
+# Local design/skill tooling, not part of the project.
+/.agents/
+/skills-lock.json
+/DESIGN.md
