@@ -8,8 +8,8 @@
 # history and the same tags; a component's version is that history filtered by
 # path.
 #
-#   scripts/component-versions.sh            print a markdown table
-#   scripts/component-versions.sh --write    also write the versions into files
+#   scripts/component-versions.sh            print a four-component markdown table
+#   scripts/component-versions.sh --write    also write manifest and Android versions
 #
 # Run by the release job before it tags, so the tagged tree states the truth.
 
@@ -91,25 +91,47 @@ resolve() {
 }
 
 # A component's paths cover everything that lands in its artifact, not merely
-# its own directory. The extension bundles the crypto core as wasm, so a
-# core-only change alters the shipped extension and must move its version —
-# otherwise two different builds would claim to be the same version. The
-# server is the opposite case: it stores ciphertext and never opens it, so it
-# bundles no crypto core.
+# its own directory. The extension bundles the crypto core as wasm, and mobile
+# bundles it through FFI/uniffi, so a core-only change alters both shipped
+# artifacts and must move their versions. Otherwise two different builds
+# would claim to be the same version. The server stores ciphertext and never
+# opens it, so it bundles no crypto core.
 core_version=$(resolve pw-crypto-core)
 extension_version=$(resolve extension pw-crypto-core)
 server_version=$(resolve server)
+mobile_version=$(resolve mobile pw-crypto-core)
 
 # Manifest versions are plain dotted numbers; the tag stream carries a v.
 core_plain=${core_version#v}
 extension_plain=${extension_version#v}
 server_plain=${server_version#v}
+mobile_plain=${mobile_version#v}
 
 if $write; then
-  python3 - "$core_plain" "$extension_plain" "$server_plain" <<'PY'
+  python3 - "$core_plain" "$extension_plain" "$server_plain" "$mobile_plain" <<'PY'
 import json, re, sys
 
-core, extension, server = sys.argv[1], sys.argv[2], sys.argv[3]
+core, extension, server, mobile = sys.argv[1:]
+
+match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", mobile)
+if match is None:
+    raise SystemExit(f"invalid mobile version: {mobile}")
+major, minor, patch = map(int, match.groups())
+if minor >= 1000 or patch >= 1000:
+    raise SystemExit(f"mobile minor and patch must be below 1000: {mobile}")
+version_code = major * 1000000 + minor * 1000 + patch
+
+gradle_path = "mobile/android/app/build.gradle"
+gradle = open(gradle_path).read()
+for key, value, pattern in (
+    ("versionCode", str(version_code), r"(?m)^([ \t]*versionCode[ \t]+)\d+([ \t]*)$"),
+    ("versionName", f'"{mobile}"', r'(?m)^([ \t]*versionName[ \t]+)"[^"]*"([ \t]*)$'),
+):
+    gradle, replaced = re.subn(
+        pattern, lambda match: f"{match.group(1)}{value}{match.group(2)}", gradle
+    )
+    if replaced != 1:
+        raise SystemExit(f"expected one {key} in {gradle_path}, found {replaced}")
 
 # Only the version inside [package] — a blind substitution would rewrite every
 # pinned dependency in the file.
@@ -132,12 +154,14 @@ open(path, "w").write(text.replace(block, updated, 1))
 for path, version in (
     ("extension/package.json", extension),
     ("server/package.json", server),
+    ("mobile/package.json", mobile),
 ):
     manifest = json.load(open(path))
     manifest["version"] = version
     open(path, "w").write(json.dumps(manifest, indent=2) + "\n")
+open(gradle_path, "w").write(gradle)
 PY
-  echo "wrote pw-crypto-core=$core_plain extension=$extension_plain server=$server_plain" >&2
+  echo "wrote pw-crypto-core=$core_plain extension=$extension_plain server=$server_plain mobile=$mobile_plain" >&2
 fi
 
 cat <<TABLE
@@ -146,4 +170,5 @@ cat <<TABLE
 | \`pw-crypto-core\` | $core_version |
 | \`extension\` | $extension_version |
 | \`server\` | $server_version |
+| \`mobile\` | $mobile_version |
 TABLE

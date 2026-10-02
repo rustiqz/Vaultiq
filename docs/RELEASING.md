@@ -63,6 +63,7 @@ component's shipped artifact changes:
 | `pw-crypto-core` | `pw-crypto-core/**` | `pw-crypto-core/Cargo.toml` |
 | `extension` | `extension/**`, `pw-crypto-core/**` | `extension/package.json`, copied into `manifest.json` at build |
 | `server` | `server/**` | `server/package.json`, copied into the image and reported at boot |
+| `mobile` | `mobile/**`, `pw-crypto-core/**` | `mobile/package.json`, `mobile/android/app/build.gradle` |
 
 All three come from the same commits and the same tags, computed by
 `scripts/component-versions.sh`: a component that changed since the last tag
