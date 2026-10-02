@@ -1,6 +1,6 @@
 {
   "name": "vaultiq-extension",
-  "version": "0.44.1",
+  "version": "0.45.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.3.0",
