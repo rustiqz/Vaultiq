@@ -20,8 +20,7 @@ pub const MASTER_KEY_LEN: usize = 32;
 /// Argon2id cost parameters.
 ///
 /// These are persisted alongside the vault rather than hardcoded at the read
-/// path, so costs can be raised later without breaking existing vaults
-/// (CLAUDE.md §4.10).
+/// path, so costs can be raised later without breaking existing vaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Argon2Params {
     /// Memory cost, in kibibytes.
@@ -185,7 +184,7 @@ mod tests {
     use super::*;
     use crate::test_util::hex;
 
-    /// Test-only password. Never use a real one, even locally (CLAUDE.md §2.6).
+    /// Test-only password. Never use a real one, even locally.
     const TEST_PASSWORD: &str = "correct horse battery staple";
     const TEST_SALT_HEX: &str = "000102030405060708090a0b0c0d0e0f";
 

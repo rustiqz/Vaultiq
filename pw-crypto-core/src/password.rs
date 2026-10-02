@@ -236,7 +236,7 @@ pub enum StrengthLevel {
 /// the kind of thing a rule-based wordlist attack is built for. Catching that
 /// needs either a dictionary (which costs sixteen times this crate's entire
 /// wasm bundle, measured) or a breach-corpus lookup, which would mean a
-/// network call this crate must never make (CLAUDE.md §2.5).
+/// network call this crate must never make.
 ///
 /// The run penalty does catch the most obvious cases — `Password123456789!`
 /// scores as weak, because the nine-digit sequence is charged for.

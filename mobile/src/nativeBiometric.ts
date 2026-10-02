@@ -5,7 +5,7 @@ import { NativeModules } from 'react-native';
  * android/app/src/main/java/com/vaultiq/mobile/BiometricModule.kt).
  * Encrypts/decrypts the cached master password under a Keystore key gated
  * by biometric auth -- it never touches the vault key or pw-crypto-core at
- * all, deliberately a separate, simpler mechanism (CLAUDE.md §0).
+ * all, deliberately a separate, simpler mechanism (docs/STATUS.md).
  */
 type SealedPassword = {
   ciphertextB64: string;

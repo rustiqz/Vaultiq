@@ -1,7 +1,7 @@
 import { DynamicColorIOS, Platform, PlatformColor, type ColorValue } from 'react-native';
 
 /**
- * Vaultiq mobile redesign v2 palette/type system -- see CLAUDE.md §0.
+ * Vaultiq mobile redesign v2 palette/type system -- see docs/STATUS.md.
  * The light values come from the design canvas project ("Vaultiq Mobile
  * Redesign v2.dc.html"). The dark values keep the same warm cream/brown
  * identity and invert the foreground relationship rather than introducing

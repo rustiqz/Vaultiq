@@ -2,6 +2,7 @@
   "name": "vaultiq-mobile",
   "version": "0.0.1",
   "private": true,
+  "license": "AGPL-3.0-only",
   "packageManager": "pnpm@11.3.0",
   "scripts": {
     "crypto": "scripts/build-crypto-core.sh",

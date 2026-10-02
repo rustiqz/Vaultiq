@@ -1,7 +1,6 @@
 // A record of security-relevant events, for investigating an incident --
-// never a place credentials, tokens, or key material can end up. See
-// CLAUDE.md §2.3's "never log" list; it applies here exactly as it does
-// anywhere else.
+// never a place credentials, tokens, or key material can end up. The
+// project's "never log" rule applies here exactly as it does anywhere else.
 //
 // Written through `pool` directly rather than whatever transaction a caller
 // might be in: a refusal is logged and the caller then throws, which would

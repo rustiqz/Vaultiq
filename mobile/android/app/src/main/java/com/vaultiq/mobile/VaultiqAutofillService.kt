@@ -17,7 +17,7 @@ import android.view.autofill.AutofillId
 import android.widget.RemoteViews
 
 /**
- * Login-only autofill (fill + save), v1 -- CLAUDE.md §0. Deliberately does
+ * Login-only autofill (fill + save), v1 -- docs/STATUS.md. Deliberately does
  * not decrypt or match anything itself: the vault is very likely locked
  * when some other app triggers this (backgrounding already tends to kill
  * this app's process, wiping the held vault key -- see CryptoCoreModule.kt),

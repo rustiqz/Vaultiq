@@ -16,8 +16,8 @@
 //!                                             VaultKey ──XChaCha20-Poly1305──▶ items
 //! ```
 //!
-//! See PROJECT.md for the design and CLAUDE.md for the rules this code is
-//! held to.
+//! See PROJECT.md for the design and CONTRIBUTING.md for the rules this code
+//! is held to.
 //!
 //! # Status
 //!

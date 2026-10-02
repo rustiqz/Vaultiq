@@ -1,5 +1,5 @@
 /**
- * Shared building blocks for the redesign v2 visual system (CLAUDE.md §0) --
+ * Shared building blocks for the redesign v2 visual system (docs/STATUS.md) --
  * every screen is built from these rather than styling its own inputs,
  * buttons and dialogs.
  */

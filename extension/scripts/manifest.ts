@@ -51,7 +51,7 @@ const manifest = {
   },
 
   // Same set as `action.default_icon`, generated from the production
-  // favicon artwork via rsvg-convert -- see CLAUDE.md §0.
+  // favicon artwork via rsvg-convert -- see docs/STATUS.md.
   icons: {
     "16": "icons/16.png",
     "32": "icons/32.png",

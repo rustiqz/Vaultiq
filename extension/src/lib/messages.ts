@@ -339,7 +339,7 @@ export interface BackupItem {
 
 /**
  * A full, offline copy of a vault: the wrapped key and every item exactly as
- * stored, restorable with the master password alone. See CLAUDE.md §0.
+ * stored, restorable with the master password alone. See docs/STATUS.md.
  */
 export interface VaultBackup {
   kind: "vaultiq-backup";

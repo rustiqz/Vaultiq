@@ -1,4 +1,4 @@
-// Test fixtures use fake, obviously-not-real credentials (CLAUDE.md §2.6).
+// Test fixtures use fake, obviously-not-real credentials.
 
 import { parseBitwardenJson } from './bitwardenImport';
 

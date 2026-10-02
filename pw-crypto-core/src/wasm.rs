@@ -2,7 +2,7 @@
 //!
 //! This is a marshalling layer and nothing else: base64 and `JsValue` in,
 //! Rust types out, straight into `kdf` / `keys` / `vault_item`. No crypto
-//! decision is made here (CLAUDE.md §4.13).
+//! decision is made here.
 //!
 //! # Keys never cross into JavaScript
 //!
@@ -46,8 +46,8 @@ use zeroize::Zeroize as _;
 /// No branching on the variant, by design. Wrong password, wrong key,
 /// tampered ciphertext, tampered nonce, altered header and truncated input
 /// must be one indistinguishable outcome on this side of the boundary too —
-/// telling them apart is what a decryption oracle is built from
-/// (CLAUDE.md §2.4). Detailed diagnostics stay on the Rust side, reachable
+/// telling them apart is what a decryption oracle is built from.
+/// Detailed diagnostics stay on the Rust side, reachable
 /// only from a debug build, never from here.
 fn opaque(_error: CryptoError) -> JsError {
     JsError::new("decryption failed")

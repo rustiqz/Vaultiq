@@ -221,4 +221,4 @@ Several things only really prove themselves with two enrolled devices:
   a hard denial — grant it manually in the OS app-info screen for Vaultiq.
 - Found a real bug in the six new features? That's the point of this pass
   — note exactly what you did and what happened, the same level of detail
-  as CLAUDE.md §0's existing bug write-ups, so it's actionable later.
+  as docs/STATUS.md's existing bug write-ups, so it's actionable later.

@@ -1266,7 +1266,7 @@ describe("cards", () => {
 });
 
 describe("identities", () => {
-  // Entirely invented, like every other fixture here (CLAUDE.md §2.6).
+  // Entirely invented, like every other fixture here.
   const IDENTITY = {
     type: "identity",
     firstName: "Ada",
@@ -1327,7 +1327,7 @@ describe("identities", () => {
 });
 
 describe("authenticator accounts", () => {
-  // RFC 6238's own published seed in base32 (CLAUDE.md §2.6).
+  // RFC 6238's own published seed in base32.
   const TOTP = {
     type: "totp",
     issuer: "Example",

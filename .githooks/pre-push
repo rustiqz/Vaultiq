@@ -5,8 +5,8 @@
 # This stands in for server-side branch protection, which GitHub gates behind
 # a paid plan for private repositories. It is a guard rail, not a control: it
 # runs on this machine only and `--no-verify` walks straight past it, which
-# CLAUDE.md §3.6 forbids. Replace it with real protection when the repo goes
-# public — the command is in CLAUDE.md §8.5.
+# CONTRIBUTING.md forbids. Replace it with real protection when the repo goes
+# public — the command is in docs/RELEASING.md.
 #
 # Enable once per clone:
 #   git config core.hooksPath .githooks
@@ -34,13 +34,13 @@ while read -r _local_ref local_sha remote_ref remote_sha; do
   if [ "$remote_sha" != "$ZERO" ] &&
      ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
     echo "pre-push: refusing to force-push $PROTECTED." >&2
-    echo "          This rewrites published history (CLAUDE.md §3.6)." >&2
+    echo "          This rewrites published history." >&2
     exit 1
   fi
 
   echo "pre-push: refusing to push directly to $PROTECTED." >&2
   echo "          Open a PR — CI gates the merge, and the release is cut from it." >&2
-  echo "          (CLAUDE.md §3.2)" >&2
+  echo "" >&2
   exit 1
 done
 

@@ -33,7 +33,7 @@ import uniffi.pw_crypto_core.wrapVaultKey
  *
  * Holds at most one unwrapped [VaultKeyHandle] at a time -- the mobile
  * analogue of the extension's single `warmVaultKey` / `storage.session`
- * (CLAUDE.md §0). Nothing derived from a key ever crosses into JS: [unlock]
+ * (docs/STATUS.md). Nothing derived from a key ever crosses into JS: [unlock]
  * takes a password and resolves with nothing but success/failure, and every
  * later vault operation ([encryptItem]/[decryptItem]) operates on the held
  * handle rather than taking one as an argument from JS. [deriveAuthKey] is
@@ -142,7 +142,7 @@ class CryptoCoreModule(reactContext: ReactApplicationContext) :
      * Derives the master key and unwraps the vault key, holding the result
      * until [lock]. A wrong password surfaces as the same `DecryptionFailed`
      * a tampered record would -- this call is also the only password check
-     * that happens (CLAUDE.md §2.4).
+     * that happens.
      */
     @ReactMethod
     fun unlock(

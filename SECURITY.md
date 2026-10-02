@@ -1,12 +1,62 @@
-# Threat model
+# Security
+
+## Reporting a vulnerability
+
+**Please do not open a public issue or pull request for a security problem.**
+
+Report it privately through GitHub's
+[private vulnerability reporting](https://github.com/rustiqz/Vaultiq/security/advisories/new):
+go to the repository's **Security** tab and choose **Report a vulnerability**.
+
+Include what you found and the component it affects (crypto core, extension,
+server or mobile), the version or commit, steps to reproduce, and what an
+attacker gains. A proof of concept helps. Please use only your own test
+vaults and servers.
+
+Vaultiq is maintained by one person with no support commitment, so there is no
+guaranteed response time. Reports are read and handled on a best-effort basis,
+and a confirmed issue is fixed in a release and credited in its advisory
+unless you prefer otherwise. There is no bug bounty.
+
+### Good-faith research
+
+If you test against your own vault and server, avoid accessing anyone else's
+data, and report privately before disclosing, I will not pursue legal action
+over your research. Please give a reasonable time to fix a problem before
+publishing details.
+
+### Supported versions
+
+Only the latest release receives security fixes. The project is pre-1.0 and has
+not been independently audited.
+
+### In scope
+
+- The crypto core: key derivation, wrapping, item encryption, wasm and FFI
+  bindings
+- The extension, the Android app and the sync server
+- Anything that lets a party without the master password read vault content,
+  or lets the server or a network attacker learn more than the threat model
+  below says it can
+
+### Out of scope
+
+These are documented limits of the design, listed below under what is *not*
+defended against: a compromised or malicious client device, a keylogger, a
+weak master password, and loss of the master password. Reports that only
+restate them are not vulnerabilities.
+
+---
+
+## Threat model
 
 What Vaultiq defends against, what it does not, and why. Written to be read
 before trusting it with anything — including by the person who wrote it, later,
 when the reasoning has faded.
 
 The design is in [PROJECT.md](PROJECT.md); the rules the code is held to are in
-[CLAUDE.md](CLAUDE.md). This file is the claim those two are trying to make
-true.
+[CONTRIBUTING.md](CONTRIBUTING.md). This file is the claim those two are trying
+to make true.
 
 ---
 
@@ -48,7 +98,7 @@ Master password ──Argon2id(salt, 64 MiB, t=3, p=4)──▶ Master key
 | Item ciphertext | IndexedDB, and the server's `items` rows | Permanent |
 | Device credential | Encrypted under the vault key in `storage.local` | Until revoked |
 
-A vault created in local-only mode (extension and mobile, see CLAUDE.md §0)
+A vault created in local-only mode (extension and mobile, see docs/STATUS.md)
 never derives an auth key and has no device credential at all — the Auth key
 row and the server-side half of the Wrapped vault key / Item ciphertext rows
 simply don't exist for it. Everything else in the hierarchy is unchanged.
@@ -144,7 +194,7 @@ log (`audit_log`) records security-relevant events — an account registering,
 a device enrolling or being revoked, a master password changing, a
 registration or enrolment attempt being refused — with a timestamp and which
 account/device they concern. It never records a credential, a token (not
-even a fingerprint of one), or key material, the same list CLAUDE.md §2.3
+even a fingerprint of one), or key material, the same list the project
 holds every other part of this codebase to. Reading it needs the
 `view_audit_log` capability above, and its contents are exactly as available
 to whoever holds a database dump as everything else in the Traffic analysis
@@ -284,12 +334,4 @@ the rest by rules the code is reviewed against:
   live in SQL — including that a refused attempt is still logged even though
   the transaction around the refusal itself rolls back.
 
-See [CLAUDE.md](CLAUDE.md) §2 and §4 for the rules in full.
-
----
-
-## Reporting something
-
-This project has no public deployment yet. If you have found something
-anyway, open an issue describing the class of problem — not a working
-exploit — or contact the repository owner directly.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the rules in full.
