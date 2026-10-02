@@ -221,6 +221,12 @@ jobs:
         working-directory: mobile
         run: pnpm install --frozen-lockfile
 
+      # devConfig.ts is gitignored (local dev defaults); screens import it, so
+      # a fresh checkout needs the committed example in its place.
+      - name: Provide dev config
+        working-directory: mobile
+        run: cp src/devConfig.example.ts src/devConfig.ts
+
       - name: Typecheck
         working-directory: mobile
         run: pnpm exec tsc --noEmit
