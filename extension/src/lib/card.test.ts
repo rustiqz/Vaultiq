@@ -1,5 +1,5 @@
 // The numbers below are the schemes' own published test numbers — they are
-// documentation, not anyone's card (CLAUDE.md §2.6).
+// documentation, not anyone's card.
 
 import { describe, expect, it } from "vitest";
 import { cardBrand, lastFour, normalizeCardNumber } from "./card.js";

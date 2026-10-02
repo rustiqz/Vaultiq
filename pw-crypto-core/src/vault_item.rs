@@ -105,7 +105,7 @@ fn item_aad(format: u8, header: &ItemHeader<'_>) -> Result<Vec<u8>> {
 /// without touching this module.
 ///
 /// The nonce is drawn from the OS CSPRNG inside this function — there is no
-/// parameter for it, so a caller cannot reuse one (CLAUDE.md §4.5).
+/// parameter for it, so a caller cannot reuse one.
 ///
 /// # Errors
 ///
@@ -163,8 +163,7 @@ pub fn encrypt_item(
 ///
 /// [`CryptoError::DecryptionFailed`] for everything else: wrong vault key,
 /// tampered ciphertext, tampered nonce, or a header field that no longer
-/// matches the one bound at encryption time. Indistinguishable on purpose
-/// (CLAUDE.md §2.4).
+/// matches the one bound at encryption time. Indistinguishable on purpose.
 pub fn decrypt_item(item: &EncryptedItem, vault_key: &VaultKey) -> Result<String> {
     if item.format != ENCRYPTED_ITEM_VERSION {
         return Err(CryptoError::InvalidInput(format!(
@@ -211,7 +210,7 @@ mod tests {
     use super::*;
     use crate::test_util::hex;
 
-    /// Test-only content. Obviously fake, and marked so (CLAUDE.md §2.6).
+    /// Test-only content. Obviously fake, and marked so.
     const TEST_JSON: &str =
         r#"{"username":"ada@example.test","password":"hunter2","url":"https://example.test"}"#;
     const TEST_ID: &str = "01J000000000000000000000";

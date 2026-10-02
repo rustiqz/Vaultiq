@@ -2,7 +2,7 @@
 //!
 //! Every secret in this crate goes through this macro so that the three
 //! properties that matter are decided in exactly one place rather than
-//! re-derived per type (CLAUDE.md §2.3):
+//! re-derived per type:
 //!
 //! 1. the bytes are zeroized on drop,
 //! 2. `Debug` is redacted, so a secret can never reach a log via `{:?}`,

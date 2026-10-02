@@ -1,4 +1,4 @@
-// Test fixtures use fake, obviously-not-real credentials (CLAUDE.md §2.6).
+// Test fixtures use fake, obviously-not-real credentials.
 
 import { describe, expect, it } from "vitest";
 import { parseCsv, rowsToItems } from "./csvImport.js";

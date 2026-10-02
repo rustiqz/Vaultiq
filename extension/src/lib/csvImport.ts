@@ -7,7 +7,7 @@
 // for it, the same call this repo already made for `otpauth.ts` and
 // `lib/id.ts`'s UUID helper.
 //
-// v1 recognises login and note rows only -- see CLAUDE.md §1.3 for why
+// v1 recognises login and note rows only;
 // cards/identities/TOTP are deliberately not guessed at from a CSV column.
 
 import type { ItemContent, LoginContent, NoteContent } from "./messages.js";

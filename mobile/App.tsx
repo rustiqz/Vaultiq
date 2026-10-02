@@ -1,5 +1,5 @@
 /**
- * Vaultiq mobile -- redesign v2 shell (CLAUDE.md §0).
+ * Vaultiq mobile -- redesign v2 shell (docs/STATUS.md).
  *
  * Bottom tabs once unlocked: Vault (Logins-first, Browse tiles for the rest
  * -- IA restructure), Codes (live TOTP, grouped by account), Settings.
@@ -7,7 +7,7 @@
  * Item Detail -> Item Edit. Item Detail's edit/delete header icons are
  * wired to a real create/edit form and a real (permanent) delete; favorite
  * stays visual fidelity only, and Autofill has no plumbing and doesn't
- * exist as a screen -- see CLAUDE.md §0 for the full list of what the
+ * exist as a screen -- see docs/STATUS.md for the full list of what the
  * redesign's mockups assume that isn't built yet.
  *
  * @format
@@ -286,7 +286,7 @@ function App(props: { autofillRequest?: AutofillRequest }) {
   });
 
   // Idle auto-lock: a simple foreground-only timer, reset on any touch.
-  // Not full parity with the extension's background alarm (CLAUDE.md §0) --
+  // Not full parity with the extension's background alarm (docs/STATUS.md) --
   // Android backgrounding this app already tends to kill the process,
   // wiping the held vault key regardless, so this covers the gap that
   // matters: staying unlocked while foregrounded and untouched.

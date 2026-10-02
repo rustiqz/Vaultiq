@@ -37,7 +37,7 @@ pub const WRAPPED_VAULT_KEY_VERSION: u8 = 1;
 /// These two strings are the entire reason knowing one derived key gives no
 /// advantage in computing the other. They are versioned, they live here and
 /// nowhere else, and changing either one invalidates every existing vault —
-/// treat an edit to these lines as a data migration (CLAUDE.md §4.8).
+/// treat an edit to these lines as a data migration.
 pub const INFO_AUTH_KEY: &[u8] = b"vaultiq:v1:auth-key";
 
 /// HKDF `info` string for the stretched encryption key. See [`INFO_AUTH_KEY`].
@@ -167,8 +167,7 @@ fn wrap_aad(version: u8) -> Vec<u8> {
 ///
 /// The nonce is drawn from the OS CSPRNG inside this function. There is no
 /// parameter for it, deliberately: a caller who could supply a nonce could
-/// reuse one, and nonce reuse under a single XChaCha20 key is catastrophic
-/// (CLAUDE.md §4.5).
+/// reuse one, and nonce reuse under a single XChaCha20 key is catastrophic.
 ///
 /// # Errors
 ///
@@ -217,8 +216,7 @@ pub fn wrap_vault_key(
 /// [`CryptoError::DecryptionFailed`] for everything else: wrong stretched
 /// key, tampered ciphertext, tampered nonce, altered associated data,
 /// truncated input. These are one indistinguishable outcome on purpose —
-/// telling them apart is what a decryption oracle is built from
-/// (CLAUDE.md §2.4).
+/// telling them apart is what a decryption oracle is built from.
 pub fn unwrap_vault_key(
     wrapped: &WrappedVaultKey,
     stretched_key: &StretchedEncryptionKey,
@@ -266,7 +264,7 @@ mod tests {
     use crate::kdf::{Argon2Params, Salt};
     use crate::test_util::hex;
 
-    /// Test-only password. Never use a real one, even locally (CLAUDE.md §2.6).
+    /// Test-only password. Never use a real one, even locally.
     const TEST_PASSWORD: &str = "correct horse battery staple";
 
     /// The master key pinned by `kdf`'s known-answer vector, re-derived here
@@ -475,7 +473,7 @@ mod tests {
         let wrapped = wrap_vault_key(&vault_key, &old).unwrap();
 
         let new_salt = Salt::from_bytes(&hex::<16>("0f0e0d0c0b0a09080706050403020100")).unwrap();
-        // Test-only password, as fake as the one above (CLAUDE.md §2.6).
+        // Test-only password, as fake as the one above.
         let new_master = MasterKey::derive(
             "a totally different test phrase",
             &new_salt,

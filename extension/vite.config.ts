@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 
 // Explicit entry points, no extension bundler plugin. A plugin that rewrites
 // the output would sit inside the trust boundary of a password manager; the
-// cost of avoiding one is this file (CLAUDE.md §5.1).
+// cost of avoiding one is this file.
 export default defineConfig({
   build: {
     outDir: "dist",

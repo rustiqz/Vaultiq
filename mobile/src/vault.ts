@@ -19,7 +19,7 @@ export type VaultBackup = Record<string, unknown>;
 /**
  * Vault enrollment/unlock orchestration -- the mobile analogue of
  * `enrollWithServer()` / `connectServer()` / `create()` / `unlock()` /
- * `lock()` in extension/src/background/vault.ts. See CLAUDE.md §0.
+ * `lock()` in extension/src/background/vault.ts. See docs/STATUS.md.
  */
 type Status = 'not-enrolled' | 'locked' | 'unlocked';
 
@@ -589,7 +589,7 @@ async function syncCiphertext(url: string, deviceId: string, cred: string): Prom
  * changeMasterPassword since the cache was written), the cache is dropped
  * and rebuilt from a full pull, once -- no special error is surfaced for
  * this, same DecryptionFailed-for-everything rule as any other tampered or
- * mismatched ciphertext (CLAUDE.md §2.4).
+ * mismatched ciphertext.
  */
 async function pullItems(): Promise<DecryptedItem[]> {
   const enrollment = await storage.readEnrollment();

@@ -3,7 +3,7 @@
      since hand-drawing text as vector paths isn't worth it for something
      shown for a fraction of a second. App.tsx's loading view (shown the
      instant JS takes over) adds the "VAULTIQ" wordmark below the same dial,
-     so the transition reads as one continuous screen. See CLAUDE.md §0. -->
+     so the transition reads as one continuous screen. See docs/STATUS.md. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
   <item android:drawable="@color/splash_background" />
   <item

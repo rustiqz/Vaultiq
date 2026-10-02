@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 # Versions are pinned exactly (`=`) on purpose: this is a security product, so a
 # dependency change must be a deliberate, reviewable commit rather than a silent
-# resolution. Cargo.lock is committed alongside. See CLAUDE.md §5.
+# resolution. Cargo.lock is committed alongside.
 [dependencies]
 # KDF: master password -> master key. Argon2id, memory-hard.
 argon2 = "=0.5.3"
@@ -59,7 +59,7 @@ getrandom = { version = "=0.4.3", optional = true }
 serde-wasm-bindgen = { version = "=0.6.5", optional = true }
 # Feature-gated: thin Kotlin/Swift bindings for native mobile (phase 4). The
 # unsafe FFI glue this needs lives inside the `uniffi` crate's own generated
-# code, never in ours — see CLAUDE.md §4.2 and src/ffi.rs.
+# code, never in ours — see src/ffi.rs.
 uniffi = { version = "=0.32.0", optional = true }
 
 # Host-only. proptest pulls rand 0.9 and with it a second, older getrandom
@@ -87,7 +87,7 @@ wasm = [
   "getrandom/wasm_js",
 ]
 # Native mobile bindings (phase 4): Kotlin on Android today, Swift once iOS
-# development is possible again (CLAUDE.md §0).
+# development is possible again (docs/STATUS.md).
 ffi = ["dep:uniffi"]
 # Pulls in uniffi's CLI (clap and friends) only for the bindgen binary below,
 # so an ordinary `ffi` build stays free of that dependency tree.

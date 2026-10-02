@@ -1,5 +1,5 @@
 // The secret below is RFC 6238's own published seed in base32 — the
-// specification's test data, not anyone's account (CLAUDE.md §2.6).
+// specification's test data, not anyone's account.
 
 import { describe, expect, it } from "vitest";
 import { parseOtpauth } from "./otpauth.js";

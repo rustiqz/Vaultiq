@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   gate:
-    # The verification gate from CLAUDE.md §6, enforced rather than trusted.
+    # The verification gate from CONTRIBUTING.md, enforced rather than trusted.
     # Runs on every PR and again on the merge commit.
     name: fmt · clippy · test · wasm
     runs-on: ubuntu-latest

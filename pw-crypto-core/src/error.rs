@@ -11,7 +11,7 @@
 ///
 /// This is a security property, not a style choice — it is asserted in the
 /// test suite, and it must hold at every trust boundary (WASM returns, FFI,
-/// API responses). See CLAUDE.md §2.4.
+/// API responses).
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum CryptoError {

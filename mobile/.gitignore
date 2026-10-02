@@ -1,7 +1,7 @@
 # pw-crypto-core's Android build output: the cross-compiled .so and the
 # Kotlin bindings uniffi generates from it. Neither is committed, same as
 # extension/vendor/ for the wasm bindings -- run `pnpm run crypto` to
-# regenerate both (CLAUDE.md §3.9 forbids committing build output).
+# regenerate both (build output is never committed).
 android/app/src/main/jniLibs/
 android/app/src/main/java/uniffi/
 

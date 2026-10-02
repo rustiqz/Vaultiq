@@ -265,8 +265,8 @@ array can be empty.
 "An investigation, without exposing what it's investigating" entry:
 registrations, enrolments and their refusals, device revocations, master
 password changes, and invitations issued. Never a credential, a token, or
-key material — CLAUDE.md §2.3's rules apply here exactly as everywhere
-else. Two things worth being explicit about:
+key material — the project's never-log rules apply here exactly as
+everywhere else. Two things worth being explicit about:
 
 - **A refusal is logged even though the operation's own transaction rolls
   back.** The write goes through the plain connection pool, not whatever
@@ -361,9 +361,9 @@ What it needs that doesn't exist today:
 - **Asymmetric crypto in `pw-crypto-core`**, which currently has none —
   Argon2id, XChaCha20-Poly1305, HKDF, SHA-2, HMAC, `rand`, nothing
   asymmetric. X25519 sealed-box or HPKE would be a new dependency under
-  CLAUDE.md §5, with its own known-answer vectors, in its own module.
+  the dependency rules in CONTRIBUTING.md, with its own known-answer vectors, in its own module.
 - **A versioned escrow record format**, versioned from its first commit
-  per CLAUDE.md §4.9, alongside the existing wrapped-vault-key record.
+  as every persisted format is, alongside the existing wrapped-vault-key record.
 - **A way to pin the organization public key that a compromised server
   can't substitute.** This is the sharpest risk in the whole idea: a server
   that swaps in its own public key receives an escrow copy of every vault
@@ -424,11 +424,11 @@ private repo can defer these but a public one can't:
 - **No `LICENSE` file exists.** Without one, default copyright applies and
   nobody may legally use the published code — pick one before publishing,
   not after.
-- **Audit the commit history for secrets first**, per CLAUDE.md §2.2 —
+- **Audit the commit history for secrets first**, as SECURITY.md's secret-handling rules require —
   anything found is compromised permanently, and checking now is far
   cheaper than rotating after the repo is public.
 - **Enable branch protection.** Becomes available on GitHub's free plan
-  once the repo is public — CLAUDE.md §8.5 has the exact payload and its
+  once the repo is public — docs/RELEASING.md has the exact payload and its
   two traps (review count must be 0; never require the release-only
   check). The `.githooks` guard rails only ever protected one machine.
 - **SECURITY.md's lockout procedure is safe to publish as-is** — it needs

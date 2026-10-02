@@ -14,7 +14,7 @@ use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
-/// Test-only password. Never a real one, even in a browser (CLAUDE.md §2.6).
+/// Test-only password. Never a real one, even in a browser.
 const TEST_PASSWORD: &str = "correct horse battery staple";
 const TEST_JSON: &str = r#"{"username":"ada@example.test","password":"hunter2"}"#;
 
@@ -153,7 +153,7 @@ fn error_message(err: wasm_bindgen::JsError) -> String {
 
 #[wasm_bindgen_test]
 fn every_crypto_failure_looks_identical_to_javascript() {
-    // CLAUDE.md §2.4 holds at the trust boundary, not just inside Rust. If a
+    // Uniform errors must hold at the trust boundary, not just inside Rust. If a
     // future edit lets one failure mode say something different, that is a
     // decryption oracle handed straight to a compromised page.
     let vault_key = generate_vault_key().unwrap();

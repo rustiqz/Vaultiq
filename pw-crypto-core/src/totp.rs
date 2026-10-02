@@ -8,7 +8,7 @@
 //! # There is no clock here
 //!
 //! The current time is a parameter, never read inside this module. The crypto
-//! core makes no syscalls and has no ambient state (CLAUDE.md §2.5), a wasm
+//! core makes no syscalls and has no ambient state, a wasm
 //! build has no clock to read without going back out to JavaScript anyway,
 //! and a function of `(secret, time)` is a function that known-answer vectors
 //! can pin.
@@ -119,7 +119,7 @@ impl TotpParams {
 pub struct TotpSecret(Vec<u8>);
 
 // Hand-written, as every secret type in this crate must be: a derived Debug
-// would print the shared secret into whatever log touched it (CLAUDE.md §2.3).
+// would print the shared secret into whatever log touched it.
 impl core::fmt::Debug for TotpSecret {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("TotpSecret([REDACTED])")
@@ -176,7 +176,7 @@ impl TotpSecret {
 /// Which time step `unix_seconds` falls in.
 fn counter(unix_seconds: u64, period: u64) -> u64 {
     // period is non-zero by validation, but division is written to be
-    // total anyway: a panic in a crypto path is a DoS (CLAUDE.md §4.3).
+    // total anyway: a panic in a crypto path is a DoS.
     unix_seconds.checked_div(period).unwrap_or(0)
 }
 
@@ -293,7 +293,7 @@ mod tests {
     /// RFC 6238 Appendix B's seed: the ASCII digits, repeated to length.
     ///
     /// Test data from the specification itself, which is the one place a
-    /// fixed secret is not someone's (CLAUDE.md §2.6).
+    /// fixed secret is not someone's.
     fn rfc_secret(length: usize) -> TotpSecret {
         let pattern = b"1234567890";
         let bytes: Vec<u8> = pattern.iter().copied().cycle().take(length).collect();

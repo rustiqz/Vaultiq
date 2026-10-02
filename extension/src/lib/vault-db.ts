@@ -3,7 +3,7 @@
 // Everything here is ciphertext plus the metadata needed to address it. The
 // KDF parameters and salt are stored beside the vault rather than hardcoded,
 // so Argon2 costs can be raised later without making existing vaults
-// unreadable (CLAUDE.md §4.10).
+// unreadable.
 
 const DB_NAME = "vaultiq";
 // Bumped for the usage store. onupgradeneeded creates only what is missing,

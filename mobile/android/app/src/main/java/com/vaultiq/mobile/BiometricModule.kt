@@ -29,7 +29,7 @@ import javax.crypto.spec.GCMParameterSpec
  * vault key from Argon2id, so this is intentionally a separate, simpler
  * problem from that module -- storing the plaintext master password under
  * a hardware-backed key that only decrypts after biometric auth, the way
- * most password managers do this (CLAUDE.md §0). JS owns *when* to call
+ * most password managers do this (docs/STATUS.md). JS owns *when* to call
  * [enable]/[disable]/[unlock] and where the resulting ciphertext lives
  * (`storage.ts`, alongside the vault record) -- this module only ever
  * touches the Keystore and the plaintext password for the moment it takes
