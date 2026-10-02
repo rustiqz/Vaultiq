@@ -17,7 +17,7 @@ crate-type = ["cdylib", "rlib"]
 # resolution. Cargo.lock is committed alongside.
 [dependencies]
 # KDF: master password -> master key. Argon2id, memory-hard.
-argon2 = "=0.5.3"
+argon2 = "=0.6.0"
 # AEAD: XChaCha20-Poly1305, 24-byte nonce so random nonces don't collide.
 chacha20poly1305 = { version = "=0.11.0", features = ["zeroize"] }
 # HKDF + SHA-256: domain-separated derivation of auth / stretched keys.
