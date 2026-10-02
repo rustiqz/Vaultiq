@@ -64,3 +64,7 @@ CLAUDE.md
 /.agents/
 /skills-lock.json
 /DESIGN.md
+
+# Site build output (scripts/build-site.sh)
+_site/
+guide/book/
