@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 120 120" role="img" aria-label="Vaultiq">
+  <title>Vaultiq</title>
+  <style>
+    .m{fill:#674636}.s{fill:none;stroke:#674636;stroke-width:13}
+    @media (prefers-color-scheme:dark){.m{fill:#FFF8E8}.s{stroke:#FFF8E8}}
+  </style>
+  <circle class="s" cx="60" cy="60" r="50"></circle>
+  <g class="m">
+    <rect x="55" y="24" width="10" height="20" transform="rotate(60 60 60)"></rect>
+    <rect x="55" y="24" width="10" height="20" transform="rotate(180 60 60)"></rect>
+    <rect x="55" y="24" width="10" height="20" transform="rotate(300 60 60)"></rect>
+    <circle cx="60" cy="60" r="14"></circle>
+  </g>
+</svg>
