@@ -11,7 +11,8 @@ the code is held to.
 ```
 pw-crypto-core/   Rust. Every cryptographic decision lives here. Compiles
                   natively and to WebAssembly.
-extension/        Firefox extension (Manifest V3). Vault UI and autofill.
+extension/        Browser extension (Manifest V3) for Firefox and Chrome. Vault UI
+                  and autofill.
 server/           NestJS + PostgreSQL sync server.
 ```
 
@@ -66,9 +67,17 @@ pnpm run typecheck
 pnpm run lint
 ```
 
-To load it: `pnpm run dev` rebuilds on change and launches Firefox with the
-extension installed. To load it by hand instead, open `about:debugging` →
-**This Firefox** → **Load Temporary Add-on** and pick `extension/dist/manifest.json`.
+One build runs in both browsers: the manifest carries `background.scripts`
+for Firefox and `background.service_worker` for Chrome, and each ignores the
+other. To load it:
+
+- **Firefox**: `pnpm run dev` rebuilds on change and launches Firefox with the
+  extension installed. By hand, open `about:debugging` → **This Firefox** →
+  **Load Temporary Add-on** and pick `extension/dist/manifest.json`.
+- **Chrome** (and other Chromium browsers): `pnpm run dev:chrome` does the same
+  with Chrome. By hand, open `chrome://extensions`, turn on **Developer mode**,
+  **Load unpacked**, and pick `extension/dist/`. Set `CHROME_PATH` if Chrome
+  is not in a standard location.
 
 There is a manual test page at `extension/testbed/index.html` with fourteen
 cases for exercising autofill without registering anywhere real: sign-in,

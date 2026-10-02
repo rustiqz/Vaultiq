@@ -17,7 +17,8 @@ fast and clever, every time.
   - `pw-crypto-core/` — key derivation, vault key wrapping, item encryption and
     the wasm bindings, pinned by known-answer vectors cross-computed with
     OpenSSL and libsodium.
-  - `extension/` — Firefox Manifest V3: vault UI, autofill, capture, quick
+  - `extension/` — Manifest V3 for Firefox and Chrome (one build, both
+    supported): vault UI, autofill, capture, quick
     unlock by PIN, per-device audit trail, sync, master password change, and
     all five item types (login, card, identity, authenticator, secure note).
   - `server/` — NestJS + PostgreSQL: device authentication, enrolment tokens,
@@ -1167,6 +1168,16 @@ fast and clever, every time.
     and no headless Chromium was available this session, so the actual
     preview-list interaction (checkbox/replace-toggle behaviour, the
     caption text) hasn't been exercised end to end on either app.
+- **Chrome support verified (extension).** The same `dist/` that Firefox loads
+  runs in Chrome: Chrome 154 (Chrome for Testing, headless, driven over CDP)
+  passed vault create/lock/unlock and restart persistence, all five item
+  types, autofill and the save prompt on a real page (including refusing a
+  different origin), service-worker kill and restart without losing the
+  unlocked state, backup export/restore, CSV import, trash, PIN, auto-lock by
+  alarm, master password change, and two-device sync against a real server.
+  No code change was needed. **Not covered**: the real toolbar popup (the
+  popup page was opened as a tab, so "Fill on this site" is unchecked),
+  QR scanning, and any other Chromium browser.
 - [SECURITY.md](SECURITY.md) holds the threat model. Keep it true: a change to
   what is defended against belongs in that file in the same commit.
 - PROJECT.md said `pw-crypto-core/` was already scaffolded. It was not — the
