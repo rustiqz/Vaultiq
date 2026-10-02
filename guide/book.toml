@@ -1,0 +1,22 @@
+[book]
+title = "Vaultiq User Guide"
+description = "How to install, run and use Vaultiq, a zero-knowledge password manager you host yourself."
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "coal"
+git-repository-url = "https://github.com/rustiqz/Vaultiq"
+edit-url-template = "https://github.com/rustiqz/Vaultiq/edit/main/guide/{path}"
+site-url = "/docs/"
+additional-css = ["theme/vaultiq.css"]
+no-section-label = true
+
+[output.html.search]
+enable = true
+limit-results = 20

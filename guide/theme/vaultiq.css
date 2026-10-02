@@ -1,0 +1,169 @@
+/* Vaultiq docs: the "Field Notebook" theme from the landing page (site/css/site.css).
+   Only the light and coal themes are offered; rust maps to light, navy and ayu to dark,
+   so a stored preference from another theme still renders in palette. */
+
+/* Fonts live with the landing page and are served from the site root. */
+@font-face{font-family:'Space Grotesk';src:url('/assets/fonts/SpaceGrotesk-Regular.ttf') format('truetype');font-weight:400 700;font-display:swap}
+@font-face{font-family:'IBM Plex Mono';src:url('/assets/fonts/IBMPlexMono-Regular.ttf') format('truetype');font-weight:400 600;font-display:swap}
+@font-face{font-family:'Archivo Condensed';src:url('/assets/fonts/ArchivoCondensed-Bold.ttf') format('truetype');font-weight:700 800;font-display:swap}
+
+.light,.rust,html:not(.js){
+  --bg:#FFF8E8;
+  --fg:#674636;
+  --sidebar-bg:#F7EED3;
+  --sidebar-fg:#674636;
+  --sidebar-non-existant:rgba(103,70,54,.45);
+  --sidebar-active:#674636;
+  --sidebar-spacer:rgba(103,70,54,.34);
+  --scrollbar:#674636;
+  --icons:#674636;
+  --icons-hover:#4A3226;
+  --links:#674636;
+  --inline-code-color:#674636;
+  --theme-popup-bg:#FFFCF3;
+  --theme-popup-border:#674636;
+  --theme-hover:#E8D7B9;
+  --quote-bg:#F7EED3;
+  --quote-border:#674636;
+  --warning-border:#A2432A;
+  --table-border-color:rgba(103,70,54,.34);
+  --table-header-bg:#E8D7B9;
+  --table-alternate-bg:#FFFCF3;
+  --searchbar-border-color:#674636;
+  --searchbar-bg:#FFFCF3;
+  --searchbar-fg:#674636;
+  --searchbar-shadow-color:#674636;
+  --searchresults-header-fg:#674636;
+  --searchresults-border-color:#674636;
+  --searchresults-li-bg:#F7EED3;
+  --search-mark-bg:#D19B32;
+  --color-scheme:light;
+  --copy-button-filter:none;
+  --copy-button-filter-hover:none;
+  --footnote-highlight:#D19B32;
+  --overlay-bg:rgba(103,70,54,.3);
+  --blockquote-note-color:#674636;
+  --blockquote-tip-color:#674636;
+  --blockquote-important-color:#674636;
+  --blockquote-warning-color:#D19B32;
+  --blockquote-caution-color:#A2432A;
+  --sidebar-header-border-color:#674636;
+  --vq-code-bg:#4A3226;
+  --vq-code-fg:#FFF8E8;
+  --vq-shadow:#674636;
+  --vq-card:#FFFCF3;
+  --vq-sage:#E5E8D3;
+  --vq-rust-bg:#F5DDCF;
+}
+
+.coal,.navy,.ayu{
+  --bg:#231913;
+  --fg:#F3E6CC;
+  --sidebar-bg:#2C2019;
+  --sidebar-fg:#F3E6CC;
+  --sidebar-non-existant:rgba(243,230,204,.45);
+  --sidebar-active:#E2AE4C;
+  --sidebar-spacer:rgba(255,248,232,.24);
+  --scrollbar:#F3E6CC;
+  --icons:#F3E6CC;
+  --icons-hover:#E2AE4C;
+  --links:#F3E6CC;
+  --inline-code-color:#F3E6CC;
+  --theme-popup-bg:#30241C;
+  --theme-popup-border:#F3E6CC;
+  --theme-hover:#4A372B;
+  --quote-bg:#2C2019;
+  --quote-border:#F3E6CC;
+  --warning-border:#E48B67;
+  --table-border-color:rgba(255,248,232,.24);
+  --table-header-bg:#4A372B;
+  --table-alternate-bg:#2C2019;
+  --searchbar-border-color:#F3E6CC;
+  --searchbar-bg:#30241C;
+  --searchbar-fg:#F3E6CC;
+  --searchbar-shadow-color:#F3E6CC;
+  --searchresults-header-fg:#F3E6CC;
+  --searchresults-border-color:#F3E6CC;
+  --searchresults-li-bg:#2C2019;
+  --search-mark-bg:#8a6a2a;
+  --color-scheme:dark;
+  --copy-button-filter:invert(1);
+  --copy-button-filter-hover:invert(1);
+  --footnote-highlight:#E2AE4C;
+  --overlay-bg:rgba(14,9,6,.6);
+  --blockquote-note-color:#F3E6CC;
+  --blockquote-tip-color:#F3E6CC;
+  --blockquote-important-color:#F3E6CC;
+  --blockquote-warning-color:#E2AE4C;
+  --blockquote-caution-color:#E48B67;
+  --sidebar-header-border-color:#F3E6CC;
+  --vq-code-bg:#140E0A;
+  --vq-code-fg:#F3E6CC;
+  --vq-shadow:#0E0906;
+  --vq-card:#30241C;
+  --vq-sage:#383E2B;
+  --vq-rust-bg:#4A2A1E;
+}
+
+:root{--mono-font:'IBM Plex Mono',ui-monospace,Menlo,monospace;--content-max-width:820px;--sidebar-target-width:300px}
+html{font-family:'Space Grotesk',system-ui,sans-serif}
+body{font-size:1.7rem}
+.content main{line-height:1.65}
+
+/* Headings: Archivo Condensed, hierarchy by size */
+h1,h2,h3,h4,h5,h6,.menu-title{font-family:'Archivo Condensed','Arial Narrow',sans-serif;font-weight:700;letter-spacing:-.005em;line-height:1.05}
+.content h1{font-size:4.6rem;margin-block:0 1.2em}
+.content h2{font-size:3rem;margin-block-start:1.8em;padding-top:.5em;border-top:3px solid var(--fg)}
+.content h3{font-size:2.2rem}
+.menu-title{font-size:2rem}
+.content h1+h2,.content h2:first-child{border-top:0}
+
+/* Links and focus */
+.content a{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:4px}
+.content a:hover{text-decoration-thickness:3px}
+:focus-visible{outline:3px solid #D19B32;outline-offset:3px}
+
+/* Sidebar */
+.sidebar{border-right:3px solid var(--fg);font-size:1.5rem}
+.chapter li.part-title{font-family:'IBM Plex Mono',monospace;font-size:1.2rem;letter-spacing:.08em;text-transform:uppercase}
+.chapter li a.active{font-weight:700;text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:5px}
+.sidebar-resize-handle{display:none}
+
+/* Top bar */
+#mdbook-menu-bar{border-bottom:3px solid var(--fg);background:var(--bg)}
+#mdbook-menu-bar .icon-button{border-radius:10px}
+#mdbook-theme-list li:has(#mdbook-theme-rust),
+#mdbook-theme-list li:has(#mdbook-theme-navy),
+#mdbook-theme-list li:has(#mdbook-theme-ayu){display:none}
+.theme-popup{border:3px solid var(--fg);border-radius:14px;box-shadow:6px 6px 0 var(--vq-shadow)}
+
+/* Code */
+code{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:.86em}
+:not(pre)>code{padding:1px 7px;border:2px solid var(--fg);border-radius:7px;background:var(--vq-card);white-space:nowrap}
+pre{border-radius:14px;margin-block:1.4em}
+pre>code,pre>.hljs{background:var(--vq-code-bg)!important;color:var(--vq-code-fg)!important;border-radius:14px;padding:20px 24px!important;font-size:1.45rem;line-height:1.85}
+pre code .hljs,pre .hljs *{color:inherit!important}
+
+/* Tables */
+table{border-collapse:separate;border-spacing:0;border:3px solid var(--fg);border-radius:14px;overflow:hidden;box-shadow:6px 6px 0 var(--vq-shadow);width:100%}
+table thead th{font-family:'IBM Plex Mono',monospace;font-size:1.3rem;letter-spacing:.06em;text-transform:uppercase;border-bottom:3px solid var(--fg)}
+table th{text-align:left}
+table td,table th{border:0;border-bottom:2px dashed var(--table-border-color);padding:10px 14px}
+table tr:last-child td{border-bottom:0}
+
+/* Callouts: the guide uses plain blockquotes for its warnings */
+blockquote{margin:1.6em 0;padding:18px 22px;background:var(--vq-rust-bg);border:3px solid var(--fg);border-left-width:3px;border-radius:14px;box-shadow:6px 6px 0 var(--vq-shadow)}
+blockquote p{margin:.4em 0}
+blockquote strong:first-child{font-family:'Archivo Condensed',sans-serif;font-size:1.15em}
+
+/* Prev/next */
+.nav-chapters{border:3px solid var(--fg);border-radius:14px;background:var(--vq-card);box-shadow:4px 4px 0 var(--vq-shadow)}
+.nav-chapters:hover{background:var(--theme-hover)}
+
+/* Search */
+#mdbook-searchbar{border:3px solid var(--fg);border-radius:12px}
+
+/* Home link added by the page header (see introduction.md) */
+.vq-home{font-family:'IBM Plex Mono',monospace;font-size:1.3rem;letter-spacing:.08em;text-transform:uppercase}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
