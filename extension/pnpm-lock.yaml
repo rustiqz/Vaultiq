@@ -19,8 +19,8 @@ importers:
         specifier: 9.39.0
         version: 9.39.0
       '@types/firefox-webext-browser':
-        specifier: 120.0.4
-        version: 120.0.4
+        specifier: 143.0.1
+        version: 143.0.1
       '@types/qrcode':
         specifier: 1.5.5
         version: 1.5.5
@@ -550,8 +550,8 @@ packages:
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
 
-  '@types/firefox-webext-browser@120.0.4':
-    resolution: {integrity: sha512-lBrpf08xhiZBigrtdQfUaqX1UauwZ+skbFiL8u2Tdra/rklkKadYmIzTwkNZSWtuZ7OKpFqbE2HHfDoFqvZf6w==}
+  '@types/firefox-webext-browser@143.0.1':
+    resolution: {integrity: sha512-vDoqYr4fe1dqZXmgkzpxki47AhxfwvXD2juY2pADCKykIh10u8Yq2oe3lKZ88s33pxqj7SYULEq6kFW3c6UJzw==}
 
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
@@ -2618,7 +2618,7 @@ snapshots:
 
   '@types/estree@1.0.9': {}
 
-  '@types/firefox-webext-browser@120.0.4': {}
+  '@types/firefox-webext-browser@143.0.1': {}
 
   '@types/json-schema@7.0.15': {}
 
