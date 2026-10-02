@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 120 120" role="img" aria-label="Vaultiq">
+  <title>Vaultiq</title>
+  <circle cx="60" cy="60" r="50" fill="none" stroke="#674636" stroke-width="13"></circle>
+  <g fill="#674636">
+    <rect x="55" y="24" width="10" height="20" transform="rotate(60 60 60)"></rect>
+    <rect x="55" y="24" width="10" height="20" transform="rotate(180 60 60)"></rect>
+    <rect x="55" y="24" width="10" height="20" transform="rotate(300 60 60)"></rect>
+  </g>
+  <circle cx="60" cy="60" r="14" fill="#674636"></circle>
+</svg>
