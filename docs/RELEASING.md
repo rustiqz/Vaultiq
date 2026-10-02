@@ -5,9 +5,10 @@
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `ci.yml` → `gate` | every PR, push to `main` | fmt, clippy `-D warnings`, tests, WASM feature build |
+| `ci.yml` → `audit` | dependency changes on a PR or push to `main` | `cargo audit` before release |
 | `ci.yml` → `commit-messages` | PRs only | rejects malformed commit subjects |
 | `ci.yml` → `release` | push to `main`, **after `gate` passes** | tags and cuts the GitHub release |
-| `audit.yml` | dependency changes, weekly cron, manual | `cargo audit` against the RustSec advisory database |
+| `audit.yml` | weekly cron, manual | `cargo audit` and production pnpm audits for extension, server, and mobile |
 
 Release is a job inside `ci.yml`, not its own workflow, so `needs: gate` can
 guarantee ordering. As a separate workflow it would run *in parallel* with the
@@ -25,6 +26,9 @@ wrong release, which is why `ci.yml` rejects one.
 
 The mapping lives in `cliff.toml`: `commit_parsers` decides the changelog
 section, `[bump]` decides the version.
+
+For squash merges, the PR title becomes the commit subject on `main`. Give the
+PR title the conventional-commit type and scope that should drive the release.
 
 | Subject | Changelog section | Bump while `0.x` | Bump at `1.0`+ |
 |---|---|---|---|
@@ -54,11 +58,12 @@ anywhere in the repo, and it is what a GitHub release is named after.
 Each **component** carries its own version, which moves only when that
 component's shipped artifact changes:
 
-| Component | Version lives in |
-|---|---|
-| `pw-crypto-core` | `pw-crypto-core/Cargo.toml` |
-| `extension` | `extension/package.json`, copied into `manifest.json` at build |
-| `server` | `server/package.json`, copied into the image and reported at boot |
+| Component | Paths that change its version | Version lives in |
+|---|---|---|
+| `pw-crypto-core` | `pw-crypto-core/**` | `pw-crypto-core/Cargo.toml` |
+| `extension` | `extension/**`, `pw-crypto-core/**` | `extension/package.json`, copied into `manifest.json` at build |
+| `server` | `server/**` | `server/package.json`, copied into the image and reported at boot |
+| `mobile` | `mobile/**`, `pw-crypto-core/**` | `mobile/package.json`, `mobile/android/app/build.gradle` |
 
 All three come from the same commits and the same tags, computed by
 `scripts/component-versions.sh`: a component that changed since the last tag
@@ -168,7 +173,17 @@ gh api -X PUT repos/rustiqz/Vaultiq/branches/main/protection \
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["fmt · clippy · test · wasm", "conventional commits"]
+    "contexts": [
+      "fmt · clippy · test · wasm",
+      "typecheck · lint · build",
+      "server · typecheck · lint · test",
+      "gitleaks",
+      "cargo audit",
+      "conventional commits",
+      "mobile · typecheck · lint · test",
+      "server · docker build",
+      "actionlint"
+    ]
   },
   "required_pull_request_reviews": { "required_approving_review_count": 0 },
   "enforce_admins": false,

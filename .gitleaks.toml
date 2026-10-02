@@ -1,0 +1,25 @@
+title = "Vaultiq gitleaks config"
+
+[extend]
+useDefault = true
+
+# Test-only fixtures that trip the entropy-based generic-api-key rule.
+# Each entry needs BOTH the file and the exact value to match, so a real
+# secret added to the same file is still reported.
+
+[[allowlists]]
+description = "RFC 6238-style TOTP test secrets (base32 of 1234567890...)"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = [
+  '''extension/src/lib/otpauth\.test\.ts''',
+  '''extension/src/background/vault\.test\.ts''',
+]
+regexes = ['''GEZDGNBVGY3TQOJQ(GEZDGNBVGY3TQOJQ)?''']
+
+[[allowlists]]
+description = "Deliberately invalid salt ('not-a-salt') in the wasm error-path test"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''pw-crypto-core/tests/wasm\.rs''']
+regexes = ['''bm90LWEtc2FsdA==''']
