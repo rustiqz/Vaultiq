@@ -56,3 +56,6 @@ docker-compose.override.yml
 # Local design exploration (AI image-gen concepts, prompts) -- handed to a
 # designer or kept for reference, never a build artifact or shipped asset.
 output/
+
+# Personal working-rules file for local tooling; not part of the project.
+CLAUDE.md
