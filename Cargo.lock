@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "pw-crypto-core"
-version = "0.21.0"
+version = "0.45.1"
 dependencies = [
  "argon2",
  "base64",

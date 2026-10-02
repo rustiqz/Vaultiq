@@ -1,6 +1,6 @@
 [package]
 name = "pw-crypto-core"
-version = "0.21.0"
+version = "0.45.1"
 edition = "2024"
 description = "Zero-knowledge crypto core for Vaultiq: key hierarchy and per-item AEAD."
 license = "AGPL-3.0-only"
