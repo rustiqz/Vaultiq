@@ -27,7 +27,7 @@
     "typescript-eslint": "8.46.1",
     "vite": "7.1.12",
     "vitest": "4.1.11",
-    "web-ext": "8.10.0"
+    "web-ext": "10.7.0"
   },
   "dependencies": {
     "qrcode": "1.5.4",
