@@ -186,6 +186,34 @@ jobs:
           DATABASE_URL: postgres://vaultiq:test@127.0.0.1:5432/vaultiq
         run: pnpm run test
 
+  secrets:
+    # Scans the full history, not just the diff: a secret committed and then
+    # deleted is still compromised. Test fixtures are
+    # allowlisted by file *and* value in .gitleaks.toml. The binary is used
+    # rather than gitleaks-action, which needs a licence key for orgs.
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # Pinned and checksum-verified: a scanner that fetches whatever is
+      # latest is itself an unreviewed supply-chain input.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "${archive}" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+
+      - name: Scan history
+        run: gitleaks git --redact --verbose .
+
   audit:
     # Gates the release, so this job must always run: a *skipped* job in
     # `needs` skips its dependents too, which would silently stop releases
@@ -288,7 +316,7 @@ jobs:
     # Only after `gate` is green, and only for a merge landing on main.
     # `needs` is what guarantees a broken build can never be tagged.
     name: Tag and release
-    needs: [gate, extension, server, audit]
+    needs: [gate, extension, server, audit, secrets]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
