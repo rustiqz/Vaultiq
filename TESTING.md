@@ -21,7 +21,7 @@ checkout of `redesign/v2-item-screens` (or `main` once that PR merges).
 | Android SDK + NDK, `adb` on your `PATH` | building/installing the mobile app |
 | Docker, or a local Postgres 17 | the sync server |
 | A physical Android device (or two — see §6), USB debugging on | mobile testing; fingerprint unlock and QR scanning both need a real camera and real biometric hardware, which an emulator can't give you |
-| Firefox (for the extension) | easiest way to create a vault and generate enrollment tokens for mobile to join |
+| Firefox or Chrome (for the extension) | easiest way to create a vault and generate enrollment tokens for mobile to join |
 
 ```bash
 rustup target add wasm32-unknown-unknown aarch64-linux-android
@@ -86,6 +86,11 @@ cd extension
 pnpm install
 pnpm run dev   # builds, then launches Firefox with the extension loaded
 ```
+
+Prefer Chrome? `pnpm run dev:chrome` (set `CHROME_PATH` if it is not in a
+standard location), or `pnpm run build`, then `chrome://extensions` → Developer
+mode → **Load unpacked** → `extension/dist/`. It is the same build and the same
+behaviour in both browsers.
 
 In the popup: **Create your vault**, set a master password (write it down —
 mobile needs the exact same one). Then, to make it reachable over the
