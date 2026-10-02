@@ -3,6 +3,7 @@ name = "pw-crypto-core"
 version = "0.21.0"
 edition = "2024"
 description = "Zero-knowledge crypto core for Vaultiq: key hierarchy and per-item AEAD."
+license = "AGPL-3.0-only"
 publish = false
 
 # `cdylib` is what wasm-pack needs to emit a .wasm module; `rlib` is kept so
