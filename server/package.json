@@ -18,7 +18,7 @@
   "dependencies": {
     "@clack/prompts": "1.8.1",
     "@nestjs/common": "11.1.6",
-    "@nestjs/core": "11.1.6",
+    "@nestjs/core": "11.1.18",
     "@nestjs/platform-express": "11.1.6",
     "@nestjs/throttler": "6.5.0",
     "@node-rs/argon2": "2.2.0",
