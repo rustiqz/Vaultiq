@@ -139,7 +139,7 @@ accurate when something stops being true.
     the navigation rewrite — without it Android can choose unreadable status
     bar content against the app background.
   - The above was screenshot-approximate; screens now follow the real Figma
-    exports instead (delivered as `~/Downloads/screen-*.svg`, rasterized
+    exports instead (delivered as `screen-*.svg` files, rasterized
     with `rsvg-convert` and reviewed visually — the SVGs export selectable
     text as flattened vector paths, not `<text>` elements, so there was
     nothing to read from the markup itself). The fall palette stays ours

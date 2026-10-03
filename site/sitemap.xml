@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://vaultiq.rustiq.in/</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/getting-started.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/install/extension.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/install/android.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/server/deploy.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/server/administration.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/server/connect-devices.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/using/items.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/using/autofill.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/using/unlock.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/using/authenticator.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/import-export.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/security.html</loc></url>
+  <url><loc>https://vaultiq.rustiq.in/docs/faq.html</loc></url>
 </urlset>

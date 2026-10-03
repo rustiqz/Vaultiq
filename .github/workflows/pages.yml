@@ -1,0 +1,97 @@
+name: Pages
+
+# Publishes the landing page (site/) and the user guide (guide/, built with
+# mdBook) to https://vaultiq.rustiq.in. The build runs on every PR that touches
+# either, so a broken guide fails review; only a push to main deploys.
+#
+# One-time repository setup (not expressible in this file):
+#   Settings → Pages → Source: "GitHub Actions"
+#   Settings → Pages → Custom domain: vaultiq.rustiq.in, then "Enforce HTTPS"
+# GitHub Pages is not available for private repositories on a free plan.
+
+on:
+  pull_request:
+    paths:
+      - "site/**"
+      - "guide/**"
+      - "scripts/build-site.sh"
+      - ".github/workflows/pages.yml"
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "guide/**"
+      - "scripts/build-site.sh"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  MDBOOK_VERSION: "0.5.4"
+  # sha256 of mdbook-v0.5.4-x86_64-unknown-linux-gnu.tar.gz, taken from the
+  # upstream release asset. Update both together.
+  MDBOOK_SHA256: "3f28de05dafca9d0f2eab99c662116b0e37b89b1d96a08f8f430b9eeae958cd7"
+
+jobs:
+  build:
+    name: build site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install mdbook
+        run: |
+          curl -fsSL -o mdbook.tar.gz \
+            "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${MDBOOK_SHA256}  mdbook.tar.gz" | sha256sum --check -
+          tar -xzf mdbook.tar.gz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: scripts/build-site.sh
+
+      - name: Check internal links from the landing page
+        run: |
+          # Every docs/... link on the landing page must exist in the build.
+          missing=0
+          while IFS= read -r href; do
+            if [ "${href%/}" = "$href" ] && [ ! -f "_site/$href" ]; then
+              echo "missing: $href"; missing=1
+            elif [ "${href%/}" != "$href" ] && [ ! -f "_site/${href}index.html" ]; then
+              echo "missing: $href"; missing=1
+            fi
+          done < <(grep -o 'href="docs/[^"#]*' _site/index.html | sed 's/href="//' | sort -u)
+          exit $missing
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+        if: github.event_name != 'pull_request'
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        if: github.event_name != 'pull_request'
+        with:
+          path: _site
+
+  deploy:
+    name: deploy
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

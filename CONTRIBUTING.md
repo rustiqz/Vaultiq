@@ -85,7 +85,14 @@ pnpm test
 ```
 
 The server tests need Postgres. **Mobile** (inside `mobile/`): `pnpm exec tsc`,
-`pnpm exec eslint .`, `pnpm test`, and a debug build.
+`pnpm exec eslint .`, `pnpm test`, and a debug build. The mobile screens import
+a gitignored `src/devConfig.ts`, so before the first typecheck run
+`cp src/devConfig.example.ts src/devConfig.ts`, as CI does.
+
+CI also runs `gitleaks` over the full history, `actionlint` on the workflows,
+and `cargo audit` when dependencies change; a weekly job sweeps Rust and npm
+advisories. When you change Rust dependencies, also run `cargo deny check`
+locally: its policy is in `deny.toml`, but CI does not run it yet.
 
 Do not report something as passing unless you ran it. If you could not
 verify a change on a real device or browser, say so in the pull request.

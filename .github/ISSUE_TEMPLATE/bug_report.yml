@@ -1,0 +1,61 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security problems do not go here.** If this could let someone read
+        vault content or weaken the encryption, report it privately through
+        the repository's Security tab instead (see SECURITY.md).
+
+        **Never paste** a master password, vault key, backup file, vault
+        export, sync payload, enrolment token or database dump. Use made-up
+        values in anything you attach, and redact server URLs and tokens.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Browser extension (Firefox)
+        - Browser extension (Chrome)
+        - Android app
+        - Sync server
+        - Admin CLI
+        - Crypto core
+        - Docs or website
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release or commit you are running.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser and OS, or Android version and device, or how the server is deployed.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Include exact error text. Redact anything secret.
+    validations:
+      required: true

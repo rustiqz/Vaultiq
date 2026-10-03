@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an improvement to something that exists.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Some things are out of scope on purpose and will be closed:
+        sharing between users, account recovery or key escrow, passkeys and
+        breach checking. See CONTRIBUTING.md.
+
+        Anything that changes an algorithm, the key hierarchy or a stored
+        format needs discussion first, so please describe the problem rather
+        than a finished design.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that you cannot do today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+    validations:
+      required: false
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Browser extension
+        - Android app
+        - Sync server
+        - Admin CLI
+        - Crypto core
+        - Docs or website
+    validations:
+      required: true

@@ -1,51 +1,58 @@
+# Low-noise policy: routine bumps arrive monthly, as one grouped PR per
+# ecosystem, and only as minor/patch. Anything urgent comes through Dependabot
+# security updates (a repository setting, independent of this file and of its
+# schedule), with `cargo audit` and the npm audit workflow as a second net.
+#
+# Major versions are deliberate decisions, not bot proposals: React Native,
+# the vision-camera pin and the Node types all move when we choose, not when a
+# release appears. Cargo pins are exact, so a grouped cargo PR is still gated
+# by the known-answer vectors.
+#
+# The cooldown holds back versions published in the last week, so a hijacked
+# release has time to be caught before we are offered it.
+#
+# GitHub Actions are pinned by commit SHA, so this is the only thing that keeps
+# them current.
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 1
     commit-message: { prefix: "chore(deps)" }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
-      minor-and-patch:
-        update-types: [minor, patch]
+      all:
+        patterns: ["*"]
 
   - package-ecosystem: npm
-    directory: /extension
+    directories: [/extension, /server, /mobile]
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 1
     commit-message: { prefix: "chore(deps)" }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
-      minor-and-patch:
-        update-types: [minor, patch]
-
-  - package-ecosystem: npm
-    directory: /server
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    commit-message: { prefix: "chore(deps)" }
-    groups:
-      minor-and-patch:
-        update-types: [minor, patch]
-
-  - package-ecosystem: npm
-    directory: /mobile
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    commit-message: { prefix: "chore(deps)" }
-    groups:
-      minor-and-patch:
-        update-types: [minor, patch]
+      all:
+        patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 1
     commit-message: { prefix: "chore(deps)" }
     groups:
-      minor-and-patch:
-        update-types: [minor, patch]
+      all:
+        patterns: ["*"]

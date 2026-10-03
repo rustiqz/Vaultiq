@@ -115,6 +115,16 @@ the vault key is exported, base64, into `storage.session` — held in memory,
 never written to disk — because a Manifest V3 background context is suspended
 when idle and would otherwise lose the key several times an hour.
 
+**On Android** the same hierarchy applies with different plumbing. There is no
+`storage.session`: the unwrapped vault key is held by a native module as an
+opaque handle, at most one at a time, and never crosses the React Native bridge
+as a value. Backgrounding the app often kills the process, which discards it.
+Local state (the wrapped vault key, item ciphertext, settings) sits in plain
+`AsyncStorage`, the same trust level as the extension's `storage.local`:
+everything sensitive in it is ciphertext, and the device credential is sealed
+under the vault key before it is stored. `allowBackup` is off, so Android's
+cloud backup does not copy any of it.
+
 ---
 
 ## Defended against
@@ -234,6 +244,24 @@ keeps it in `storage.session` only. Thirteen bits of PIN would fall to an
 offline search in minutes — so there is nothing offline to attack. Closing the
 browser ends it, and five wrong guesses tear it down.
 
+**Fingerprint unlock on Android.** A fingerprint cannot re-run Argon2id, so it
+protects a *cached master password*, not a key. After the password is
+confirmed once, it is encrypted with an AES-GCM key in the Android Keystore
+that requires strong biometric authentication for every single use, with no
+grace window, and is invalidated when the device's enrolled biometrics change,
+so a fingerprint added later inherits nothing. A copied app data directory
+yields ciphertext that only that key can open, and the key never leaves the
+Keystore. The vault key itself is still re-derived through the normal unlock
+every time.
+
+**A fake login screen asking Android autofill for a password.** The autofill
+service never reads or matches the vault itself. It offers one generic
+"Fill with Vaultiq" entry, which opens the app's own unlock and picker. The
+picker always states who is asking: the web domain when the browser reports
+one, which a page cannot lie about, or otherwise the requesting app's real
+package name, flagged as not a verified website. This narrows the risk but
+does not remove it; see below.
+
 **A device with no server relationship at all.** A local-only vault
 (extension and mobile) never contacts a server, never derives an auth key,
 and holds no device credential — there is nothing here for a compromised or
@@ -281,6 +309,29 @@ exists because the single most useful signal for telling a scattered mistake
 from a deliberate attack is whether the failures share a source. Everywhere
 else in this file, that stance still holds without exception.
 
+**Whoever can pass the device's biometric check.** With fingerprint unlock on,
+a coerced finger, or anything else the phone accepts as strong biometric, opens
+the vault, so it is exactly as strong as that check. Adding a fingerprint
+invalidates the stored key rather than inheriting it, but a fingerprint already
+enrolled is trusted. Turning the feature off, or never enabling it, removes
+this.
+
+**A convincing fake app, through Android autofill.** The picker shows the
+caller's package name, and nothing blocks a fill: an app that looks and is
+named like the real one can still receive credentials from an inattentive user.
+Browsers are different, because the domain they report is verified.
+Autofill is logins only.
+
+**The clipboard.** Copying a secret puts it on the system clipboard, where other
+apps can read it on some Android versions. Both clients clear it after thirty
+seconds, but only if nothing else was copied in the meantime, and not before
+then.
+
+**A plaintext export from another manager.** Import reads a CSV or JSON file
+that holds credentials in the clear, outside Vaultiq's control from the moment
+it exists. The import screen says to delete it once the import is confirmed;
+nothing deletes it for you.
+
 **Memory on an unlocked device.** While the vault is unlocked, the vault key is
 in `storage.session` and in wasm memory. Anyone who can read the process's
 memory has it — but they already have everything else on that machine too.
@@ -291,14 +342,14 @@ backdoor. This is a design decision, not an oversight.
 **No offsite backup, unless one is made.** Choosing "use without a server"
 trades away the one thing a server incidentally provides today: a second
 copy. A vault (local-only or server-backed) can now be exported to a file
-and restored from one — see the "Defended against" entry below — but that is
+and restored from one — see the "Defended against" entry above — but that is
 opt-in and manual. A vault that has never been exported still has exactly one
 copy, and losing or wiping that device loses it, the same as losing the
 master password does for any vault.
 
 **The supply chain.** Dependencies are pinned to exact versions, kept minimal,
 preferred from RustCrypto, and checked weekly against the RustSec advisory
-database. That reduces the surface; it does not eliminate it. The browser and
+database and `npm audit`. That reduces the surface; it does not eliminate it. The browser and
 its extension APIs are trusted absolutely.
 
 **Sharing between accounts.** Isolation between tenants is defended (see
