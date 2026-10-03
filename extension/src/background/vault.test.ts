@@ -291,7 +291,7 @@ describe("backup", () => {
 
   it("refuses a file that is not a Vaultiq backup", async () => {
     await expect(
-      vault.restoreBackup({} as unknown as VaultBackup, "correct horse battery staple"),
+      vault.restoreBackup({}, "correct horse battery staple"),
     ).rejects.toThrow(/not a Vaultiq backup/i);
   });
 

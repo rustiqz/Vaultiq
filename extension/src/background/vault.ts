@@ -761,7 +761,7 @@ function text(value: unknown): string | undefined {
 
 /** Spreads a field only when it has a value, never as an explicit undefined. */
 function optional<K extends string, V>(key: K, value: V | undefined): Record<K, V> | object {
-  return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
+  return value === undefined ? {} : { [key]: value };
 }
 
 /** A positive whole number, or nothing if the record does not carry one. */
