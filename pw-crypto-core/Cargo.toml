@@ -36,7 +36,7 @@ sha1 = { version = "=0.11.0", default-features = false }
 # secret in. Decoding only; no dependencies of its own.
 data-encoding = { version = "=2.11.1", default-features = false, features = ["alloc"] }
 # CSPRNG: OsRng only, for salts, nonces and the vault key.
-rand = "=0.10.2"
+rand = "=0.10.3"
 # Scrubs key material from memory on drop.
 zeroize = { version = "=1.9.0", features = ["derive"] }
 # Constant-time comparison of secret-derived values.
@@ -46,7 +46,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 # Transport encoding for ciphertext/nonce across the WASM and FFI boundaries.
 base64 = "=0.23.1"
 # Error enum derivation.
-thiserror = "=2.0.20"
+thiserror = "=2.0.21"
 # Feature-gated: thin JS bindings for the browser extension (phase 2).
 wasm-bindgen = { version = "=0.2.127", optional = true }
 # Feature-gated: on wasm32-unknown-unknown, getrandom cannot tell from the
@@ -61,7 +61,7 @@ serde-wasm-bindgen = { version = "=0.6.5", optional = true }
 # Feature-gated: thin Kotlin/Swift bindings for native mobile (phase 4). The
 # unsafe FFI glue this needs lives inside the `uniffi` crate's own generated
 # code, never in ours — see src/ffi.rs.
-uniffi = { version = "=0.32.0", optional = true }
+uniffi = { version = "=0.32.2", optional = true }
 
 # Host-only. proptest pulls rand 0.9 and with it a second, older getrandom
 # that needs a RUSTFLAGS cfg on wasm32 — and these tests do not belong in a
