@@ -63,13 +63,13 @@ jobs:
         run: |
           # Every docs/... link on the landing page must exist in the build.
           missing=0
-          for href in $(grep -o 'href="docs/[^"#]*' _site/index.html | sed 's/href="//' | sort -u); do
+          while IFS= read -r href; do
             if [ "${href%/}" = "$href" ] && [ ! -f "_site/$href" ]; then
               echo "missing: $href"; missing=1
             elif [ "${href%/}" != "$href" ] && [ ! -f "_site/${href}index.html" ]; then
               echo "missing: $href"; missing=1
             fi
-          done
+          done < <(grep -o 'href="docs/[^"#]*' _site/index.html | sed 's/href="//' | sort -u)
           exit $missing
 
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
