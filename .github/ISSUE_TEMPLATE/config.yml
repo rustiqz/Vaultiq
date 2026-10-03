@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/rustiqz/Vaultiq/security/advisories/new
+    about: Do not open a public issue for a security problem. Report it privately.
+  - name: User guide
+    url: https://vaultiq.rustiq.in/docs/
+    about: Setup, usage and troubleshooting.
