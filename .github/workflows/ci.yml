@@ -383,6 +383,31 @@ jobs:
         if: steps.deps.outputs.changed == 'true'
         run: cargo audit
 
+  deny:
+    # deny.toml: licences, sources, banned crates, and yanked versions. cargo
+    # audit only knows about advisories, so a yanked crate in the lockfile
+    # passes it. Runs every time, like audit, so it can gate the release.
+    name: cargo deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cargo/advisory-dbs
+          key: deny-advisory-db-${{ github.run_id }}
+          restore-keys: deny-advisory-db-
+
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: Check
+        run: cargo deny --locked check
+
   commit-messages:
     # Version bumps and release notes are derived from commit subjects, so a
     # malformed subject is not a style problem — it silently produces the
@@ -441,7 +466,7 @@ jobs:
     # Only after `gate` is green, and only for a merge landing on main.
     # `needs` is what guarantees a broken build can never be tagged.
     name: Tag and release
-    needs: [gate, extension, server, mobile, server-image, audit, secrets]
+    needs: [gate, extension, server, mobile, server-image, audit, deny, secrets]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
