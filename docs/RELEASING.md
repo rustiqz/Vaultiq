@@ -179,6 +179,7 @@ gh api -X PUT repos/rustiqz/Vaultiq/branches/main/protection \
       "server · typecheck · lint · test",
       "gitleaks",
       "cargo audit",
+      "cargo deny",
       "conventional commits",
       "mobile · typecheck · lint · test",
       "server · docker build",

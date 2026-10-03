@@ -91,6 +91,25 @@ jobs:
         with:
           tool: wasm-pack
 
+      # wasm-pack runs wasm-opt on the release build, and when it is not on PATH
+      # it downloads an unpinned binaryen from GitHub releases on every run.
+      # That download has failed CI twice. Pinned and checksum-verified instead,
+      # like gitleaks and actionlint; wasm-pack then finds it on PATH. Version
+      # 117 is the one wasm-pack was fetching, so the built artifact is unchanged.
+      - name: Install wasm-opt
+        env:
+          BINARYEN_VERSION: version_117
+          BINARYEN_SHA256: 3dc677006555b355ea2da5e82602065a161d5e83eaefd3f759afa00b96e83212
+        run: |
+          set -euo pipefail
+          archive="binaryen-${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          curl -fsSLO "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/${archive}"
+          echo "${BINARYEN_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "${archive}" "binaryen-${BINARYEN_VERSION}/bin/wasm-opt"
+          mkdir -p "$RUNNER_TEMP/bin"
+          install -m 0755 "binaryen-${BINARYEN_VERSION}/bin/wasm-opt" "$RUNNER_TEMP/bin/wasm-opt"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           # The action looks for package.json at the repo root by default,
@@ -364,6 +383,31 @@ jobs:
         if: steps.deps.outputs.changed == 'true'
         run: cargo audit
 
+  deny:
+    # deny.toml: licences, sources, banned crates, and yanked versions. cargo
+    # audit only knows about advisories, so a yanked crate in the lockfile
+    # passes it. Runs every time, like audit, so it can gate the release.
+    name: cargo deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cargo/advisory-dbs
+          key: deny-advisory-db-${{ github.run_id }}
+          restore-keys: deny-advisory-db-
+
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: Check
+        run: cargo deny --locked check
+
   commit-messages:
     # Version bumps and release notes are derived from commit subjects, so a
     # malformed subject is not a style problem — it silently produces the
@@ -422,7 +466,7 @@ jobs:
     # Only after `gate` is green, and only for a merge landing on main.
     # `needs` is what guarantees a broken build can never be tagged.
     name: Tag and release
-    needs: [gate, extension, server, mobile, server-image, audit, secrets]
+    needs: [gate, extension, server, mobile, server-image, audit, deny, secrets]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
