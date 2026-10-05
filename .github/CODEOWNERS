@@ -1,0 +1,7 @@
+# Review ownership for the parts where a mistake costs someone their vault.
+# Solo project today, so this documents intent more than it gates anything;
+# it becomes load-bearing the day a second contributor appears.
+/pw-crypto-core/        @rustiqz
+/server/migrations/     @rustiqz
+/.github/               @rustiqz
+/SECURITY.md            @rustiqz
