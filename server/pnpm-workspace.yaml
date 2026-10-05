@@ -8,3 +8,10 @@ allowBuilds:
   # A postinstall banner. Nothing the build or the runtime needs, so it does
   # not get to run code at install time.
   "@nestjs/core": false
+
+# Security patch for brace-expansion, pulled in transitively by eslint and
+# jest tooling whose parents have not bumped it yet. Range-scoped so a major
+# version is never forced. Drop once the parents resolve a patched version.
+overrides:
+  "brace-expansion@1": 1.1.21
+  "brace-expansion@5": 5.0.12
