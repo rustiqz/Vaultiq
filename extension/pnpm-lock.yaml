@@ -8,7 +8,7 @@ overrides:
   brace-expansion@1: 1.1.21
   brace-expansion@5: 5.0.12
   fast-uri@3: 3.1.7
-  tmp@0.2: 0.2.6
+  tmp@0.2: 0.2.7
   shell-quote@<1.9.0: 1.9.0
   adm-zip@0.5: 0.6.1
   image-size@2: 2.0.3
@@ -1920,8 +1920,8 @@ packages:
     resolution: {integrity: sha512-SJVBeHOxDbNoq14CvpAoA2mLEWdbldGK8nR+yumpjY5nrlZxOflcA7p1Qj1gbTGmbu9DY9qLj/bENSWhBzjxRQ==}
     hasBin: true
 
-  tmp@0.2.6:
-    resolution: {integrity: sha512-5sJPdPjfI5Kx+qbrDesxkglRBxW//g7hCsqspEjwkewGvBMGIKMOTKzLt1hFVJzyadba3lDUN20O9qhvbQUSTA==}
+  tmp@0.2.7:
+    resolution: {integrity: sha512-e0votIpp4Uo2AJYSzVHV6xCcawuiez3DzqDAbrTc3YxBkplN6e+dM13ZeIcZnDg/QpSuU2zfZ3rzwY8ukEnaXw==}
     engines: {node: '>=14.14'}
 
   tough-cookie@6.0.2:
@@ -4050,7 +4050,7 @@ snapshots:
     dependencies:
       tldts-core: 7.4.15
 
-  tmp@0.2.6: {}
+  tmp@0.2.7: {}
 
   tough-cookie@6.0.2:
     dependencies:
@@ -4204,7 +4204,7 @@ snapshots:
       source-map-support: 0.5.21
       strip-bom: 5.0.0
       strip-json-comments: 5.0.3
-      tmp: 0.2.6
+      tmp: 0.2.7
       update-notifier: 7.3.1
       watchpack: 2.4.4
       yargs: 17.7.2

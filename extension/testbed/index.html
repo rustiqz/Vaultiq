@@ -274,8 +274,16 @@
     };
     seen(document, "page");
     seen(shadow, "shadow");
-    document.getElementById("values").innerHTML =
-      rows.map((r) => `<div>${r}</div>`).join("") || "<div>nothing</div>";
+    // textContent, not innerHTML: the rows echo whatever was typed into the
+    // fields under test, which must never be parsed as markup.
+    const values = document.getElementById("values");
+    values.replaceChildren(
+      ...(rows.length ? rows : ["nothing"]).map((r) => {
+        const div = document.createElement("div");
+        div.textContent = r;
+        return div;
+      }),
+    );
   });
 </script>
 </body>
