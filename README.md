@@ -171,7 +171,8 @@ how.
 Vaultiq is free software built by one person. There is no paid support, and
 issues are handled on a best-effort basis. If it is useful to you, you can
 sponsor development through
-[GitHub Sponsors](https://github.com/sponsors/rustiqz).
+[GitHub Sponsors](https://github.com/sponsors/rustiqz) or
+[Buy Me a Coffee](https://buymeacoffee.com/rakshithg1l).
 
 ## License
 
