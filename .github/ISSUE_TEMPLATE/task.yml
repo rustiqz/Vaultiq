@@ -1,0 +1,49 @@
+name: Task
+description: Maintenance, CI, dependency or follow-up work that is neither a bug nor a feature.
+labels: [chore]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security problems do not go here.** Report them privately through
+        the repository's Security tab (see SECURITY.md).
+
+        **Never paste** a master password, vault key, backup file, vault
+        export, sync payload, enrolment token or database dump.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Browser extension
+        - Android app
+        - Sync server
+        - Admin CLI
+        - Crypto core
+        - CI or release
+        - Docs or website
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What is wrong or missing today, and what does leaving it cost?
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: A checklist of observable outcomes.
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Links, relevant files, or constraints. Optional.
+    validations:
+      required: false

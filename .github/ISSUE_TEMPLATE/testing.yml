@@ -1,0 +1,69 @@
+name: Testing report
+description: Report what you tested on your devices, browsers or accounts, pass or fail.
+labels: [testing]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing. Please use a **throwaway vault with made-up
+        data**. Never use your real vault.
+
+        **Security problems do not go here.** Report them privately through
+        the repository's Security tab (see SECURITY.md).
+
+        **Never paste** a master password, vault key, backup file, vault
+        export, sync payload, enrolment token or database dump. For import
+        tests, report counts and mapping problems only, never file contents,
+        and delete the source export afterwards.
+
+        If something failed in a way you can reproduce, open a bug report
+        as well and link it here.
+  - type: dropdown
+    id: area
+    attributes:
+      label: What you tested
+      options:
+        - Android core flows
+        - Android biometrics and camera
+        - Android autofill
+        - Multi-user and multi-device sync
+        - Browser extension
+        - Import from real exports
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release or commit you tested.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Device or browser
+      description: "For example: Pixel 8, Android 15; Samsung A54, Android 14; Firefox 140 on Linux."
+    validations:
+      required: true
+  - type: textarea
+    id: passed
+    attributes:
+      label: What worked
+      description: One line per flow you checked.
+    validations:
+      required: true
+  - type: textarea
+    id: failed
+    attributes:
+      label: What did not work
+      description: Exact error text, redacted. Write "nothing" if everything passed.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything odd
+      description: Slow, confusing or visually wrong, even if it technically worked. Optional.
+    validations:
+      required: false
