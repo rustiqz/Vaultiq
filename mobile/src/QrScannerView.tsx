@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Camera, useCameraDevice, useCameraPermission, useCodeScanner } from 'react-native-vision-camera';
+import { type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type Code, Camera, useCameraDevice, useCameraPermission, useCodeScanner } from 'react-native-vision-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from './icons';
 import { colors, fonts, spacing } from './theme';
@@ -18,6 +18,7 @@ export default function QrScannerView(props: {
   const device = useCameraDevice('back');
   const [scanError, setScanError] = useState<string | null>(null);
   const [handled, setHandled] = useState(false);
+  const [preview, setPreview] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     if (!hasPermission) requestPermission();
@@ -35,13 +36,32 @@ export default function QrScannerView(props: {
     [handled, props],
   );
 
+  // `regionOfInterest` is iOS-only in VisionCamera, so the viewfinder is
+  // enforced here: a code only counts when its centre lies inside the square.
+  // Code frames are in preview dp, the same space as this view's layout.
+  const inViewfinder = useCallback(
+    (code: Code) => {
+      if (code.frame === undefined || preview.width === 0) return false;
+      const side = Math.min(preview.width, preview.height) * VIEWFINDER_RATIO;
+      const left = (preview.width - side) / 2;
+      const top = (preview.height - side) / 2;
+      const cx = code.frame.x + code.frame.width / 2;
+      const cy = code.frame.y + code.frame.height / 2;
+      return cx >= left && cx <= left + side && cy >= top && cy <= top + side;
+    },
+    [preview],
+  );
+
   const codeScanner = useCodeScanner({
     codeTypes: ['qr'],
-    onCodeScanned: codes => onCode(codes[0]?.value),
+    onCodeScanned: codes => onCode(codes.find(inViewfinder)?.value),
   });
 
+  const onLayout = (e: LayoutChangeEvent) =>
+    setPreview({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height });
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top']} onLayout={onLayout}>
       <View style={styles.appBar}>
         <Pressable style={styles.back} onPress={props.onCancel} accessibilityRole="button" accessibilityLabel="Back">
           <Icon name="chevronLeft" size={22} color={colors.onInk} />
@@ -51,6 +71,18 @@ export default function QrScannerView(props: {
 
       {hasPermission && device !== undefined && (
         <Camera style={StyleSheet.absoluteFill} device={device} isActive={!handled} codeScanner={codeScanner} />
+      )}
+
+      {hasPermission && device !== undefined && (
+        <View style={styles.overlay} pointerEvents="none">
+          <View style={[styles.viewfinder, { width: viewfinderSide(preview), height: viewfinderSide(preview) }]}>
+            <View style={[styles.corner, styles.tl]} />
+            <View style={[styles.corner, styles.tr]} />
+            <View style={[styles.corner, styles.bl]} />
+            <View style={[styles.corner, styles.br]} />
+          </View>
+          <Text style={styles.hint}>Point the camera at the QR code inside the square</Text>
+        </View>
       )}
 
       {!hasPermission && (
@@ -75,7 +107,19 @@ export default function QrScannerView(props: {
   );
 }
 
+const VIEWFINDER_RATIO = 0.7;
+const viewfinderSide = (p: { width: number; height: number }) => Math.min(p.width, p.height) * VIEWFINDER_RATIO;
+const CORNER = 28;
+
 const styles = StyleSheet.create({
+  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
+  viewfinder: { borderRadius: 4 },
+  corner: { position: 'absolute', width: CORNER, height: CORNER, borderColor: colors.onInk },
+  tl: { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 12 },
+  tr: { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 12 },
+  bl: { bottom: 0, left: 0, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 12 },
+  br: { bottom: 0, right: 0, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 12 },
+  hint: { fontFamily: fonts.body, fontSize: 13, color: colors.onInk, textAlign: 'center', paddingHorizontal: spacing.lg },
   container: { flex: 1, backgroundColor: colors.ink },
   appBar: {
     height: 56,
