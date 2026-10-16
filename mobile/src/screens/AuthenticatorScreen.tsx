@@ -9,7 +9,7 @@ import { copyForAWhile } from '../lib/clipboard';
 import { text } from '../itemContent';
 import type { RootTabParamList } from '../navigation';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
-import { SearchBar } from '../ui';
+import { SearchBar, useConfirmDialog } from '../ui';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 import { useTotpCode } from '../useTotpCode';
@@ -29,6 +29,7 @@ export default function AuthenticatorScreen() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList, 'Codes'>>();
+  const { show, dialog } = useConfirmDialog();
 
   const sync = useCallback(async () => {
     setError(null);
@@ -94,17 +95,37 @@ export default function AuthenticatorScreen() {
             </View>
             <View style={styles.groupRows}>
               {codes.map(item => (
-                <AuthenticatorRow key={item.id} item={item} />
+                <AuthenticatorRow
+                  key={item.id}
+                  item={item}
+                  onOpen={() => navigation.navigate('Vault', { screen: 'ItemDetail', params: { item } })}
+                  onDelete={() =>
+                    show('Move to Trash?', 'You can restore it from Trash in Settings.', [
+                      { text: 'Cancel' },
+                      {
+                        text: 'Move to Trash',
+                        destructive: true,
+                        onPress: () => {
+                          vault
+                            .trashItem(item.id, item.version, item.itemType, item.content)
+                            .then(sync)
+                            .catch(thrown => setError(thrown instanceof Error ? thrown.message : String(thrown)));
+                        },
+                      },
+                    ])
+                  }
+                />
               ))}
             </View>
           </View>
         )}
       />
+      {dialog}
     </SafeAreaView>
   );
 }
 
-function AuthenticatorRow(props: { item: DecryptedItem }) {
+function AuthenticatorRow(props: { item: DecryptedItem; onOpen: () => void; onDelete: () => void }) {
   const c = props.item.content;
   const period = typeof c.period === 'number' ? c.period : 30;
   const { code, secondsLeft, failed } = useTotpCode(
@@ -117,7 +138,14 @@ function AuthenticatorRow(props: { item: DecryptedItem }) {
   const progress = secondsLeft === null ? 0 : secondsLeft / period;
 
   return (
-    <Pressable style={styles.row} onPress={code === null ? undefined : () => copyForAWhile(code)}>
+    // Tap copies a live code; a row with no code (bad secret, still loading)
+    // opens the item instead so it can be inspected or deleted. Long-press
+    // moves any row to Trash without opening it.
+    <Pressable
+      style={styles.row}
+      onPress={code === null ? props.onOpen : () => copyForAWhile(code)}
+      onLongPress={props.onDelete}
+    >
       <View style={styles.ringWrap}>
         <Svg width={RING_SIZE} height={RING_SIZE} viewBox="0 0 42 42">
           <Circle cx={21} cy={21} r={RING_RADIUS} fill="none" stroke={inkAlpha(0.16)} strokeWidth={4} />
