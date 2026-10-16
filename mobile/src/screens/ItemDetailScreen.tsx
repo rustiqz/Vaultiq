@@ -10,7 +10,7 @@ import type { VaultStackScreenProps } from '../navigation';
 import { colors, fonts, spacing } from '../theme';
 import { Button, DetailField, SecretField, showComingSoon, useConfirmDialog } from '../ui';
 import { text } from '../itemContent';
-import { useTotpCode } from '../useTotpCode';
+import { TOTP_SECRET_HELP, useTotpCode } from '../useTotpCode';
 
 const RING_SIZE = 216;
 const RING_STROKE = 9;
@@ -19,8 +19,9 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /** The big live code, its countdown ring being the dial's sage arc (6q). */
 function TotpCode(props: { secretB32: string; algorithm: string; digits: number; period: number }) {
-  const { code, secondsLeft } = useTotpCode(props.secretB32, props.algorithm, props.digits, props.period);
+  const { code, secondsLeft, failed } = useTotpCode(props.secretB32, props.algorithm, props.digits, props.period);
 
+  if (failed) return <Text style={styles.totpError}>{TOTP_SECRET_HELP}</Text>;
   if (code === null || secondsLeft === null) return null;
   const progress = secondsLeft / props.period;
   const half = Math.ceil(code.length / 2);
@@ -310,6 +311,13 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textTransform: 'uppercase',
     color: colors.ink,
+  },
+  totpError: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.ink,
+    textAlign: 'center',
   },
   totpBlock: {
     alignItems: 'center',

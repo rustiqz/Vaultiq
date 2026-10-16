@@ -107,7 +107,7 @@ export default function AuthenticatorScreen() {
 function AuthenticatorRow(props: { item: DecryptedItem }) {
   const c = props.item.content;
   const period = typeof c.period === 'number' ? c.period : 30;
-  const { code, secondsLeft } = useTotpCode(
+  const { code, secondsLeft, failed } = useTotpCode(
     text(c, 'secret'),
     text(c, 'algorithm') || 'SHA1',
     typeof c.digits === 'number' ? c.digits : 6,
@@ -136,7 +136,11 @@ function AuthenticatorRow(props: { item: DecryptedItem }) {
       </View>
       <View style={styles.rowText}>
         <Text style={styles.rowIssuer}>{issuer}</Text>
-        <Text style={styles.rowCode}>{code ?? '······'}</Text>
+        {failed ? (
+          <Text style={styles.rowError}>Invalid secret</Text>
+        ) : (
+          <Text style={styles.rowCode}>{code ?? '······'}</Text>
+        )}
       </View>
       <Icon name="copy" size={18} color={colors.ink} />
     </Pressable>
@@ -243,6 +247,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiCondensedSemiBold,
     fontSize: 14,
     color: colors.ink,
+  },
+  rowError: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    color: colors.rust,
   },
   rowCode: {
     fontFamily: fonts.mono,
