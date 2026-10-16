@@ -1,7 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 import Icon from '../icons';
@@ -14,9 +14,63 @@ import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 import { useTotpCode } from '../useTotpCode';
 
-const RING_SIZE = 42;
-const RING_RADIUS = 17;
+const RING_SIZE = 50;
+const RING_STROKE = 4;
+const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+/** Seconds left at which the ring turns amber -- "expiring soon", not an error. */
+const EXPIRING_SECONDS = 7;
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+/**
+ * Countdown ring that drains smoothly across each second instead of
+ * stepping once a second, with the whole seconds inside. Amber (icon/border
+ * use only, design rule 7) in the last few seconds; the number stays ink.
+ */
+function TimerRing(props: { secondsLeft: number | null; period: number }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const previous = useRef<number | null>(null);
+  const { secondsLeft, period } = props;
+
+  useEffect(() => {
+    if (secondsLeft === null) return;
+    // A new period starts with the ring full again; don't animate backwards.
+    if (previous.current === null || secondsLeft > previous.current) progress.setValue(secondsLeft / period);
+    previous.current = secondsLeft;
+    // JS-driven: SVG props are not supported by the native animation driver.
+    Animated.timing(progress, {
+      toValue: Math.max(secondsLeft - 1, 0) / period,
+      duration: 1000,
+      easing: Easing.linear,
+      useNativeDriver: false,
+    }).start();
+  }, [secondsLeft, period, progress]);
+
+  const expiring = secondsLeft !== null && secondsLeft <= EXPIRING_SECONDS;
+  const dashOffset = progress.interpolate({ inputRange: [0, 1], outputRange: [RING_CIRCUMFERENCE, 0], extrapolate: 'clamp' });
+
+  return (
+    <View style={styles.ringWrap}>
+      <Svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}>
+        <Circle cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_RADIUS} fill="none" stroke={inkAlpha(0.14)} strokeWidth={RING_STROKE} />
+        <AnimatedCircle
+          cx={RING_SIZE / 2}
+          cy={RING_SIZE / 2}
+          r={RING_RADIUS}
+          fill="none"
+          stroke={expiring ? colors.amber : colors.sage}
+          strokeWidth={RING_STROKE}
+          strokeLinecap="round"
+          strokeDasharray={`${RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
+          strokeDashoffset={dashOffset}
+          transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+        />
+      </Svg>
+      <Text style={styles.ringSeconds}>{secondsLeft ?? ''}</Text>
+    </View>
+  );
+}
 
 /**
  * Bottom-tab quick access to every authenticator code, live, grouped by
@@ -135,7 +189,7 @@ function AuthenticatorRow(props: { item: DecryptedItem; onOpen: () => void; onDe
     period,
   );
   const issuer = text(c, 'issuer') || text(c, 'name') || props.item.id;
-  const progress = secondsLeft === null ? 0 : secondsLeft / period;
+  const grouped = code === null ? '······' : `${code.slice(0, Math.ceil(code.length / 2))} ${code.slice(Math.ceil(code.length / 2))}`;
 
   return (
     // Tap copies a live code; a row with no code (bad secret, still loading)
@@ -146,28 +200,13 @@ function AuthenticatorRow(props: { item: DecryptedItem; onOpen: () => void; onDe
       onPress={code === null ? props.onOpen : () => copyForAWhile(code)}
       onLongPress={props.onDelete}
     >
-      <View style={styles.ringWrap}>
-        <Svg width={RING_SIZE} height={RING_SIZE} viewBox="0 0 42 42">
-          <Circle cx={21} cy={21} r={RING_RADIUS} fill="none" stroke={inkAlpha(0.16)} strokeWidth={4} />
-          <Circle
-            cx={21}
-            cy={21}
-            r={RING_RADIUS}
-            fill="none"
-            stroke={colors.sage}
-            strokeWidth={9}
-            strokeDasharray={`${RING_CIRCUMFERENCE * progress} ${RING_CIRCUMFERENCE}`}
-            transform="rotate(-90 21 21)"
-          />
-        </Svg>
-        <Text style={styles.ringSeconds}>{secondsLeft ?? ''}</Text>
-      </View>
+      <TimerRing secondsLeft={secondsLeft} period={period} />
       <View style={styles.rowText}>
         <Text style={styles.rowIssuer}>{issuer}</Text>
         {failed ? (
           <Text style={styles.rowError}>Invalid secret</Text>
         ) : (
-          <Text style={styles.rowCode}>{code ?? '······'}</Text>
+          <Text style={styles.rowCode}>{grouped}</Text>
         )}
       </View>
       <Icon name="copy" size={18} color={colors.ink} />
@@ -247,7 +286,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   row: {
-    minHeight: 82,
+    minHeight: 88,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: inkAlpha(0.14),
@@ -264,7 +303,7 @@ const styles = StyleSheet.create({
   ringSeconds: {
     position: 'absolute',
     fontFamily: fonts.mono,
-    fontSize: 12,
+    fontSize: 13,
     color: colors.ink,
   },
   rowText: {
@@ -283,8 +322,8 @@ const styles = StyleSheet.create({
   },
   rowCode: {
     fontFamily: fonts.mono,
-    fontSize: 22,
-    letterSpacing: 2,
+    fontSize: 26,
+    letterSpacing: 3,
     color: colors.ink,
   },
 });
