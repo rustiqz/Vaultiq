@@ -40,11 +40,12 @@ export function parseOtpauth(input: string): OtpauthUri | null {
     return null;
   }
 
-  // `hostname` is empty for otpauth:// in some parsers, so the type is read
-  // from the path instead, where it is always the first segment.
+  // React Native's URL polyfill returns an empty `host` and a `/` pathname
+  // for non-special schemes like otpauth://, so the type and label are read
+  // from the raw string instead (query parameters do parse correctly).
   if (url.protocol !== 'otpauth:') return null;
-  const path = `${url.host}${url.pathname}`;
-  const [kind, ...rest] = path.split('/').filter(Boolean);
+  const raw = input.trim().replace(/^otpauth:\/\//i, '');
+  const [kind, ...rest] = raw.split('?')[0].split('#')[0].split('/').filter(Boolean);
   if (kind?.toLowerCase() !== 'totp') return null;
 
   const secret = url.searchParams.get('secret')?.replace(/\s/g, '') ?? '';
@@ -53,7 +54,12 @@ export function parseOtpauth(input: string): OtpauthUri | null {
   // The label is "Issuer:account" or just "account", and it arrives
   // percent-encoded. A colon may also be written as %3A, which decodeURI
   // has already turned back by the time we split.
-  const label = decodeURIComponent(rest.join('/'));
+  let label: string;
+  try {
+    label = decodeURIComponent(rest.join('/'));
+  } catch {
+    return null;
+  }
   const separator = label.indexOf(':');
   const labelIssuer = separator === -1 ? '' : label.slice(0, separator).trim();
   const account = (separator === -1 ? label : label.slice(separator + 1)).trim();

@@ -7,7 +7,8 @@ import CardPreview from '../CardPreview';
 import Icon from '../icons';
 import { strengthColor, strengthLabel } from '../lib/passwordStrength';
 import { awaitQrScan } from '../lib/qrScanResult';
-import type { PasswordStrength } from '../nativeCryptoCore';
+import CryptoCore, { type PasswordStrength } from '../nativeCryptoCore';
+import { TOTP_SECRET_HELP } from '../useTotpCode';
 import IdentityWizard from './IdentityWizard';
 import type { VaultStackScreenProps } from '../navigation';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
@@ -168,6 +169,20 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
       if (itemType === 'totp') {
         (finalContent as { digits: number }).digits = num(content, 'digits', 6);
         (finalContent as { period: number }).period = num(content, 'period', 30);
+        // Refuse a secret that can never produce a code, rather than saving
+        // an authenticator that silently shows nothing.
+        try {
+          await CryptoCore.totpCode(
+            String(content.secret ?? ''),
+            String(content.algorithm || 'SHA1'),
+            num(content, 'digits', 6),
+            num(content, 'period', 30),
+            Date.now() / 1000,
+          );
+        } catch {
+          setError(TOTP_SECRET_HELP);
+          return;
+        }
       }
 
       if (params.mode === 'create') {
