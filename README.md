@@ -47,6 +47,38 @@ notes and counts are all encrypted, not just the passwords.
 - **One Rust crypto core** shared by every client: WebAssembly in the
   extension, native FFI on Android.
 
+## Screenshots
+
+All screenshots use made-up demo data.
+
+### Browser extension
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="docs/screenshots/extension-vault.png" alt="Extension popup with a one-click Fill action for the current site"><br><sub>Fill the current site in one click</sub></td>
+    <td align="center" width="50%"><img src="docs/screenshots/extension-autofill.png" alt="Autofill dropdown on a login page"><br><sub>Autofill right in the login form</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="50%"><img src="docs/screenshots/extension-item-types.png" alt="The five item types: login, card, identity, authenticator and secure note"><br><sub>Five item types</sub></td>
+    <td align="center" width="50%"><img src="docs/screenshots/extension-dark.png" alt="Extension popup in dark mode with a live authenticator code"><br><sub>Dark mode, with built-in authenticator codes</sub></td>
+  </tr>
+</table>
+
+### Android
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="docs/screenshots/android-get-started.png" alt="Get started: join with an invite, create a vault, use without a server, or restore from backup"><br><sub>Join, create, go local-only, or restore</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/android-vault.png" alt="Vault home listing logins, with Cards, Identities and Notes tiles"><br><sub>Vault home</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/android-card.png" alt="Payment card detail with a card graphic"><br><sub>Cards</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><img src="docs/screenshots/android-codes.png" alt="Codes tab with live one-time codes and countdown rings"><br><sub>Authenticator codes</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/android-settings.png" alt="Settings: auto-lock, master password, autofill, import, export backup"><br><sub>Auto-lock, import and encrypted backup</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/android-dark.png" alt="Vault home in dark theme"><br><sub>Dark theme</sub></td>
+  </tr>
+</table>
+
 ## Platforms
 
 | Platform | Status |
