@@ -49,9 +49,10 @@ notes and counts are all encrypted, not just the passwords.
 
 ## Screenshots
 
-All screenshots use made-up demo data.
+<details>
+  <summary>Show screenshots (demo data only)</summary>
 
-### Browser extension
+  ### Browser extension
 
 <table>
   <tr>
@@ -78,6 +79,8 @@ All screenshots use made-up demo data.
     <td align="center" width="33%"><img src="docs/screenshots/android-dark.png" alt="Vault home in dark theme"><br><sub>Dark theme</sub></td>
   </tr>
 </table>
+
+</details>
 
 ## Platforms
 
