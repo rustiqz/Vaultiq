@@ -7,7 +7,10 @@
 | `ci.yml` → `gate` | every PR, push to `main` | fmt, clippy `-D warnings`, tests, WASM feature build |
 | `ci.yml` → `audit` | dependency changes on a PR or push to `main` | `cargo audit` before release |
 | `ci.yml` → `commit-messages` | PRs only | rejects malformed commit subjects |
-| `ci.yml` → `release` | push to `main`, **after `gate` passes** | tags and cuts the GitHub release |
+| `ci.yml` → `release` | push to `main`, **after `gate` passes** | writes component versions, pushes the version commit, builds the notes |
+| `ci.yml` → `extension-release`, `server-release`, `android-release` | after `release` | build the extension zip, the GHCR server image and the signed APK from the version commit |
+| `ci.yml` → `publish` | after every artifact job succeeds | writes `SHA256SUMS`, creates the tag and the GitHub release with all assets |
+| `ci.yml` → `promote-latest` | after `publish` | moves the server image's `latest` tag |
 | `audit.yml` | weekly cron, manual | `cargo audit` and production pnpm audits for extension, server, and mobile |
 
 Release is a job inside `ci.yml`, not its own workflow, so `needs: gate` can
@@ -109,9 +112,26 @@ Never edit either version by hand — the next release overwrites both.
    `git cliff --bumped-version`.
 4. If nothing since the last tag is releasable — only `chore:` and `style:` —
    the job exits quietly. Otherwise it writes the component versions (see "Two levels of version"),
-   commits them as `chore(release): ... [skip ci]`, tags `vX.Y.Z` on that
-   commit, pushes both, and cuts a GitHub release with notes generated from
-   the commit subjects.
+   commits them as `chore(release): ... [skip ci]`, pushes that commit, and
+   builds release notes from the commit subjects.
+5. The artifact jobs build from that commit, not from a tag: the extension zip,
+   the multi-arch server image (`ghcr.io/rustiqz/vaultiq-server:X.Y.Z`) and the
+   signed Android APK. Only `android-release` runs in the `release`
+   environment, which is restricted to `main` and holds the signing secrets
+   (`ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+   `ANDROID_KEY_PASSWORD`).
+6. Only if every artifact job succeeds, `publish` writes `SHA256SUMS`, creates
+   the tag `vX.Y.Z` at the version commit and cuts the GitHub release with all
+   assets in one call. A release is never visible with assets missing.
+   `promote-latest` then moves the image's `latest` tag.
+
+If an artifact job fails, `main` carries a `chore(release)` version commit with
+no tag and no release. Nothing is lost: git-cliff computes from the last tag,
+so the next run releases those commits too.
+
+A tag is not created by `release` any more, so builds use the version commit's
+SHA. The first push of the image creates the GHCR package as private; set it
+public once under Packages → vaultiq-server → Package settings.
 
 **Merging two PRs close together starts two release jobs**, and the slower one
 would be rejected when it pushes, because `main` has moved. The concurrency
@@ -200,7 +220,7 @@ Two traps in that payload:
 - **`required_approving_review_count` must be 0** while this is a solo
   project. GitHub forbids approving your own PR, so any higher number locks
   you out of your own repository.
-- **Never require `Tag and release`.** It only runs on push to `main`, never
+- **Never require `Version and notes`** (or any release job). It only runs on push to `main`, never
   on a PR, so requiring it leaves every PR waiting on a check that cannot
   arrive.
 

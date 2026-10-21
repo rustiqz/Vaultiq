@@ -1,7 +1,9 @@
 # Built in two stages so the shipped image carries no compiler, no test
 # harness and no source — only what it needs to run.
 
-FROM node:24-alpine AS build
+# Base image pinned by digest so a published image is reproducible from its tag.
+# Bump deliberately: the tag alone would drift under it.
+FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS build
 WORKDIR /app
 
 RUN corepack enable
@@ -16,7 +18,7 @@ RUN pnpm run build
 # Prune to runtime dependencies before copying them across.
 RUN pnpm prune --prod
 
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS runtime
 WORKDIR /app
 
 # Never as root: a process that holds other people's ciphertext should not be

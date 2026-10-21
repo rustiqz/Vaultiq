@@ -1,0 +1,12 @@
+# Runs a published server image instead of building from source:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.release.yml up -d
+#
+# Set VAULTIQ_VERSION in .env to pin a release (e.g. 0.49.0). The default,
+# `latest`, follows the newest release, which is convenient and not pinned —
+# prefer a version for anything you depend on.
+
+services:
+  server:
+    image: ghcr.io/rustiqz/vaultiq-server:${VAULTIQ_VERSION:-latest}
+    build: !reset null

@@ -465,13 +465,20 @@ jobs:
   release:
     # Only after `gate` is green, and only for a merge landing on main.
     # `needs` is what guarantees a broken build can never be tagged.
-    name: Tag and release
+    name: Version and notes
     needs: [gate, extension, server, mobile, server-image, audit, deny, secrets]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
+    # Consumed by the artifact jobs below. They build from `sha`, the version
+    # commit, rather than from a tag: the tag is only created by `publish`,
+    # once every artifact exists.
+    outputs:
+      released: ${{ steps.push.outputs.released }}
+      version: ${{ steps.check.outputs.version }}
+      sha: ${{ steps.push.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -565,11 +572,9 @@ jobs:
             scripts/component-versions.sh
           } >> RELEASE_NOTES.md
 
-      - name: Tag and publish
+      - name: Push the version commit
+        id: push
         if: steps.check.outputs.release == 'true'
-        env:
-          VERSION: ${{ steps.check.outputs.version }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -578,13 +583,375 @@ jobs:
           git fetch --quiet origin main
           if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
             echo "main moved while this run was working; leaving it to the newer run."
+            echo "released=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Push the version commit first. The release creates its tag at that
-          # exact commit, so the tag and main agree about its contents.
+          # Only the commit is pushed here. The tag and the GitHub release are
+          # created by `publish`, after every artifact has been built from this
+          # exact commit, so a release is never visible with assets missing.
+          # If an artifact job fails, main carries a version commit with no tag;
+          # the next run computes from the last tag, so nothing is lost.
           git push origin HEAD:main
-          gh release create "$VERSION" \
-            --target "$(git rev-parse HEAD)" \
+          echo "released=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the release notes
+        if: steps.push.outputs.released == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: RELEASE_NOTES.md
+          if-no-files-found: error
+
+  extension-release:
+    # Rebuilt from the version commit, not reused from the `extension` job:
+    # that one built the merge commit, before the component versions were
+    # written, so its manifest would state the previous version. The toolchain
+    # steps repeat the `extension` job's and must be kept in step with it.
+    name: Package extension
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: 1.98.0
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2
+        with:
+          tool: wasm-pack
+
+      - name: Install wasm-opt
+        env:
+          BINARYEN_VERSION: version_117
+          BINARYEN_SHA256: 3dc677006555b355ea2da5e82602065a161d5e83eaefd3f759afa00b96e83212
+        run: |
+          set -euo pipefail
+          archive="binaryen-${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          curl -fsSLO "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/${archive}"
+          echo "${BINARYEN_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "${archive}" "binaryen-${BINARYEN_VERSION}/bin/wasm-opt"
+          mkdir -p "$RUNNER_TEMP/bin"
+          install -m 0755 "binaryen-${BINARYEN_VERSION}/bin/wasm-opt" "$RUNNER_TEMP/bin/wasm-opt"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: extension/package.json
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: extension/pnpm-lock.yaml
+
+      - name: Install
+        working-directory: extension
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        working-directory: extension
+        run: pnpm run build
+
+      - name: Zip
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          # The manifest sits at the archive root, which both stores and
+          # `web-ext` expect. -X drops timestamps/uid noise from the entries.
+          (cd extension/dist && zip -X -r -9 "$GITHUB_WORKSPACE/assets/vaultiq-extension-${VERSION#v}.zip" .)
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: asset-extension
+          path: assets/*
+          if-no-files-found: error
+
+  server-release:
+    # Pushes the version tag only. `latest` moves in `promote-latest`, after
+    # the release exists, so it never points at a release that failed to
+    # publish. Built from the version commit for the same reason as the
+    # extension: the server reports its own version at boot.
+    name: Push server image
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Name the image
+        id: image
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          # GHCR rejects uppercase in repository names.
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/${owner}/vaultiq-server" >> "$GITHUB_OUTPUT"
+          echo "tag=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./server
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}
+          # Links the package to this repository on GHCR.
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.release.outputs.sha }}
+            org.opencontainers.image.version=${{ steps.image.outputs.tag }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+
+  android-release:
+    # The only job that touches the signing key. `environment: release` is what
+    # makes the secrets readable, and that environment is restricted to `main`,
+    # so a PR or a fork can never reach them. Built from the version commit so
+    # versionName/versionCode (written by component-versions.sh) are the
+    # release's own.
+    name: Build signed APK
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: read
+    env:
+      NDK_VERSION: 27.1.12297006
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: 1.98.0
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2
+        with:
+          tool: cargo-ndk
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # The runner image ships an Android SDK but not necessarily the NDK the
+      # project pins (android/build.gradle `ndkVersion`), so install it.
+      - name: Install Android NDK
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: mobile/package.json
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+
+      - name: Install
+        working-directory: mobile
+        run: pnpm install --frozen-lockfile
+
+      - name: Provide dev config
+        working-directory: mobile
+        run: cp src/devConfig.example.ts src/devConfig.ts
+
+      # Cross-compiles pw-crypto-core and generates the Kotlin bindings; neither
+      # output is committed.
+      - name: Build the crypto core for Android
+        working-directory: mobile
+        run: pnpm run crypto
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      # Secrets arrive through env, never interpolated into the script text.
+      # Backslashes are doubled because the file is read as a Java properties
+      # file, where a single one is an escape.
+      - name: Write signing config
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          keystore="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$keystore"
+          esc() { printf '%s' "$1" | sed 's/\\/\\\\/g'; }
+          {
+            echo "storeFile=$keystore"
+            echo "storePassword=$(esc "$STORE_PASSWORD")"
+            echo "keyAlias=$(esc "$KEY_ALIAS")"
+            echo "keyPassword=$(esc "$KEY_PASSWORD")"
+          } > mobile/android/keystore.properties
+
+      - name: Build release APK
+        working-directory: mobile/android
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify the signature
+        run: |
+          set -euo pipefail
+          apk=mobile/android/app/build/outputs/apk/release/app-release.apk
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$apksigner" verify --verbose --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          # A release signed by the public debug key would install, and be
+          # worthless: anyone can sign an "update" with it.
+          if grep -qi "Android Debug" "$RUNNER_TEMP/certs.txt"; then
+            echo "::error::APK is signed with the debug key."
+            exit 1
+          fi
+
+      - name: Name the asset
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk \
+            "assets/vaultiq-${VERSION#v}.apk"
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore" mobile/android/keystore.properties
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: asset-android
+          path: assets/*
+          if-no-files-found: error
+
+  publish:
+    # The only job that creates the tag and the release. It runs only if every
+    # artifact job succeeded; a skipped or failed one in `needs` stops it.
+    name: Publish release
+    needs: [release, extension-release, server-release, android-release]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: asset-*
+          path: assets
+          merge-multiple: true
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: notes
+
+      - name: Checksums
+        working-directory: assets
+        run: |
+          set -euo pipefail
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Add install notes
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          {
+            echo ""
+            echo "### Install"
+            echo ""
+            echo "Server image (linux/amd64, linux/arm64):"
+            echo ""
+            echo '```'
+            echo "docker pull ghcr.io/${owner}/vaultiq-server:${VERSION#v}"
+            echo '```'
+            echo ""
+            echo "Android: \`vaultiq-${VERSION#v}.apk\` (arm64-v8a), signed with the Vaultiq release key."
+            echo ""
+            echo "Verify downloads against \`SHA256SUMS\`."
+          } >> notes/RELEASE_NOTES.md
+
+      - name: Tag and publish
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          SHA: ${{ needs.release.outputs.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # No checkout here, hence GH_REPO. The tag is created by this call,
+          # at the exact commit the artifacts were built from.
+          gh release create "$VERSION" assets/* \
+            --target "$SHA" \
             --title "$VERSION" \
-            --notes-file RELEASE_NOTES.md
+            --notes-file notes/RELEASE_NOTES.md
+
+  promote-latest:
+    # Runs only once the release is public, so `latest` never gets ahead of it.
+    name: Move latest tag
+    needs: [release, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Retag
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vaultiq-server"
+          # Copies the manifest list; no rebuild, so :latest is the same digest.
+          docker buildx imagetools create --tag "${image}:latest" "${image}:${VERSION#v}"

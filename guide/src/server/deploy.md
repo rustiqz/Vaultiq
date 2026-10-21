@@ -23,6 +23,17 @@ docker compose up -d
 Set `POSTGRES_PASSWORD` to something long and random, and `VAULTIQ_DOMAIN` to
 your domain. Keep `.env` private and out of version control.
 
+To run a published image instead of building from source, add the release
+override and, ideally, pin a version in `.env` with `VAULTIQ_VERSION`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.release.yml up -d
+```
+
+Images are `linux/amd64` and `linux/arm64`, at
+`ghcr.io/rustiqz/vaultiq-server`. Without `VAULTIQ_VERSION` the `latest` tag is
+used, which follows the newest release.
+
 ## Get the first invitation
 
 Registration is invite-only. On a fresh server with no accounts, the server
@@ -54,5 +65,8 @@ The first line of the log names the running version.
 - Back up the Postgres volume if you want the server's copy preserved. The
   contents are ciphertext, so a backup of it does not expose your passwords,
   but it is useless without the master password.
-- Updating: pull the new version, then `docker compose up -d --build`.
-  Migrations run at boot and are safe to repeat.
+- Updating: from source, pull the new version, then
+  `docker compose up -d --build`. With the release image, change
+  `VAULTIQ_VERSION`, then `docker compose -f docker-compose.yml -f
+  docker-compose.release.yml pull` and `up -d`. Migrations run at boot and are
+  safe to repeat.
