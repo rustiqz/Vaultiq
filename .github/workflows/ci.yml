@@ -733,11 +733,142 @@ jobs:
             org.opencontainers.image.version=${{ steps.image.outputs.tag }}
             org.opencontainers.image.licenses=AGPL-3.0-only
 
+  android-release:
+    # The only job that touches the signing key. `environment: release` is what
+    # makes the secrets readable, and that environment is restricted to `main`,
+    # so a PR or a fork can never reach them. Built from the version commit so
+    # versionName/versionCode (written by component-versions.sh) are the
+    # release's own.
+    name: Build signed APK
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: read
+    env:
+      NDK_VERSION: 27.1.12297006
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: 1.98.0
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2
+        with:
+          tool: cargo-ndk
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # The runner image ships an Android SDK but not necessarily the NDK the
+      # project pins (android/build.gradle `ndkVersion`), so install it.
+      - name: Install Android NDK
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: mobile/package.json
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+
+      - name: Install
+        working-directory: mobile
+        run: pnpm install --frozen-lockfile
+
+      - name: Provide dev config
+        working-directory: mobile
+        run: cp src/devConfig.example.ts src/devConfig.ts
+
+      # Cross-compiles pw-crypto-core and generates the Kotlin bindings; neither
+      # output is committed.
+      - name: Build the crypto core for Android
+        working-directory: mobile
+        run: pnpm run crypto
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      # Secrets arrive through env, never interpolated into the script text.
+      # Backslashes are doubled because the file is read as a Java properties
+      # file, where a single one is an escape.
+      - name: Write signing config
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          keystore="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$keystore"
+          esc() { printf '%s' "$1" | sed 's/\\/\\\\/g'; }
+          {
+            echo "storeFile=$keystore"
+            echo "storePassword=$(esc "$STORE_PASSWORD")"
+            echo "keyAlias=$(esc "$KEY_ALIAS")"
+            echo "keyPassword=$(esc "$KEY_PASSWORD")"
+          } > mobile/android/keystore.properties
+
+      - name: Build release APK
+        working-directory: mobile/android
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify the signature
+        run: |
+          set -euo pipefail
+          apk=mobile/android/app/build/outputs/apk/release/app-release.apk
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$apksigner" verify --verbose --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          # A release signed by the public debug key would install, and be
+          # worthless: anyone can sign an "update" with it.
+          if grep -qi "Android Debug" "$RUNNER_TEMP/certs.txt"; then
+            echo "::error::APK is signed with the debug key."
+            exit 1
+          fi
+
+      - name: Name the asset
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk \
+            "assets/vaultiq-${VERSION#v}.apk"
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore" mobile/android/keystore.properties
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: asset-android
+          path: assets/*
+          if-no-files-found: error
+
   publish:
     # The only job that creates the tag and the release. It runs only if every
     # artifact job succeeded; a skipped or failed one in `needs` stops it.
     name: Publish release
-    needs: [release, extension-release, server-release]
+    needs: [release, extension-release, server-release, android-release]
     if: needs.release.outputs.released == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -777,6 +908,8 @@ jobs:
             echo '```'
             echo "docker pull ghcr.io/${owner}/vaultiq-server:${VERSION#v}"
             echo '```'
+            echo ""
+            echo "Android: \`vaultiq-${VERSION#v}.apk\` (arm64-v8a), signed with the Vaultiq release key."
             echo ""
             echo "Verify downloads against \`SHA256SUMS\`."
           } >> notes/RELEASE_NOTES.md
