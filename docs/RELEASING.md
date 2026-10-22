@@ -11,6 +11,7 @@
 | `ci.yml` → `extension-release`, `server-release`, `android-release` | after `release` | build the extension zip, the GHCR server image and the signed APK from the version commit |
 | `ci.yml` → `publish` | after every artifact job succeeds | writes `SHA256SUMS`, creates the tag and the GitHub release with all assets |
 | `ci.yml` → `promote-latest` | after `publish` | moves the server image's `latest` tag |
+| `ci.yml` → `extension-sign` | after `publish` | signs the shipped extension zip on AMO's unlisted channel and attaches the `.xpi` to the release; a failure leaves the release intact |
 | `audit.yml` | weekly cron, manual | `cargo audit` and production pnpm audits for extension, server, and mobile |
 
 Release is a job inside `ci.yml`, not its own workflow, so `needs: gate` can
@@ -119,11 +120,15 @@ Never edit either version by hand — the next release overwrites both.
    signed Android APK. Only `android-release` runs in the `release`
    environment, which is restricted to `main` and holds the signing secrets
    (`ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
-   `ANDROID_KEY_PASSWORD`).
+   `ANDROID_KEY_PASSWORD`). `extension-sign` also runs in it, for
+   `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`.
 6. Only if every artifact job succeeds, `publish` writes `SHA256SUMS`, creates
    the tag `vX.Y.Z` at the version commit and cuts the GitHub release with all
    assets in one call. A release is never visible with assets missing.
    `promote-latest` then moves the image's `latest` tag.
+   `extension-sign` then signs the extension and attaches the `.xpi` and an
+   extended `SHA256SUMS`. It runs after `publish` so an AMO outage cannot hold
+   back the release; if it fails, the release stands without the `.xpi`.
 
 If an artifact job fails, `main` carries a `chore(release)` version commit with
 no tag and no release. Nothing is lost: git-cliff computes from the last tag,

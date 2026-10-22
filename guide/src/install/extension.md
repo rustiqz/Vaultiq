@@ -15,7 +15,15 @@ pnpm install
 pnpm run build        # output in extension/dist
 ```
 
-## Load it in Firefox
+## Install the signed build in Firefox
+
+Each release carries `vaultiq-extension-X.Y.Z.xpi`, signed by Mozilla for
+self-distribution. Download it from the release page, check it against
+`SHA256SUMS`, then open the file in Firefox (or drag it onto the window) and
+accept the prompt. It stays installed across restarts. It does not update
+itself; install the next release's `.xpi` over it.
+
+## Load it in Firefox without signing
 
 1. Open `about:debugging`.
 2. Choose **This Firefox**, then **Load Temporary Add-on**.

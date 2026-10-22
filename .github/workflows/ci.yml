@@ -913,6 +913,8 @@ jobs:
             echo ""
             echo "Android: \`vaultiq-${VERSION#v}.apk\` (arm64-v8a), signed with the Vaultiq release key."
             echo ""
+            echo "Firefox: \`vaultiq-extension-${VERSION#v}.xpi\` (signed by Mozilla, unlisted) is attached a few minutes after the release."
+            echo ""
             echo "Verify downloads against \`SHA256SUMS\`."
           } >> notes/RELEASE_NOTES.md
 
@@ -930,6 +932,79 @@ jobs:
             --target "$SHA" \
             --title "$VERSION" \
             --notes-file notes/RELEASE_NOTES.md
+
+  extension-sign:
+    # Firefox only installs signed extensions permanently. This submits the
+    # extension to AMO's unlisted channel (automated review, no store listing)
+    # and attaches the signed .xpi to the release. It runs after `publish`, not
+    # before: an AMO outage or rejection must not hold back the server image
+    # and the APK, and a failure here leaves a complete release without the
+    # .xpi. The zip that shipped is what gets signed, not a rebuild.
+    name: Sign extension
+    needs: [release, extension-release, publish]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: extension/package.json
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: extension/pnpm-lock.yaml
+
+      - name: Install
+        working-directory: extension
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: asset-extension
+          path: shipped
+
+      - name: Sign
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+          mkdir -p unpacked signed
+          unzip -q "shipped/vaultiq-extension-${VERSION#v}.zip" -d unpacked
+          # `--approval-timeout` is how long to wait for AMO's automated
+          # review before giving up; the default is 15 minutes.
+          (cd extension && pnpm exec web-ext sign \
+            --source-dir ../unpacked \
+            --artifacts-dir ../signed \
+            --channel unlisted \
+            --approval-timeout 1500000)
+          xpi=$(ls signed/*.xpi)
+          mv "$xpi" "signed/vaultiq-extension-${VERSION#v}.xpi"
+
+      - name: Attach to the release
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          xpi="signed/vaultiq-extension-${VERSION#v}.xpi"
+          # SHA256SUMS was written by `publish`; extend it rather than leave the
+          # .xpi as the one asset it does not cover.
+          gh release download "$VERSION" --pattern SHA256SUMS --dir signed
+          (cd signed && sha256sum "vaultiq-extension-${VERSION#v}.xpi" >> SHA256SUMS && cat SHA256SUMS)
+          gh release upload "$VERSION" "$xpi" signed/SHA256SUMS --clobber
 
   promote-latest:
     # Runs only once the release is public, so `latest` never gets ahead of it.
