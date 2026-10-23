@@ -9,6 +9,7 @@
 // the vault key to know it.
 
 import type { VaultStatus } from "../lib/messages.js";
+import { pendingSaveExists } from "./pendingSave.js";
 import { loginCountForUrl, status } from "./vault.js";
 
 export type ToolbarIcon = "none" | "locked" | "unlocked";
@@ -60,8 +61,9 @@ let shownState: VaultStatus | undefined;
  * Best effort and never throws: a toolbar that fails to update must not take a
  * vault operation down with it, and the next event repairs it.
  */
-export async function refreshToolbar(saveWaiting = false): Promise<void> {
+export async function refreshToolbar(): Promise<void> {
   try {
+    const saveWaiting = await pendingSaveExists();
     const state = await status();
     const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
     const count = state === "unlocked" ? await loginCountForUrl(tab?.url) : 0;

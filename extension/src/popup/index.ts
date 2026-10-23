@@ -28,6 +28,7 @@ import {
   type StrengthLevel,
   type VaultBackup,
   type VaultStatus,
+  type PendingSaveInfo,
 } from "../lib/messages.js";
 
 /** What each item type is called on screen. */
@@ -579,8 +580,78 @@ function generatorPanel(): HTMLElement {
   ]);
 }
 
+/** Why a login typed into a page is waiting, and what to do about it. */
+function pendingSaveCopy(info: PendingSaveInfo): { title: string; detail: string } {
+  return {
+    title: info.update ? "Update this login?" : "Save this login?",
+    detail: `${info.username || "(no username)"} · ${info.site}`,
+  };
+}
+
+/**
+ * Ends whatever the decision was about. In the small window opened from a
+ * page's "Unlock to save" button, that window has nothing left to show.
+ */
+function afterPendingDecision(): void {
+  if (pageParams.get("screen") === "unlock") {
+    window.close();
+    return;
+  }
+  void refresh();
+}
+
+function decidePendingSave(save: boolean, button: HTMLButtonElement): void {
+  button.disabled = true;
+  void send({ kind: "resolvePendingSave", save })
+    .then(unwrap)
+    .then(afterPendingDecision)
+    .catch((error: unknown) => {
+      button.disabled = false;
+      showError(error instanceof Error ? error.message : "Could not save.");
+    });
+}
+
+/** The vault is open: save, update or drop the login that was typed while it was not. */
+function pendingSaveBanner(info: PendingSaveInfo): HTMLElement {
+  const copy = pendingSaveCopy(info);
+  const save = el("button", { className: "primary", type: "button", textContent: info.update ? "Update" : "Save" });
+  const dismiss = el("button", { type: "button", textContent: "Not now" });
+  save.addEventListener("click", () => decidePendingSave(true, save));
+  dismiss.addEventListener("click", () => decidePendingSave(false, dismiss));
+  return el("section", { className: "pending-save", role: "status" }, [
+    el("div", { className: "grow" }, [
+      el("strong", { textContent: copy.title }),
+      el("small", { textContent: copy.detail }),
+    ]),
+    dismiss,
+    save,
+  ]);
+}
+
+/** Still locked: say what unlocking will offer, and let it be dropped. */
+function pendingSaveNotice(info: PendingSaveInfo): HTMLElement {
+  const dismiss = el("button", { className: "inline", type: "button", textContent: "Not now" });
+  dismiss.addEventListener("click", () => decidePendingSave(false, dismiss));
+  return el("section", { className: "pending-save pending-note", role: "status" }, [
+    el("div", { className: "grow" }, [
+      el("strong", { textContent: "Unlock to save a login" }),
+      el("small", { textContent: pendingSaveCopy(info).detail }),
+    ]),
+    dismiss,
+  ]);
+}
+
+async function fetchPendingSave(): Promise<PendingSaveInfo | null> {
+  try {
+    const response = await send({ kind: "pendingSave" });
+    return response.ok && response.kind === "pendingSave" ? response.pending : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Unlocking with a PIN, when one is armed for this browser session. */
-function renderQuick(): void {
+function renderQuick(pending: PendingSaveInfo | null = null): void {
   const pin = el("input", {
     type: "password",
     required: true,
@@ -616,6 +687,7 @@ function renderQuick(): void {
   root.replaceChildren(
     el("main", {}, [
       el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Vaultiq is locked" })]),
+      ...(pending ? [pendingSaveNotice(pending)] : []),
       el("p", {
         className: "muted",
         textContent: "Your PIN lasts until the browser closes.",
@@ -628,10 +700,11 @@ function renderQuick(): void {
   );
 }
 
-function renderLocked(): void {
+function renderLocked(pending: PendingSaveInfo | null = null): void {
   root.replaceChildren(
     el("main", { className: "onboard" }, [
       el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Vaultiq is locked" })]),
+      ...(pending ? [pendingSaveNotice(pending)] : []),
       passwordForm("Unlock", async (value) => {
         unwrap(await send({ kind: "unlock", masterPassword: value }));
       }),
@@ -1610,6 +1683,7 @@ function renderUtility(title: string, content: HTMLElement): void {
 }
 
 async function renderUnlocked(): Promise<void> {
+  const pending = await fetchPendingSave();
   const response = unwrap(await send({ kind: "listItems" }));
   if (response.kind !== "listItems") throw new Error("unexpected reply");
 
@@ -1767,6 +1841,7 @@ async function renderUnlocked(): Promise<void> {
 
   root.replaceChildren(
     popupHeader(search),
+    ...(pending && !pending.locked ? [pendingSaveBanner(pending)] : []),
     el("div", { className: "vault-workspace" }, [sidebar, detail]),
   );
 
@@ -1782,9 +1857,11 @@ function render(status: VaultStatus): void {
     case "empty":
       return renderEmpty();
     case "locked":
-      return renderLocked();
+      void fetchPendingSave().then(renderLocked);
+      return;
     case "quick":
-      return renderQuick();
+      void fetchPendingSave().then(renderQuick);
+      return;
     case "unlocked":
       void renderUnlocked().catch((error: unknown) => {
         root.replaceChildren();

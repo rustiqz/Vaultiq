@@ -327,6 +327,19 @@ apps can read it on some Android versions. Both clients clear it after thirty
 seconds, but only if nothing else was copied in the meantime, and not before
 then.
 
+**A login held while the vault is locked.** When a sign-in form is submitted
+in the browser while the vault is locked, the extension keeps the username and
+password for the user to save after unlocking, because a redirect would
+otherwise lose them. That is a plaintext password held by the extension while
+the vault is locked, which is the one thing it otherwise never does. It is
+limited: held in session storage only (memory-backed, never written to disk,
+gone when the browser closes), one login at a time, for at most two minutes,
+and wiped the moment the user chooses Save or Not now. It is never shown or
+sent anywhere but into the vault's own encryption; the popup and the page
+banner are told the site and the username. Anything that can read the
+extension's memory during those two minutes can read it, which is the
+compromised-client case above.
+
 **A plaintext export from another manager.** Import reads a CSV or JSON file
 that holds credentials in the clear, outside Vaultiq's control from the moment
 it exists. The import screen says to delete it once the import is confirmed;

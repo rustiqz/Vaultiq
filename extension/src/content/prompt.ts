@@ -27,6 +27,11 @@ export interface PromptCopy {
   title: string;
   detail: string;
   confirm: string;
+  /**
+   * Whether to offer the name and notes fields. Off when the answer is not "save
+   * it" but "open the vault first", where there is nothing to name yet.
+   */
+  fields?: boolean;
 }
 
 /** What the user chose to call the login, before it is stored. */
@@ -165,7 +170,8 @@ export function buildPromptCard(
   row.className = "row";
   row.append(save, dismiss);
 
-  card.append(brand, title, detail, fields, row);
+  if (copy.fields === false) card.append(brand, title, detail, row);
+  else card.append(brand, title, detail, fields, row);
   return card;
 }
 

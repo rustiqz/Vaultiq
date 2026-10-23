@@ -20,7 +20,6 @@ import {
   fillSuggestions,
   fillValues,
   saveSubmitted,
-  shouldOfferToSave,
   auditLog,
   autoLockMinutes,
   device,
@@ -55,6 +54,14 @@ import {
 } from "./vault.js";
 import type { Request, Response } from "../lib/messages.js";
 import { refreshToolbar } from "./toolbar.js";
+import {
+  PENDING_SAVE_ALARM,
+  clearPendingSave,
+  offerOrHoldSave,
+  pendingSaveExists,
+  pendingSaveInfo,
+  resolvePendingSave,
+} from "./pendingSave.js";
 
 /**
  * Requests after which the toolbar's dot or count can have changed: lock
@@ -73,6 +80,8 @@ const TOOLBAR_AFFECTING = new Set<Request["kind"]>([
   "restoreItem",
   "purgeItem",
   "saveSubmitted",
+  "shouldOfferToSave",
+  "resolvePendingSave",
   "syncNow",
   "connectServer",
   "disconnectServer",
@@ -105,6 +114,9 @@ browser.alarms.onAlarm.addListener((alarm) => {
   // Idle lock leaves the PIN armed: being asked for a PIN after twenty
   // minutes is the point of having one.
   if (alarm.name === AUTO_LOCK_ALARM) void lock(false).then(scheduleToolbarRefresh);
+  // A held login that nobody decided on is wiped when its time is up, even if
+  // no page or popup ever asks about it again.
+  if (alarm.name === PENDING_SAVE_ALARM) void clearPendingSave().then(scheduleToolbarRefresh);
 });
 
 /**
@@ -228,11 +240,27 @@ async function handle(
       await extendAutoLock();
       return { ok: true, kind: "fillValues", values };
     }
-    case "shouldOfferToSave": {
-      const decision = await shouldOfferToSave(request, await requestOrigin(sender));
-      return decision.offer
-        ? { ok: true, kind: "shouldOfferToSave", ...decision }
-        : { ok: true, kind: "shouldOfferToSave", offer: false };
+    case "shouldOfferToSave":
+      return await offerOrHoldSave(request, await requestOrigin(sender), sender.tab?.id);
+    case "pendingSave":
+      // From a page, only the tab the login came from is told about it.
+      return { ok: true, kind: "pendingSave", pending: await pendingSaveInfo(sender.tab?.id) };
+    case "resolvePendingSave": {
+      const { saved } = await resolvePendingSave(request);
+      if (saved) await extendAutoLock();
+      return { ok: true, kind: "resolvePendingSave", saved };
+    }
+    case "openUnlockWindow": {
+      // Only when there is something to unlock for, so a page cannot make the
+      // extension open windows at will.
+      if (!(await pendingSaveExists())) throw new Error("Nothing is waiting to be saved.");
+      await browser.windows.create({
+        url: browser.runtime.getURL("popup.html?tab=1&screen=unlock"),
+        type: "popup",
+        width: 460,
+        height: 680,
+      });
+      return { ok: true, kind: "openUnlockWindow" };
     }
     case "saveSubmitted": {
       await saveSubmitted(request, await requestOrigin(sender));
