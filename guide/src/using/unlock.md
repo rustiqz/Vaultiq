@@ -7,8 +7,10 @@ layered on top.
 
 Both apps lock after a period of inactivity. The default is 15 minutes.
 
-- **Extension:** set it in **Settings**. A locked vault drops the keys from
-  memory.
+- **Extension:** choose 5, 15 or 30 minutes, 1, 4, 8 or 24 hours, or never,
+  under **Settings → Security**. A longer time is more convenient but leaves the
+  vault open for longer if you step away. A locked vault drops the keys from
+  memory, and the vault always locks when the browser closes.
 - **Android:** choose 1, 5, 15 or 30 minutes, or never, in **Settings →
   Auto-lock**. The timer runs while the app is in the foreground; if Android
   kills the app in the background the key is gone anyway.
@@ -17,7 +19,23 @@ Both apps lock after a period of inactivity. The default is 15 minutes.
 
 A PIN lets you unlock the extension without typing the master password. It is
 **session-only**: it lasts until the browser closes, after which you need the
-master password again. Set it under **Settings → Quick unlock PIN**.
+master password again.
+
+Manage it under **Settings → Security → Quick unlock**. The card says whether a
+PIN is set, and lets you set, change or remove it. A PIN is at least four
+digits, and you type it twice so a slip does not leave you with one you cannot
+enter.
+
+- **Locking on idle keeps it.** After the auto-lock time the vault locks and
+  asks for the PIN.
+- **Locking by hand removes it.** The **Lock vault** button also forgets the
+  PIN, so the next unlock needs the master password.
+- **Five wrong tries remove it.** The card shows how many are left once you have
+  used any. After that only the master password works.
+
+The PIN is held in memory only, never written to disk. That is what makes a
+short PIN safe to use: there is nothing stored for an attacker to guess
+offline.
 
 ## Fingerprint (Android)
 
