@@ -76,6 +76,10 @@ body { color: var(--text); font: 14px/1.45 "SpaceGrotesk-Regular", system-ui, sa
   transform: scale(0.7);
   transform-origin: top left;
 }
+/* Opened as a full tab (file pickers cannot run inside a Firefox popup), so no
+   fixed footprint and no shrink. */
+body.tab-mode, html:has(body.tab-mode) { width: auto; height: auto; min-height: 100vh; overflow: auto; }
+body.tab-mode #app { width: 100%; height: auto; min-height: 100vh; transform: none; }
 h1, h2, h3, p { margin: 0; }
 h1 { font: 700 22px/1.15 "ArchivoCondensed-Bold", sans-serif; letter-spacing: -0.015em; }
 h2 { font: 700 12px/1.2 "ArchivoCondensed-Bold", sans-serif; letter-spacing: 0.1em; text-transform: uppercase; }
@@ -102,6 +106,10 @@ button.danger { color: var(--danger); }
 input, textarea { width: 100%; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); color: var(--text); padding: 9px 11px; }
 textarea { resize: vertical; min-height: 82px; }
 label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; }
+/* `input` is full width for text fields; a checkbox must stay its own size and
+   sit beside its label, not float at the far edge of the row. */
+input[type="checkbox"] { width: auto; flex: none; margin: 0; padding: 0; accent-color: var(--accent); }
+label:has(> input[type="checkbox"]) { flex-direction: row; align-items: center; gap: 9px; color: var(--text); font-size: 13px; }
 form { display: flex; flex-direction: column; gap: 11px; }
 .field, .row, .bar { display: flex; gap: 8px; }
 .field input, .row > .grow { flex: 1; min-width: 0; }
@@ -124,7 +132,7 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
 .overflow-menu[hidden] { display: none; }
 .menu-item { width: 100%; justify-content: flex-start; min-height: 35px; border: 0; background: transparent; }
 
-.vault-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 265px minmax(0, 1fr); }
+.vault-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 265px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .vault-sidebar { min-width: 0; display: flex; flex-direction: column; padding: 14px 12px 0; background: var(--surface-sunk); border-right: 1px solid var(--line); }
 .site-context { min-height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 6px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .site-context strong { overflow: hidden; text-overflow: ellipsis; }
@@ -134,7 +142,7 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
 .scope-tab span { min-width: 22px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--text) 8%, transparent); }
 .scope-tab.active { background: var(--selected); }
 .scope-tab.active span { background: color-mix(in srgb, var(--sage) 40%, transparent); }
-.vault-rows { min-height: 0; overflow-y: auto; scrollbar-color: var(--sage) transparent; scrollbar-width: thin; padding: 12px 0 14px; display: flex; flex-direction: column; gap: 7px; }
+.vault-rows { flex: 1; min-height: 0; overflow-y: auto; scrollbar-color: var(--sage) transparent; scrollbar-width: thin; padding: 12px 0 14px; display: flex; flex-direction: column; gap: 7px; }
 .vault-row { width: 100%; min-height: 62px; padding: 8px 9px; justify-content: flex-start; border-color: transparent; background: transparent; text-align: left; }
 .vault-row:hover { background: var(--hover); }
 .vault-row.selected { background: var(--selected); border-color: color-mix(in srgb, var(--sage) 62%, transparent); }
@@ -151,6 +159,9 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
 .detail-heading { display: flex; align-items: center; gap: 12px; }
 .detail-heading .item-glyph { width: 48px; height: 48px; border-radius: 13px; }
 .detail-subtitle { margin-top: 3px; color: var(--muted); }
+/* A long title must stop at the edit button, not run under it. */
+.detail-heading h1, .detail-subtitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-heading .detail-action { flex: none; }
 .quiet-button { background: transparent; }
 .fill-button { width: 100%; min-height: 46px; font-size: 15px; }
 .detail-card { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
@@ -195,7 +206,7 @@ li .row { margin-top: 8px; flex-wrap: wrap; }
 .copyable { min-height: 30px; padding: 4px 7px; font: 12px/1.2 "IBMPlexMono-Regular", monospace; letter-spacing: 0; text-transform: none; }
 .copyable.copied { color: var(--good); border-color: var(--sage); }
 .badge { padding: 2px 7px; border: 1px solid currentColor; border-radius: 999px; font-size: 10px; }
-.meter { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.meter { padding: 9px 12px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .level-very-weak, .level-weak { color: var(--danger); }
 .level-fair { color: var(--warn); }
 .level-strong { color: var(--good); }

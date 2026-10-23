@@ -50,6 +50,25 @@ const STRENGTH_LABEL: Record<StrengthLevel, string> = {
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("popup root missing");
 const root = app;
+
+type UnlockedScreen = "vault" | "new" | "edit" | "settings" | "sync" | "generator" | "trash" | "import";
+
+/**
+ * Firefox closes a browser-action popup the moment a native file dialog takes
+ * focus, so anything that picks a file cannot run inside one. Those screens
+ * open this same page in a full tab instead (`?tab=1`), where the dialog is
+ * harmless. Chrome keeps the popup open, but one code path serves both.
+ */
+const pageParams = new URLSearchParams(location.search);
+const inTab = pageParams.has("tab");
+if (inTab) document.body.classList.add("tab-mode");
+
+function openInTab(screen: "import" | "restore"): void {
+  void browser.tabs
+    .create({ url: browser.runtime.getURL(`popup.html?tab=1&screen=${screen}`) })
+    .then(() => window.close());
+}
+
 let currentError: HTMLElement | null = null;
 
 /**
@@ -171,7 +190,7 @@ function passwordForm(label: string, action: (value: string) => Promise<void>): 
   return form;
 }
 
-let emptyMode: "create" | "join" | "restore" = "create";
+let emptyMode: "create" | "join" | "restore" = inTab && pageParams.get("screen") === "restore" ? "restore" : "create";
 
 /** A backup file, picked and parsed, plus the password to unlock it with. */
 function restoreForm(): HTMLFormElement {
@@ -297,6 +316,10 @@ function renderEmpty(): void {
     ["Restore backup"],
   );
   restoreTab.addEventListener("click", () => {
+    if (!inTab) {
+      openInTab("restore");
+      return;
+    }
     emptyMode = "restore";
     renderEmpty();
   });
@@ -1087,7 +1110,7 @@ function untitled(item: DecryptedItem): string {
 let query = "";
 let selectedId: string | undefined;
 let listScope: "site" | "all" = "site";
-let unlockedScreen: "vault" | "new" | "edit" | "settings" | "sync" | "generator" | "trash" | "import" = "vault";
+let unlockedScreen: UnlockedScreen = pageParams.get("screen") === "import" ? "import" : "vault";
 let refocusSearch = false;
 
 function itemTitle(item: DecryptedItem): string {
@@ -1330,7 +1353,7 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
     icon("moreVertical", { size: 18 }),
   ]);
   const menu = el("div", { className: "overflow-menu", hidden: true });
-  const destinations: { label: string; screen: typeof unlockedScreen }[] = [
+  const destinations: { label: string; screen: UnlockedScreen }[] = [
     { label: "Password generator", screen: "generator" },
     { label: "Import", screen: "import" },
     { label: "Sync & devices", screen: "sync" },
@@ -1340,6 +1363,10 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
   for (const destination of destinations) {
     const button = el("button", { className: "menu-item", type: "button", textContent: destination.label });
     button.addEventListener("click", () => {
+      if (destination.screen === "import" && !inTab) {
+        openInTab("import");
+        return;
+      }
       unlockedScreen = destination.screen;
       void renderUnlocked();
     });
@@ -1360,9 +1387,28 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
   const lock = el("button", { className: "menu-item", type: "button" }, [icon("lock", { size: 14 }), "Lock vault"]);
   lock.addEventListener("click", () => void send({ kind: "lock" }).then(refresh));
   menu.append(lock);
-  more.addEventListener("click", () => {
+  more.addEventListener("click", (event) => {
+    event.stopPropagation();
     menu.hidden = !menu.hidden;
   });
+  // The header is rebuilt on every render, so these listeners are removed with
+  // the menu rather than accumulating on the document.
+  const closeMenu = (): void => {
+    menu.hidden = true;
+  };
+  const onDocumentClick = (event: Event): void => {
+    if (!menu.isConnected) {
+      document.removeEventListener("click", onDocumentClick);
+      document.removeEventListener("keydown", onDocumentKey);
+      return;
+    }
+    if (!menu.hidden && !menu.contains(event.target as Node)) closeMenu();
+  };
+  const onDocumentKey = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") closeMenu();
+  };
+  document.addEventListener("click", onDocumentClick);
+  document.addEventListener("keydown", onDocumentKey);
 
   return el("header", { className: "popup-header" }, [
     brand,
