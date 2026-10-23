@@ -100,7 +100,7 @@ function connectForm(panel: HTMLElement, fail: Fail): HTMLElement {
     fail,
   );
 
-  return el("div", {}, [
+  return el("div", { className: "stack" }, [
     field("Server address", server),
     field("Name for this device", deviceName),
     field("Master password", password),
@@ -180,7 +180,7 @@ function row(device: RemoteDevice, repaintList: () => void, fail: Fail): HTMLEle
 
 /** The panel shown once this device has a server. */
 function connected(panel: HTMLElement, sync: SyncSummary, fail: Fail): HTMLElement {
-  const body = el("div", {}, [
+  const body = el("div", { className: "stack" }, [
     el("p", {}, [
       el("span", { textContent: sync.server ?? "" }),
       el("span", {
