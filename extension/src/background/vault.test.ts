@@ -1084,6 +1084,37 @@ describe("generating a passphrase", () => {
   });
 });
 
+describe("PIN status", () => {
+  it("says no PIN is set, with the limits it would work to", async () => {
+    await vault.create("correct horse battery staple");
+
+    expect(await vault.pinStatus()).toEqual({ set: false, attemptsLeft: 0, maxAttempts: 5, minLength: 4 });
+  });
+
+  it("says a PIN is set once one is armed, and not after it is forgotten", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.setPin("4821");
+    expect(await vault.pinStatus()).toMatchObject({ set: true, attemptsLeft: 5 });
+
+    await vault.forgetPin();
+    expect(await vault.pinStatus()).toMatchObject({ set: false });
+  });
+
+  it("changing the PIN replaces it and restores every try", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.setPin("4821");
+    cryptoFake.unwrapVaultKey.mockImplementationOnce(() => {
+      throw new Error("decryption failed");
+    });
+    await expect(vault.unlockWithPin("0000")).rejects.toThrow();
+    expect((await vault.pinStatus()).attemptsLeft).toBe(4);
+
+    await vault.setPin("9034");
+
+    expect(await vault.pinStatus()).toMatchObject({ set: true, attemptsLeft: 5 });
+  });
+});
+
 describe("mutating an item that does not exist", () => {
   it("is refused rather than silently creating one", async () => {
     await vault.create("correct horse battery staple");

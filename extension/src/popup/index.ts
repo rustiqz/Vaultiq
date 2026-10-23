@@ -331,32 +331,8 @@ function card(title: string | undefined, children: HTMLElement[]): HTMLElement {
   return el("section", { className: "card" }, [...(title ? [el("h2", { textContent: title })] : []), ...children]);
 }
 
-/** Quick-unlock PIN and auto-lock. */
+/** Auto-lock. */
 function unlockingCard(): HTMLElement {
-  const pin = el("input", {
-    type: "password",
-    inputMode: "numeric",
-    autocomplete: "off",
-    placeholder: "At least 4 digits",
-  });
-  const setPin = el("button", { className: "inline", type: "button", textContent: "Set PIN" });
-  setPin.addEventListener("click", () => {
-    setPin.disabled = true;
-    void send({ kind: "setPin", pin: pin.value })
-      .then(unwrap)
-      .then(() => {
-        pin.value = "";
-        setPin.textContent = "PIN set";
-        setTimeout(() => (setPin.textContent = "Set PIN"), 1400);
-      })
-      .catch((error: unknown) => {
-        showError(error instanceof Error ? error.message : "Failed.");
-      })
-      .finally(() => {
-        setPin.disabled = false;
-      });
-  });
-
   const LOCK_CHOICES: [number, string][] = [
     [5, "5 minutes"],
     [15, "15 minutes"],
@@ -391,12 +367,116 @@ function unlockingCard(): HTMLElement {
       "A longer time is more convenient, but leaves your vault open for longer if you step away. Locking always happens when the browser closes.",
       lockAfter,
     ),
-    settingRow(
-      "Quick unlock PIN",
-      "Reopens the vault after it locks. Held in memory only, so it lasts until the browser closes.",
-      el("div", { className: "field" }, [pin, setPin]),
-    ),
   ]);
+}
+
+/**
+ * Quick unlock: whether a PIN is set, and setting, changing or removing it.
+ *
+ * Repainted from the background after every action, so what it says is what
+ * is actually armed rather than what this card last did.
+ */
+function quickUnlockCard(): HTMLElement {
+  const body = el("div", { className: "card-body stack" });
+
+  const paint = async (): Promise<void> => {
+    let status: { set: boolean; attemptsLeft: number; maxAttempts: number; minLength: number };
+    try {
+      const response = unwrap(await send({ kind: "pinStatus" }));
+      if (response.kind !== "pinStatus") throw new Error("unexpected reply");
+      status = response;
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Could not read the PIN status.");
+      return;
+    }
+
+    const tries =
+      status.set && status.attemptsLeft < status.maxAttempts
+        ? `${String(status.attemptsLeft)} of ${String(status.maxAttempts)} wrong tries left, then it is removed.`
+        : status.set
+          ? "Reopens the vault without your master password."
+          : "Set one to reopen the vault without typing your master password.";
+
+    const first = el("input", {
+      type: "password",
+      inputMode: "numeric",
+      autocomplete: "off",
+      placeholder: `At least ${String(status.minLength)} digits`,
+    });
+    const again = el("input", { type: "password", inputMode: "numeric", autocomplete: "off", placeholder: "Repeat it" });
+    const submit = el("button", {
+      className: "primary",
+      type: "submit",
+      textContent: status.set ? "Change PIN" : "Set PIN",
+    });
+
+    const form = el("form", {}, [
+      el("div", { className: "form-grid" }, [
+        el("label", {}, [status.set ? "New PIN" : "PIN", first]),
+        el("label", {}, ["Repeat PIN", again]),
+      ]),
+      el("div", { className: "field" }, [submit]),
+    ]);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      // The repeat is here to catch a slip: a PIN typed wrongly once would be
+      // one the person cannot enter, and every wrong try counts against it.
+      if (first.value !== again.value) {
+        showError("The two PINs do not match.");
+        return;
+      }
+      submit.disabled = true;
+      void send({ kind: "setPin", pin: first.value })
+        .then(unwrap)
+        .then(() => {
+          first.value = "";
+          again.value = "";
+          return paint();
+        })
+        .catch((error: unknown) => {
+          submit.disabled = false;
+          showError(error instanceof Error ? error.message : "Failed.");
+        });
+    });
+
+    const parts: HTMLElement[] = [
+      el("div", { className: "pin-status" }, [
+        el("span", { className: `pin-dot ${status.set ? "on" : "off"}` }),
+        el("div", { className: "grow" }, [
+          el("strong", { textContent: status.set ? "PIN is on" : "No PIN set" }),
+          el("small", { className: "muted", textContent: tries }),
+        ]),
+      ]),
+      form,
+    ];
+
+    if (status.set) {
+      const remove = el("button", { className: "danger", type: "button", textContent: "Remove PIN" });
+      remove.addEventListener("click", () => {
+        remove.disabled = true;
+        void send({ kind: "forgetPin" })
+          .then(unwrap)
+          .then(() => paint())
+          .catch((error: unknown) => {
+            remove.disabled = false;
+            showError(error instanceof Error ? error.message : "Failed.");
+          });
+      });
+      parts.push(el("div", { className: "field" }, [remove]));
+    }
+
+    parts.push(
+      el("p", {
+        className: "muted",
+        textContent:
+          "Held in memory only, so it ends when the browser closes. It is kept when the vault locks on idle, and removed when you lock it by hand or get the PIN wrong too many times.",
+      }),
+    );
+    body.replaceChildren(...parts);
+  };
+
+  void paint();
+  return card("Quick unlock", [body]);
 }
 
 /** Changing the master password. */
@@ -544,7 +624,7 @@ const OPTIONS_SECTIONS: { id: OptionsSection; label: string; blurb: string }[] =
 function optionsCards(section: OptionsSection): HTMLElement[] {
   switch (section) {
     case "security":
-      return [unlockingCard(), masterPasswordCard()];
+      return [unlockingCard(), quickUnlockCard(), masterPasswordCard()];
     case "devices":
       return [deviceCard(), card(undefined, [el("div", { className: "card-body" }, [syncPanel(showError)])])];
     case "data":

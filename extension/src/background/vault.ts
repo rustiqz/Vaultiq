@@ -66,6 +66,10 @@ import {
   disarmQuickUnlock,
   quickUnlock as openWithPin,
   quickUnlockReady,
+  quickUnlockStatus,
+  type QuickUnlockStatus,
+  MAX_ATTEMPTS as PIN_MAX_ATTEMPTS,
+  MIN_PIN,
 } from "../lib/quick-unlock.js";
 import { assertUsableServer, SyncClient, type RemoteDevice } from "../sync/client.js";
 import { reconcile, type SyncOutcome } from "../sync/engine.js";
@@ -187,6 +191,11 @@ export async function status(): Promise<VaultStatus> {
 export async function setPin(pin: string): Promise<void> {
   const vaultKey = await requireUnlocked();
   await armQuickUnlock(pin, vaultKey, generateSalt);
+}
+
+/** Whether a PIN is armed, how many wrong tries it has left, and the limits it works to. */
+export async function pinStatus(): Promise<QuickUnlockStatus & { maxAttempts: number; minLength: number }> {
+  return { ...(await quickUnlockStatus()), maxAttempts: PIN_MAX_ATTEMPTS, minLength: MIN_PIN };
 }
 
 export async function forgetPin(): Promise<void> {

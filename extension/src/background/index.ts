@@ -24,6 +24,7 @@ import {
   autoLockMinutes,
   device,
   forgetPin,
+  pinStatus,
   isLocalOnly,
   itemsForUrl,
   recordUse,
@@ -169,6 +170,8 @@ async function handle(
     case "forgetPin":
       await forgetPin();
       return { ok: true, kind: "forgetPin" };
+    case "pinStatus":
+      return { ok: true, kind: "pinStatus", ...(await pinStatus()) };
     case "unlockWithPin":
       await unlockWithPin(request.pin);
       await extendAutoLock();
