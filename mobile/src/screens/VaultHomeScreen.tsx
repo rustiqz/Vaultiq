@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ItemContent } from '../itemContent';
+import EmptyState from '../EmptyState';
 import Icon from '../icons';
 import ItemAvatar from '../ItemAvatar';
 import { copyForAWhile } from '../lib/clipboard';
@@ -175,9 +176,24 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
                   <Text style={styles.sortToggle}>{sort === 'recent' ? 'Recent' : 'A–Z'}</Text>
                 </Pressable>
               </View>
-              {items !== null && visible.length === 0 && (
-                <Text style={styles.emptyState}>{logins.length === 0 ? 'No logins yet.' : 'No matches.'}</Text>
-              )}
+              {items !== null && visible.length === 0 &&
+                (logins.length === 0 ? (
+                  <EmptyState
+                    icon="login"
+                    title="No logins yet"
+                    hint="Logins you save show up here. Cards, identities and notes are under Browse."
+                    actionLabel="Add a login"
+                    onAction={() => navigation.navigate('ItemEdit', { mode: 'create', itemType: 'login' })}
+                  />
+                ) : (
+                  <EmptyState
+                    icon="search"
+                    title="No matches"
+                    hint={`Nothing matches “${query.trim()}”.`}
+                    actionLabel="Clear search"
+                    onAction={() => setQuery('')}
+                  />
+                ))}
             </View>
           }
           renderItem={({ item }) => {
@@ -376,12 +392,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
     textTransform: 'uppercase',
     color: colors.ink,
-  },
-  emptyState: {
-    fontFamily: fonts.body,
-    color: colors.ink,
-    textAlign: 'center',
-    padding: spacing.lg,
   },
   rowGap: {
     height: spacing.sm,

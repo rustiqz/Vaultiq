@@ -2,6 +2,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import EmptyState from '../EmptyState';
 import Icon from '../icons';
 import ItemAvatar from '../ItemAvatar';
 import { displayName, text } from '../itemContent';
@@ -91,7 +92,15 @@ export default function TrashScreen({ navigation }: SettingsStackScreenProps<'Tr
         keyExtractor={item => item.id}
         // eslint-disable-next-line react/no-unstable-nested-components -- FlatList's own documented separator shape.
         ItemSeparatorComponent={() => <View style={styles.rowGap} />}
-        ListEmptyComponent={items !== null ? <Text style={styles.emptyState}>Trash is empty.</Text> : undefined}
+        ListEmptyComponent={
+          items !== null ? (
+            <EmptyState
+              icon="trash"
+              title="Trash is empty"
+              hint="Items you delete wait here until you remove them for good, so a slip is never final."
+            />
+          ) : undefined
+        }
         renderItem={({ item }) => {
           const name = displayName(item.itemType, item.content, item.id);
           const sub = text(item.content, 'username') || text(item.content, 'url');
@@ -161,12 +170,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: spacing.screen,
     paddingVertical: spacing.md,
-  },
-  emptyState: {
-    fontFamily: fonts.body,
-    color: colors.ink,
-    textAlign: 'center',
-    padding: spacing.lg,
   },
   rowGap: {
     height: spacing.sm,

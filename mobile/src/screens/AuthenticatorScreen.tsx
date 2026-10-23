@@ -4,6 +4,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { Animated, Easing, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
+import EmptyState from '../EmptyState';
 import Icon from '../icons';
 import { copyForAWhile } from '../lib/clipboard';
 import { text } from '../itemContent';
@@ -136,9 +137,24 @@ export default function AuthenticatorScreen() {
           <View style={styles.header}>
             <SearchBar value={query} onChangeText={setQuery} placeholder="Search by account or issuer" />
             {error !== null && <Text style={styles.error}>error: {error}</Text>}
-            {items !== null && visible.length === 0 && (
-              <Text style={styles.emptyState}>{items.length === 0 ? 'No authenticator codes in this vault yet.' : 'No matches.'}</Text>
-            )}
+            {items !== null && visible.length === 0 &&
+              (items.length === 0 ? (
+                <EmptyState
+                  icon="totp"
+                  title="No codes yet"
+                  hint="Add an authenticator account to see its live one-time code here."
+                  actionLabel="Add authenticator"
+                  onAction={() => navigation.navigate('Vault', { screen: 'ItemEdit', params: { mode: 'create', itemType: 'totp' } })}
+                />
+              ) : (
+                <EmptyState
+                  icon="search"
+                  title="No matches"
+                  hint={`Nothing matches “${query.trim()}”.`}
+                  actionLabel="Clear search"
+                  onAction={() => setQuery('')}
+                />
+              ))}
           </View>
         }
         renderItem={({ item: [account, codes] }) => (
@@ -254,12 +270,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     color: colors.rust,
     fontSize: 12,
-  },
-  emptyState: {
-    fontFamily: fonts.body,
-    color: colors.ink,
-    textAlign: 'center',
-    padding: spacing.lg,
   },
   groupGap: {
     height: spacing.lg,
