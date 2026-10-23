@@ -402,6 +402,8 @@ pub struct PasswordOptionsFfi {
     pub digits: bool,
     /// Include punctuation.
     pub symbols: bool,
+    /// Leave out characters that look alike (`0 O o 1 l I`).
+    pub avoid_ambiguous: bool,
 }
 
 impl From<PasswordOptions> for PasswordOptionsFfi {
@@ -412,6 +414,7 @@ impl From<PasswordOptions> for PasswordOptionsFfi {
             uppercase: options.uppercase,
             digits: options.digits,
             symbols: options.symbols,
+            avoid_ambiguous: options.avoid_ambiguous,
         }
     }
 }
@@ -424,6 +427,7 @@ impl From<PasswordOptionsFfi> for PasswordOptions {
             uppercase: options.uppercase,
             digits: options.digits,
             symbols: options.symbols,
+            avoid_ambiguous: options.avoid_ambiguous,
         }
     }
 }
