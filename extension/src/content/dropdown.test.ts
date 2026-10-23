@@ -18,6 +18,34 @@ function anchor(): HTMLInputElement {
   return document.querySelector<HTMLInputElement>("#p")!;
 }
 
+/**
+ * Reads what was drawn into the closed shadow root.
+ *
+ * Page script cannot do this, and the tests should not weaken that — so the
+ * root is opened only for the duration of the call, by wrapping `attachShadow`,
+ * and put back afterwards.
+ */
+function drawn(show: () => void): ShadowRoot {
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "attachShadow");
+  if (!descriptor) throw new Error("no attachShadow to wrap");
+  const original = descriptor.value as (this: Element, init: ShadowRootInit) => ShadowRoot;
+  let root: ShadowRoot | undefined;
+  Object.defineProperty(Element.prototype, "attachShadow", {
+    ...descriptor,
+    value(this: Element, init: ShadowRootInit): ShadowRoot {
+      root = original.call(this, { ...init, mode: "open" });
+      return root;
+    },
+  });
+  try {
+    show();
+  } finally {
+    Object.defineProperty(Element.prototype, "attachShadow", descriptor);
+  }
+  if (!root) throw new Error("nothing was drawn");
+  return root;
+}
+
 function host(): HTMLElement | null {
   return document.querySelector("#vaultiq-picker");
 }
@@ -155,5 +183,97 @@ describe("behaviour", () => {
     showDropdown(field, ENTRIES, vi.fn());
     closeDropdown();
     expect(belongsToDropdown(field)).toBe(false);
+  });
+});
+
+describe("what it draws", () => {
+  it("names the product, so it can be told from a lookalike", () => {
+    const root = drawn(() => showDropdown(anchor(), ENTRIES, vi.fn()));
+
+    expect(root.querySelector(".head")?.textContent).toContain("Vaultiq");
+    expect(root.querySelector(".head svg")).not.toBeNull();
+  });
+
+  it("gives each login a letter and a Fill action", () => {
+    const root = drawn(() => showDropdown(anchor(), ENTRIES, vi.fn()));
+
+    const rows = [...root.querySelectorAll("li")];
+    expect(rows.map((row) => row.querySelector(".avatar")?.textContent)).toEqual(["P", "W"]);
+    expect(rows.map((row) => row.querySelector(".fill")?.textContent)).toEqual(["Fill", "Fill"]);
+    expect(rows[0]?.querySelector(".label")?.textContent).toBe("Personal");
+    expect(rows[0]?.querySelector(".detail")?.textContent).toBe("me@example.test");
+  });
+
+  it("counts saved logins, not the suggested password", () => {
+    const root = drawn(() =>
+      showDropdown(
+        anchor(),
+        [{ id: "s", label: "Use a suggested password", detail: "Xk4!qz", emphasis: true }, ...ENTRIES],
+        vi.fn(),
+      ),
+    );
+
+    expect(root.querySelector(".count")?.textContent).toBe("2 saved");
+    const suggestion = root.querySelector("li.emphasis");
+    expect(suggestion?.querySelector(".fill")?.textContent).toBe("Use");
+    expect(suggestion?.querySelector(".avatar svg")).not.toBeNull();
+  });
+
+  it("shows no count when only a suggestion is on offer", () => {
+    const root = drawn(() =>
+      showDropdown(anchor(), [{ id: "s", label: "Use a suggested password", detail: "Xk4!qz", emphasis: true }], vi.fn()),
+    );
+
+    expect(root.querySelector(".count")).toBeNull();
+  });
+
+  it("renders text as text, never as markup", () => {
+    const root = drawn(() =>
+      showDropdown(anchor(), [{ id: "x", label: "<img src=x onerror=alert(1)>", detail: "<b>hi</b>" }], vi.fn()),
+    );
+
+    expect(root.querySelector("img")).toBeNull();
+    expect(root.querySelector(".detail b")).toBeNull();
+    expect(root.querySelector(".label")?.textContent).toBe("<img src=x onerror=alert(1)>");
+  });
+});
+
+describe("where it sits", () => {
+  function viewport(width: number): void {
+    Object.defineProperty(document.documentElement, "clientWidth", { value: width, configurable: true });
+  }
+
+  it("is at least 280px wide, whatever the field is", () => {
+    viewport(1000);
+    showDropdown(anchor(), ENTRIES, vi.fn());
+
+    expect(host()?.style.getPropertyValue("width")).toBe("280px");
+  });
+
+  it("stays inside the viewport for a field near the right edge", () => {
+    viewport(400);
+    const field = anchor();
+    field.getBoundingClientRect = () => ({ left: 380, right: 400, top: 0, bottom: 20, width: 20, height: 20, x: 380, y: 0 }) as DOMRect;
+
+    showDropdown(field, ENTRIES, vi.fn());
+
+    // 400 - 280 - 8: its right edge ends 8px inside the viewport.
+    expect(host()?.style.getPropertyValue("left")).toBe("112px");
+  });
+
+  it("never starts left of the edge margin", () => {
+    viewport(1000);
+    const field = anchor();
+    field.getBoundingClientRect = () => ({ left: -50, right: 0, top: 0, bottom: 20, width: 50, height: 20, x: -50, y: 0 }) as DOMRect;
+
+    showDropdown(field, ENTRIES, vi.fn());
+
+    expect(host()?.style.getPropertyValue("left")).toBe("8px");
+  });
+
+  it("pins a light colour scheme so the OS theme cannot restyle it", () => {
+    showDropdown(anchor(), ENTRIES, vi.fn());
+
+    expect(host()?.style.getPropertyValue("color-scheme")).toBe("light");
   });
 });

@@ -499,8 +499,8 @@ accurate when something stops being true.
   - **Fonts**: the same bundled TTFs as mobile (Space Grotesk body, IBM Plex
     Mono for copyable/token values, Archivo Condensed/SemiCondensed for
     headings and button chrome), loaded via `@font-face` in `popup.css` only
-    — never in the content-script's injected stylesheets, which stay on OS
-    system colors/fonts by design (see below). Copied straight from
+    — never in the content-script's injected stylesheets, which use a system
+    font stack and no bundled fonts (see below). Copied straight from
     `mobile/android/app/src/main/assets/fonts` rather than re-fetched, with
     one exception: `ArchivoCondensed-SemiBold.ttf` there is byte-identical
     to `ArchivoCondensed-Bold.ttf` (same MD5) — a mislabeled duplicate from
@@ -534,12 +534,13 @@ accurate when something stops being true.
     name in the local enrollment record and shows it under the locked mark.
     The field is optional in the stored type so existing installations remain
     readable and show "This device" until they enroll again.
-  - **Deliberately untouched**: the content-script's autofill dropdown and
-    save-password prompt (`extension/src/content/dropdown.ts`, `prompt.ts`)
-    stay on OS system colors (`Canvas`/`CanvasText`) in their isolated
-    shadow roots — an existing trust-boundary decision (they inject into
-    arbitrary third-party pages), not something this reskin should override
-    by shipping custom fonts onto every page a user visits. `sync-panel.ts`
+  - **Deliberately untouched at the time**: the content-script's autofill
+    dropdown and save-password prompt (`extension/src/content/dropdown.ts`,
+    `prompt.ts`) stayed on OS system colors (`Canvas`/`CanvasText`) in their
+    isolated shadow roots, as a trust-boundary decision (they inject into
+    arbitrary third-party pages). **Since reversed on colors only**: both now
+    use one fixed palette (`content/skin.ts`) so they stay legible on any page
+    and any OS theme; fonts are still not shipped into pages. `sync-panel.ts`
     also wasn't touched beyond inheriting the new tokens automatically: its
     buttons swap their own `textContent` between a label and "Working…", so
     adding a persistent icon would mean restructuring that pattern for
