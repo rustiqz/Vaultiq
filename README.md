@@ -216,5 +216,6 @@ Vaultiq is licensed under the
 version as a network service, you must offer its source to the users of that
 service.
 
-Bundled fonts are under the SIL Open Font License; see
+Bundled fonts are under the SIL Open Font License, and the passphrase word
+list (from the Electronic Frontier Foundation) under CC BY 3.0 US; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

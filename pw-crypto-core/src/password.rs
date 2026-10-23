@@ -150,7 +150,7 @@ fn rejection_limit(bound: u32) -> Result<u32> {
 }
 
 /// Draws a uniformly distributed index below `bound`.
-fn uniform_index(bound: usize) -> Result<usize> {
+pub(crate) fn uniform_index(bound: usize) -> Result<usize> {
     let bound = u32::try_from(bound)
         .map_err(|_| CryptoError::InvalidInput("character set is too large".to_owned()))?;
     if bound == 0 {
