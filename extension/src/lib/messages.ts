@@ -31,6 +31,15 @@ export interface PasswordStrength {
   level: StrengthLevel;
 }
 
+/** What a passphrase may look like: words from the EFF list. */
+export interface PassphraseOptions {
+  words: number;
+  /** Up to four printable characters between words, or empty. */
+  separator: string;
+  capitalize: boolean;
+  include_number: boolean;
+}
+
 export interface PasswordOptions {
   length: number;
   lowercase: boolean;
@@ -404,6 +413,7 @@ export type Request =
   // Generation happens in the background like everything else, so the popup
   // never loads the crypto module itself.
   | { kind: "generatePassword"; options?: PasswordOptions }
+  | { kind: "generatePassphrase"; options: PassphraseOptions }
   | { kind: "checkStrength"; password: string }
   // Deliberately takes no URL. The background reads the active tab itself —
   // a caller that could name its own site could enumerate the vault.
@@ -477,6 +487,7 @@ export type Response =
   | { ok: true; kind: "listItems"; items: DecryptedItem[] }
   | { ok: true; kind: "totpCode"; code: string; secondsRemaining: number }
   | { ok: true; kind: "generatePassword"; password: string }
+  | { ok: true; kind: "generatePassphrase"; passphrase: string; bits: number }
   | { ok: true; kind: "checkStrength"; strength: PasswordStrength }
   // Logins only: a note has no site to belong to, so nothing else can be here.
   | { ok: true; kind: "itemsForSite"; site: string | null; items: DecryptedLogin[] }

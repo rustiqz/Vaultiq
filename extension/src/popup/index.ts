@@ -28,6 +28,7 @@ import {
   type StrengthLevel,
   type VaultBackup,
   type VaultStatus,
+  type PassphraseOptions,
   type PasswordOptions,
   type PendingSaveInfo,
 } from "../lib/messages.js";
@@ -556,47 +557,101 @@ function optionsCards(section: OptionsSection): HTMLElement[] {
 const GENERATOR_KEY = "vaultiq:generator";
 const GENERATOR_MIN = 8;
 const GENERATOR_MAX = 64;
+const WORDS_MIN = 3;
+const WORDS_MAX = 12;
 
-const GENERATOR_DEFAULTS: PasswordOptions = {
-  length: 20,
-  lowercase: true,
-  uppercase: true,
-  digits: true,
-  symbols: true,
-  avoid_ambiguous: false,
+/** What can sit between the words of a passphrase. */
+const SEPARATORS: [string, string][] = [
+  ["-", "Hyphen  -"],
+  [" ", "Space"],
+  [".", "Period  ."],
+  ["_", "Underscore  _"],
+  [",", "Comma  ,"],
+  ["", "None"],
+];
+
+interface GeneratorState {
+  mode: "password" | "passphrase";
+  password: PasswordOptions;
+  passphrase: PassphraseOptions;
+}
+
+const GENERATOR_DEFAULTS: GeneratorState = {
+  mode: "password",
+  password: {
+    length: 20,
+    lowercase: true,
+    uppercase: true,
+    digits: true,
+    symbols: true,
+    avoid_ambiguous: false,
+  },
+  passphrase: { words: 6, separator: "-", capitalize: false, include_number: false },
 };
+
+function clampWhole(value: unknown, fallback: number, min: number, max: number): number {
+  const whole = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback;
+  return Math.min(max, Math.max(min, whole));
+}
 
 /**
  * What the generator was last set to. A convenience only — nothing in it is
  * secret — so a browser that will not store it (private window, blocked site
- * data) simply starts from the defaults each time.
+ * data) simply starts from the defaults each time. Anything that does not read
+ * back as a valid setting falls back to its default rather than being trusted.
  */
-function savedGeneratorOptions(): PasswordOptions {
+function savedGenerator(): GeneratorState {
+  const fresh = (): GeneratorState => ({
+    mode: GENERATOR_DEFAULTS.mode,
+    password: { ...GENERATOR_DEFAULTS.password },
+    passphrase: { ...GENERATOR_DEFAULTS.passphrase },
+  });
   try {
     const raw = localStorage.getItem(GENERATOR_KEY);
-    if (!raw) return { ...GENERATOR_DEFAULTS };
-    const saved = JSON.parse(raw) as Partial<Record<keyof PasswordOptions, unknown>>;
-    const length = typeof saved.length === "number" ? Math.round(saved.length) : GENERATOR_DEFAULTS.length;
-    const options: PasswordOptions = {
-      length: Math.min(GENERATOR_MAX, Math.max(GENERATOR_MIN, length)),
-      lowercase: saved.lowercase === true,
-      uppercase: saved.uppercase === true,
-      digits: saved.digits === true,
-      symbols: saved.symbols === true,
-      avoid_ambiguous: saved.avoid_ambiguous === true,
+    if (!raw) return fresh();
+    const saved = JSON.parse(raw) as {
+      mode?: unknown;
+      password?: Partial<Record<keyof PasswordOptions, unknown>>;
+      passphrase?: Partial<Record<keyof PassphraseOptions, unknown>>;
     };
-    // A stored set with every type off could never generate anything.
-    return options.lowercase || options.uppercase || options.digits || options.symbols
-      ? options
-      : { ...GENERATOR_DEFAULTS };
+    const state = fresh();
+    if (saved.mode === "passphrase") state.mode = "passphrase";
+
+    const pw = saved.password;
+    if (pw) {
+      const candidate: PasswordOptions = {
+        length: clampWhole(pw.length, state.password.length, GENERATOR_MIN, GENERATOR_MAX),
+        lowercase: pw.lowercase === true,
+        uppercase: pw.uppercase === true,
+        digits: pw.digits === true,
+        symbols: pw.symbols === true,
+        avoid_ambiguous: pw.avoid_ambiguous === true,
+      };
+      // A stored set with every type off could never generate anything.
+      if (candidate.lowercase || candidate.uppercase || candidate.digits || candidate.symbols) {
+        state.password = candidate;
+      }
+    }
+
+    const phrase = saved.passphrase;
+    if (phrase) {
+      const separator = SEPARATORS.find(([value]) => value === phrase.separator)?.[0];
+      state.passphrase = {
+        words: clampWhole(phrase.words, state.passphrase.words, WORDS_MIN, WORDS_MAX),
+        separator: separator ?? state.passphrase.separator,
+        capitalize: phrase.capitalize === true,
+        include_number: phrase.include_number === true,
+      };
+    }
+    return state;
   } catch {
-    return { ...GENERATOR_DEFAULTS };
+    return fresh();
   }
 }
 
-function saveGeneratorOptions(options: PasswordOptions): void {
+function saveGenerator(state: GeneratorState): void {
   try {
-    localStorage.setItem(GENERATOR_KEY, JSON.stringify(options));
+    localStorage.setItem(GENERATOR_KEY, JSON.stringify(state));
   } catch {
     // Not remembered; see above.
   }
@@ -606,11 +661,11 @@ function saveGeneratorOptions(options: PasswordOptions): void {
  * A generator that needs no vault.
  *
  * Offered on the locked screen too: wanting a password is not a reason to
- * have unlocked, and a signup form does not wait. The password itself is made
- * by the crypto core in the background; this only chooses what it may contain.
+ * have unlocked, and a signup form does not wait. What is made is made by the
+ * crypto core in the background; this only chooses what it may contain.
  */
 function generatorPanel(): HTMLElement {
-  const options = savedGeneratorOptions();
+  const state = savedGenerator();
   const typeKeys = ["lowercase", "uppercase", "digits", "symbols"] as const;
 
   const output = el("div", { className: "gen-output", textContent: "—" });
@@ -628,7 +683,7 @@ function generatorPanel(): HTMLElement {
       className: "detail-action",
       type: "button",
       title: `Copy — cleared after ${String(CLIPBOARD_SECONDS)} seconds`,
-      ariaLabel: "Copy password",
+      ariaLabel: "Copy",
     },
     [icon("copy", { size: 17 })],
   );
@@ -639,7 +694,18 @@ function generatorPanel(): HTMLElement {
   const generate = async (): Promise<void> => {
     const mine = ++latest;
     try {
-      const made = unwrap(await send({ kind: "generatePassword", options: { ...options } }));
+      if (state.mode === "passphrase") {
+        const made = unwrap(await send({ kind: "generatePassphrase", options: { ...state.passphrase } }));
+        if (made.kind !== "generatePassphrase" || mine !== latest) return;
+        current = made.passphrase;
+        output.textContent = current;
+        // The entropy of how it was drawn, not a score of the text.
+        meter.className = "meter gen-meter";
+        meter.textContent = `~${String(made.bits)} bits · ${String(state.passphrase.words)} words`;
+        return;
+      }
+
+      const made = unwrap(await send({ kind: "generatePassword", options: { ...state.password } }));
       if (made.kind !== "generatePassword" || mine !== latest) return;
       current = made.password;
       output.textContent = current;
@@ -654,7 +720,7 @@ function generatorPanel(): HTMLElement {
   };
 
   const changed = (): void => {
-    saveGeneratorOptions(options);
+    saveGenerator(state);
     void generate();
   };
 
@@ -669,30 +735,47 @@ function generatorPanel(): HTMLElement {
       .catch(() => showError("Could not copy."));
   });
 
-  // --- length ---
-  const lengthValue = el("strong", { textContent: String(options.length) });
-  const slider = el("input", {
-    type: "range",
-    min: String(GENERATOR_MIN),
-    max: String(GENERATOR_MAX),
-    step: "1",
-    value: String(options.length),
-  });
-  slider.addEventListener("input", () => {
-    options.length = Number(slider.value);
-    lengthValue.textContent = String(options.length);
-    changed();
-  });
+  /** A labelled slider with its value beside the label. */
+  const slider = (
+    label: string,
+    min: number,
+    max: number,
+    value: number,
+    update: (next: number) => void,
+  ): HTMLElement => {
+    const shown = el("strong", { textContent: String(value) });
+    const input = el("input", { type: "range", min: String(min), max: String(max), step: "1", value: String(value) });
+    input.addEventListener("input", () => {
+      const next = Number(input.value);
+      shown.textContent = String(next);
+      update(next);
+      changed();
+    });
+    return el("label", { className: "gen-length" }, [el("span", { className: "gen-length-row" }, [label, shown]), input]);
+  };
 
-  // --- character types ---
-  const chip = (key: (typeof typeKeys)[number], title: string, sample: string): HTMLElement => {
-    const box = el("input", { type: "checkbox", checked: options[key] });
+  /** An on/off setting with its switch beside its words. */
+  const switchRow = (label: string, hint: string, on: boolean, update: (next: boolean) => void): HTMLElement => {
+    const box = el("input", { type: "checkbox", className: "switch", checked: on });
     box.addEventListener("change", () => {
-      options[key] = box.checked;
+      update(box.checked);
+      changed();
+    });
+    return el("label", { className: "gen-toggle" }, [
+      box,
+      el("span", {}, [label, " ", el("small", { className: "muted", textContent: hint })]),
+    ]);
+  };
+
+  // --- password controls ---
+  const chip = (key: (typeof typeKeys)[number], title: string, sample: string): HTMLElement => {
+    const box = el("input", { type: "checkbox", checked: state.password[key] });
+    box.addEventListener("change", () => {
+      state.password[key] = box.checked;
       // The core refuses a password with nothing to draw from, so the last
       // type cannot be switched off — say why rather than silently ignoring it.
-      if (!typeKeys.some((each) => options[each])) {
-        options[key] = true;
+      if (!typeKeys.some((each) => state.password[each])) {
+        state.password[key] = true;
         box.checked = true;
         note.textContent = "Keep at least one type selected.";
         setTimeout(() => (note.textContent = ""), 2200);
@@ -703,34 +786,82 @@ function generatorPanel(): HTMLElement {
     return el("label", { className: "chip", title }, [box, el("span", { textContent: sample })]);
   };
 
-  // --- look-alikes ---
-  const ambiguous = el("input", { type: "checkbox", className: "switch", checked: options.avoid_ambiguous === true });
-  ambiguous.addEventListener("change", () => {
-    options.avoid_ambiguous = ambiguous.checked;
-    changed();
-  });
-
-  void generate();
-
-  return el("div", { className: "group generator" }, [
-    el("h2", { textContent: "Password generator" }),
-    el("div", { className: "gen-result" }, [output, el("div", { className: "gen-actions" }, [regenerate, copy])]),
-    meter,
-    el("label", { className: "gen-length" }, [
-      el("span", { className: "gen-length-row" }, ["Length", lengthValue]),
-      slider,
-    ]),
+  const passwordControls = el("div", { className: "stack gen-controls" }, [
+    slider("Length", GENERATOR_MIN, GENERATOR_MAX, state.password.length, (next) => {
+      state.password.length = next;
+    }),
     el("div", { className: "chips" }, [
       chip("lowercase", "Lowercase letters", "a–z"),
       chip("uppercase", "Uppercase letters", "A–Z"),
       chip("digits", "Numbers", "0–9"),
       chip("symbols", "Symbols", "!@#"),
     ]),
+    switchRow("Avoid look-alike characters", "0 O o 1 l I", state.password.avoid_ambiguous === true, (next) => {
+      state.password.avoid_ambiguous = next;
+    }),
+  ]);
+
+  // --- passphrase controls ---
+  const separator = el("select", {});
+  for (const [value, label] of SEPARATORS) separator.append(el("option", { value, textContent: label }));
+  separator.value = state.passphrase.separator;
+  separator.addEventListener("change", () => {
+    state.passphrase.separator = separator.value;
+    changed();
+  });
+
+  const passphraseControls = el("div", { className: "stack gen-controls" }, [
+    slider("Words", WORDS_MIN, WORDS_MAX, state.passphrase.words, (next) => {
+      state.passphrase.words = next;
+    }),
+    el("label", {}, ["Separator", separator]),
+    switchRow("Capitalize each word", "", state.passphrase.capitalize, (next) => {
+      state.passphrase.capitalize = next;
+    }),
+    switchRow("Add a number", "one digit on one word", state.passphrase.include_number, (next) => {
+      state.passphrase.include_number = next;
+    }),
+    el("p", {
+      className: "muted",
+      textContent:
+        "Words come from the EFF long list. Six is plenty for most accounts; use eight or more for a master password.",
+    }),
+  ]);
+
+  // --- mode ---
+  const modeTab = (mode: GeneratorState["mode"], label: string): HTMLButtonElement => {
+    const button = el("button", { className: "scope-tab", type: "button", textContent: label });
+    button.addEventListener("click", () => {
+      if (state.mode === mode) return;
+      state.mode = mode;
+      showMode();
+      changed();
+    });
+    return button;
+  };
+  const passwordTab = modeTab("password", "Password");
+  const passphraseTab = modeTab("passphrase", "Passphrase");
+
+  function showMode(): void {
+    const phrase = state.mode === "passphrase";
+    passwordTab.classList.toggle("active", !phrase);
+    passphraseTab.classList.toggle("active", phrase);
+    passwordControls.hidden = phrase;
+    passphraseControls.hidden = !phrase;
+    note.textContent = "";
+  }
+  showMode();
+
+  void generate();
+
+  return el("div", { className: "group generator" }, [
+    el("h2", { textContent: "Generator" }),
+    el("div", { className: "scope-tabs" }, [passwordTab, passphraseTab]),
+    el("div", { className: "gen-result" }, [output, el("div", { className: "gen-actions" }, [regenerate, copy])]),
+    meter,
+    passwordControls,
+    passphraseControls,
     note,
-    el("label", { className: "gen-toggle" }, [
-      ambiguous,
-      el("span", {}, ["Avoid look-alike characters ", el("small", { className: "muted", textContent: "0 O o 1 l I" })]),
-    ]),
   ]);
 }
 

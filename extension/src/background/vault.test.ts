@@ -1056,6 +1056,34 @@ describe("password generation", () => {
   });
 });
 
+describe("generating a passphrase", () => {
+  const OPTIONS = { words: 6, separator: "-", capitalize: false, include_number: false };
+
+  it("hands the options to the core and reports the bits it says", () => {
+    const made = vault.newPassphrase(OPTIONS);
+
+    expect(cryptoFake.generatePassphrase).toHaveBeenLastCalledWith(OPTIONS);
+    expect(cryptoFake.passphraseBits).toHaveBeenLastCalledWith(OPTIONS);
+    expect(made).toEqual({ passphrase: "alpha-bravo-charlie-delta-echo-foxtrot", bits: 77 });
+  });
+
+  it("does not work the strength out from the text", () => {
+    // The figure is a property of how the words were drawn. Scoring the
+    // finished string would count its letters as if they were random.
+    vault.newPassphrase(OPTIONS);
+
+    expect(cryptoFake.scorePassword).not.toHaveBeenCalled();
+  });
+
+  it("lets the core's refusal through rather than inventing a passphrase", () => {
+    cryptoFake.generatePassphrase.mockImplementationOnce(() => {
+      throw new Error("invalid options: words must be between 3 and 20, got 1");
+    });
+
+    expect(() => vault.newPassphrase({ ...OPTIONS, words: 1 })).toThrow(/words must be between/);
+  });
+});
+
 describe("mutating an item that does not exist", () => {
   it("is refused rather than silently creating one", async () => {
     await vault.create("correct horse battery staple");

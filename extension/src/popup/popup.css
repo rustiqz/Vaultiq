@@ -304,3 +304,5 @@ label.chip input { position: absolute; opacity: 0; width: 0; height: 0; margin: 
 .gen-note { min-height: 1.3em; margin: -4px 0 0; color: var(--danger); }
 label.gen-toggle { gap: 10px; color: var(--text); font-size: 13px; cursor: pointer; }
 label.gen-toggle input.switch { margin-top: 0; }
+.gen-controls[hidden] { display: none; }
+.gen-controls select { width: 100%; }
