@@ -42,16 +42,18 @@ const manifest = {
   action: {
     default_popup: "popup.html",
     default_title: "Vaultiq",
+    // What shows until the background has decided a state (the "no vault yet"
+    // dot); after that `background/toolbar.ts` swaps it with `action.setIcon`.
     default_icon: {
-      "16": "icons/16.png",
-      "32": "icons/32.png",
-      "48": "icons/48.png",
-      "128": "icons/128.png",
+      "16": "icons/state-none-16.png",
+      "32": "icons/state-none-32.png",
+      "48": "icons/state-none-48.png",
+      "128": "icons/state-none-128.png",
     },
   },
 
-  // Same set as `action.default_icon`, generated from the production
-  // favicon artwork via rsvg-convert -- see docs/STATUS.md.
+  // The mark alone, on a transparent ground, for the extensions page and the
+  // store. Both sets come from `scripts/build-icons.mjs` (`pnpm run icons`).
   icons: {
     "16": "icons/16.png",
     "32": "icons/32.png",

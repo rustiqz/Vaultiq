@@ -8,6 +8,21 @@
 /** `quick` means locked, but a PIN can reopen it without the master password. */
 export type VaultStatus = "empty" | "locked" | "quick" | "unlocked";
 
+/**
+ * A login typed into a page while the vault was locked, waiting for a decision.
+ *
+ * Names and a flag, never the password: this is what the popup and the page
+ * banner are allowed to see.
+ */
+export interface PendingSaveInfo {
+  site: string;
+  username: string;
+  /** The vault is still locked, so it cannot be saved yet. */
+  locked: boolean;
+  /** An existing login for this site and username would be updated, not added to. */
+  update: boolean;
+}
+
 /** Bands are anchored to the generator: only its default reaches the top. */
 export type StrengthLevel = "very-weak" | "weak" | "fair" | "strong" | "excellent";
 
@@ -416,6 +431,9 @@ export type Request =
   | { kind: "shouldOfferToSave"; username: string; password: string }
   // Saves it. Only reached after the user says yes in the page banner.
   | { kind: "saveSubmitted"; username: string; password: string; name?: string; notes?: string }
+  | { kind: "pendingSave" }
+  | { kind: "resolvePendingSave"; save: boolean; name?: string; notes?: string }
+  | { kind: "openUnlockWindow" }
   // Syncing. The master password appears here only for the two connect
   // flows, which have to derive an auth key; nothing else needs it, and it
   // is never stored.
@@ -469,7 +487,10 @@ export type Response =
   | { ok: true; kind: "fillSuggestions"; site: string | null; suggestions: FillSuggestion[] }
   | { ok: true; kind: "fillValues"; values: Record<string, string> }
   | { ok: true; kind: "shouldOfferToSave"; offer: false }
-  | { ok: true; kind: "shouldOfferToSave"; offer: true; site: string; existingId: string | null }
+  | { ok: true; kind: "shouldOfferToSave"; offer: true; site: string; existingId: string | null; locked?: true }
+  | { ok: true; kind: "pendingSave"; pending: PendingSaveInfo | null }
+  | { ok: true; kind: "resolvePendingSave"; saved: boolean }
+  | { ok: true; kind: "openUnlockWindow" }
   | { ok: true; kind: "saveSubmitted" }
   | { ok: true; kind: "passwordOptions"; options: PasswordOptions }
   | { ok: true; kind: "syncStatus"; sync: SyncSummary }

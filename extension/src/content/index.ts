@@ -234,6 +234,55 @@ async function offer(target: HTMLInputElement): Promise<void> {
   });
 }
 
+/** "Unlock to save", for a login the background is holding while the vault is locked. */
+function showUnlockToSave(detail: string): void {
+  showPrompt(
+    document,
+    { title: "Save this login?", detail, confirm: "Unlock to save", fields: false },
+    (answer) => {
+      // "Not now" is a decision: it wipes what the background was holding.
+      void ask(answer ? { kind: "openUnlockWindow" } : { kind: "resolvePendingSave", save: false });
+    },
+  );
+}
+
+/**
+ * A page that loads just after a sign-in form was submitted — the usual
+ * redirect — asks whether a login is waiting from the tab it came from.
+ *
+ * The site shown is the one the form was on, not this page's: the background
+ * remembers it, because by now this page may be somewhere else entirely.
+ */
+async function showPendingSave(): Promise<void> {
+  if (window !== window.top) return;
+  const response = await ask({ kind: "pendingSave" });
+  if (!response.ok || response.kind !== "pendingSave" || !response.pending) return;
+
+  const { pending } = response;
+  const detail = `${pending.username || "(no username)"} · ${pending.site}`;
+  if (pending.locked) {
+    showUnlockToSave(detail);
+    return;
+  }
+
+  showPrompt(
+    document,
+    {
+      title: pending.update ? "Update this login?" : "Save this login?",
+      detail,
+      confirm: pending.update ? "Update" : "Save",
+    },
+    (answer) => {
+      void ask({
+        kind: "resolvePendingSave",
+        save: answer !== undefined,
+        ...(answer?.name ? { name: answer.name } : {}),
+        ...(answer?.notes ? { notes: answer.notes } : {}),
+      });
+    },
+  );
+}
+
 /** Offers to save what was just typed into a login form. */
 async function offerToSave(target: EventTarget | null): Promise<void> {
   const fields = submittedFields(target, document);
@@ -246,6 +295,14 @@ async function offerToSave(target: EventTarget | null): Promise<void> {
   // is unknown, or when this exact login is already stored.
   const decision = await ask({ kind: "shouldOfferToSave", ...submitted });
   if (!decision.ok || decision.kind !== "shouldOfferToSave" || !decision.offer) return;
+
+  // The vault is locked. The background is already holding what was typed, so
+  // the page can be navigated away from; all this asks is for the vault to be
+  // opened somewhere that survives that.
+  if (decision.locked) {
+    showUnlockToSave(`${submitted.username || "(no username)"} · ${decision.site}`);
+    return;
+  }
 
   showPrompt(
     document,
@@ -314,3 +371,7 @@ document.addEventListener(
   },
   true,
 );
+
+void showPendingSave().catch(() => {
+  // The extension was reloaded or updated under this page; nothing to show.
+});

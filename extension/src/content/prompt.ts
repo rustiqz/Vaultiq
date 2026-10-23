@@ -8,6 +8,8 @@
 // no reason to put a secret on screen to ask a yes/no question, and a banner
 // that displayed one would be worth phishing.
 
+import { FONT, SKIN, brandMark } from "./skin.js";
+
 const HOST_ID = "vaultiq-save-prompt";
 
 let host: HTMLElement | undefined;
@@ -27,6 +29,11 @@ export interface PromptCopy {
   title: string;
   detail: string;
   confirm: string;
+  /**
+   * Whether to offer the name and notes fields. Off when the answer is not "save
+   * it" but "open the vault first", where there is nothing to name yet.
+   */
+  fields?: boolean;
 }
 
 /** What the user chose to call the login, before it is stored. */
@@ -49,41 +56,33 @@ export function answerFrom(saving: boolean, name: string, notes: string): Prompt
   return saving ? { name: name.trim(), notes: notes.trim() } : undefined;
 }
 
-const SHEET = `
-  :host { all: initial; }
-  .card {
-    font: 13px/1.45 system-ui, sans-serif;
-    background: Canvas; color: CanvasText;
-    border: 1px solid rgba(128,128,128,.45); border-radius: 8px;
-    box-shadow: 0 8px 28px rgba(0,0,0,.25);
-    padding: 12px 13px;
-  }
-  .brand {
-    font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
-    opacity: .55; margin-bottom: 6px;
-  }
-  .title { font-weight: 600; }
-  .detail { opacity: .75; font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+const SHEET = `${SKIN}
+  .card { padding: 14px 14px 12px; }
+  .brand { color: var(--ink); margin-bottom: 10px; }
+  .title { font: 700 15px/1.3 ${FONT}; }
+  .detail { color: var(--muted); font-size: 12.5px; margin-top: 3px; overflow-wrap: anywhere; }
   /* Small, because there is little to say — but scrollable, so a cramped
      viewport never clips the buttons. */
-  .fields { max-height: 168px; overflow-y: auto; margin-top: 10px; }
-  label { display: block; font-size: 11px; opacity: .75; margin-top: 7px; }
+  .fields { max-height: 168px; overflow-y: auto; margin-top: 10px; padding: 1px; }
+  label { display: block; font-size: 11.5px; font-weight: 600; color: var(--muted); margin-top: 8px; }
   input, textarea {
-    display: block; width: 100%; box-sizing: border-box; margin-top: 3px;
-    font: inherit; font-size: 12px; padding: 5px 7px; border-radius: 4px;
-    border: 1px solid rgba(128,128,128,.45);
-    background: Field; color: FieldText;
+    display: block; width: 100%; box-sizing: border-box; margin-top: 4px;
+    font: 13px/1.4 ${FONT}; padding: 7px 9px; border-radius: 8px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
   }
-  textarea { resize: vertical; min-height: 40px; }
-  .row { display: flex; gap: 8px; margin-top: 11px; }
+  input:focus, textarea:focus { outline: 2px solid var(--ink); outline-offset: -1px; }
+  textarea { resize: vertical; min-height: 44px; }
+  .row { display: flex; gap: 8px; margin-top: 12px; }
   button {
     all: unset; flex: 1; text-align: center; box-sizing: border-box;
-    padding: 7px 9px; border-radius: 5px; cursor: pointer;
-    font: inherit; font-weight: 600;
-    border: 1px solid rgba(128,128,128,.45);
+    padding: 9px 10px; border-radius: 9px; cursor: pointer;
+    font: 650 13px/1.2 ${FONT}; color: var(--ink);
+    border: 1px solid var(--line);
   }
-  button.primary { background: Highlight; color: HighlightText; border-color: transparent; }
-  button:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+  button:hover { background: var(--hover); }
+  button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  button.primary:hover { background: #523626; }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 `;
 
 /**
@@ -108,7 +107,9 @@ export function buildPromptCard(
 
   const brand = doc.createElement("div");
   brand.className = "brand";
-  brand.textContent = "Vaultiq";
+  const wordmark = doc.createElement("span");
+  wordmark.textContent = "Vaultiq";
+  brand.append(brandMark(doc), wordmark);
 
   const title = doc.createElement("div");
   title.className = "title";
@@ -165,7 +166,8 @@ export function buildPromptCard(
   row.className = "row";
   row.append(save, dismiss);
 
-  card.append(brand, title, detail, fields, row);
+  if (copy.fields === false) card.append(brand, title, detail, row);
+  else card.append(brand, title, detail, fields, row);
   return card;
 }
 
@@ -185,7 +187,7 @@ export function showPrompt(
     right: "16px",
     width: "320px",
     "z-index": "2147483647",
-    "color-scheme": "light dark",
+    "color-scheme": "light",
     margin: "0",
     padding: "0",
     border: "0",

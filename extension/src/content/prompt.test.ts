@@ -78,6 +78,14 @@ describe("the name and notes fields", () => {
     expect(card.querySelector(".fields")).not.toBeNull();
   });
 
+  it("are left off when the prompt only asks to unlock first", () => {
+    const card = buildPromptCard(document, { ...COPY, confirm: "Unlock to save", fields: false }, vi.fn());
+
+    expect(card.querySelector(".fields")).toBeNull();
+    expect(card.querySelector(".save")?.textContent).toBe("Unlock to save");
+    expect(card.querySelector(".dismiss")).not.toBeNull();
+  });
+
   it("ignores a click the page synthesised", () => {
     // Nothing dispatched from script is trusted, so this is the real guard
     // rather than a stand-in — and it is why the decision above is tested as

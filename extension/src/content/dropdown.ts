@@ -18,6 +18,8 @@
 // is that picking an entry fills a field rather than revealing anything, so a
 // fake dropdown gains the page nothing it could not already have shown.
 
+import { FONT, MONO, SKIN, brandMark, initialOf, keyGlyph } from "./skin.js";
+
 export interface DropdownEntry {
   id: string;
   label: string;
@@ -27,6 +29,8 @@ export interface DropdownEntry {
 }
 
 const HOST_ID = "vaultiq-picker";
+const MIN_WIDTH = 280;
+const EDGE = 8;
 
 let host: HTMLElement | undefined;
 let anchored: HTMLElement | undefined;
@@ -67,16 +71,23 @@ export function showDropdown(
 
   const doc = anchor.ownerDocument;
   const box = anchor.getBoundingClientRect();
+  const width = Math.max(box.width, MIN_WIDTH);
+  // Kept on screen: a field near the right edge would otherwise push the
+  // picker half out of the viewport, where its buttons cannot be reached.
+  const room = doc.documentElement.clientWidth - width - EDGE;
+  const left = Math.max(EDGE, Math.min(box.left, room));
 
   host = doc.createElement("div");
   host.id = HOST_ID;
   style(host, {
     position: "absolute",
-    left: `${String(box.left + doc.defaultView!.scrollX)}px`,
+    left: `${String(left + doc.defaultView!.scrollX)}px`,
     top: `${String(box.bottom + doc.defaultView!.scrollY + 2)}px`,
-    width: `${String(Math.max(box.width, 220))}px`,
+    width: `${String(width)}px`,
     "z-index": "2147483647",
-    "color-scheme": "light dark",
+    // Light always: the card has its own fixed palette, and a forced dark
+    // scheme would restyle its form-like parts out from under it.
+    "color-scheme": "light",
     margin: "0",
     padding: "0",
     border: "0",
@@ -92,40 +103,66 @@ export function showDropdown(
   const shadow = host.attachShadow({ mode: "closed" });
 
   const sheet = doc.createElement("style");
-  sheet.textContent = `
-    :host { all: initial; }
+  sheet.textContent = `${SKIN}
+    .head { display: flex; align-items: center; padding: 10px 12px 6px; }
+    .count { margin-left: auto; font: 500 11px/1 ${FONT}; letter-spacing: 0; text-transform: none; color: var(--muted); }
     ul {
-      margin: 0; padding: 4px; list-style: none;
-      font: 13px/1.4 system-ui, sans-serif;
-      background: Canvas; color: CanvasText;
-      border: 1px solid rgba(128,128,128,.45); border-radius: 6px;
-      box-shadow: 0 6px 20px rgba(0,0,0,.22);
-      max-height: 240px; overflow-y: auto;
+      margin: 0; padding: 2px 6px 6px; list-style: none;
+      max-height: 252px; overflow-y: auto; scrollbar-width: thin;
     }
-    li { border-radius: 4px; }
     button {
-      all: unset; display: block; width: 100%; box-sizing: border-box;
-      padding: 7px 9px; cursor: pointer; font: inherit; color: inherit;
+      all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 10px;
+      width: 100%; padding: 8px; border-radius: 9px; cursor: pointer; color: var(--ink);
     }
-    button:hover, button:focus-visible { background: rgba(128,128,128,.18); }
-    button:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
-    .label { font-weight: 600; }
-    .detail { opacity: .7; font-size: 12px; }
-    li.emphasis { border-bottom: 1px solid rgba(128,128,128,.3); margin-bottom: 2px; }
+    button:hover, button:focus-visible { background: var(--hover); }
+    button:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+    .avatar {
+      flex: none; width: 30px; height: 30px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      background: #fff; border: 1px solid var(--line); font: 700 13px/1 ${FONT};
+    }
+    .text { min-width: 0; flex: 1; }
+    .label { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .detail { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fill {
+      flex: none; padding: 3px 7px; border-radius: 6px; opacity: 0;
+      background: var(--ink); color: var(--paper); font: 700 11px/1.2 ${FONT}; letter-spacing: .04em;
+    }
+    button:hover .fill, button:focus-visible .fill { opacity: 1; }
+    li.emphasis { margin: 2px 0 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+    li.emphasis button { background: var(--sage); }
+    li.emphasis button:hover, li.emphasis button:focus-visible { background: #DADFC4; }
+    li.emphasis .avatar { background: var(--ink); color: var(--paper); border-color: var(--ink); }
     li.emphasis .detail {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      opacity: .95; overflow-wrap: anywhere;
-    }
-    .brand {
-      padding: 4px 9px 6px; font: 10px/1 system-ui, sans-serif;
-      letter-spacing: .09em; text-transform: uppercase; opacity: .55;
+      font-family: ${MONO}; color: var(--ink); white-space: normal; overflow-wrap: anywhere;
     }
   `;
+
+  const card = doc.createElement("div");
+  card.className = "card";
+
+  const head = doc.createElement("div");
+  head.className = "brand head";
+  const wordmark = doc.createElement("span");
+  wordmark.textContent = "Vaultiq";
+  head.append(brandMark(doc), wordmark);
+  const saved = entries.filter((entry) => !entry.emphasis).length;
+  if (saved > 0) {
+    const count = doc.createElement("span");
+    count.className = "count";
+    count.textContent = `${String(saved)} saved`;
+    head.append(count);
+  }
 
   const list = doc.createElement("ul");
   for (const entry of entries) {
     const button = doc.createElement("button");
     button.type = "button";
+
+    const avatar = doc.createElement("span");
+    avatar.className = "avatar";
+    if (entry.emphasis) avatar.append(keyGlyph(doc));
+    else avatar.textContent = initialOf(entry.label);
 
     const label = doc.createElement("div");
     label.className = "label";
@@ -135,7 +172,15 @@ export function showDropdown(
     detail.className = "detail";
     detail.textContent = entry.detail;
 
-    button.append(label, detail);
+    const text = doc.createElement("div");
+    text.className = "text";
+    text.append(label, detail);
+
+    const fill = doc.createElement("span");
+    fill.className = "fill";
+    fill.textContent = entry.emphasis ? "Use" : "Fill";
+
+    button.append(avatar, text, fill);
     // `isTrusted` rejects a click synthesised by page script. It cannot reach
     // into a closed root to dispatch one, but this costs nothing and removes
     // the question.
@@ -152,11 +197,8 @@ export function showDropdown(
     list.append(item);
   }
 
-  const brand = doc.createElement("div");
-  brand.className = "brand";
-  brand.textContent = "Vaultiq";
-
-  shadow.append(sheet, list, brand);
+  card.append(head, list);
+  shadow.append(sheet, card);
   doc.body.append(host);
 
   anchored = anchor;

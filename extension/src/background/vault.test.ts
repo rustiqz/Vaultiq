@@ -433,6 +433,30 @@ describe("items for the current site", () => {
     expect(items.map((item) => item.name)).toEqual(["Example"]);
   });
 
+  it("counts the logins for a site without listing them", async () => {
+    await withSites();
+    await vault.addItem({ ...CONTENT, name: "Example work", url: "https://example.com/work" });
+
+    expect(await vault.loginCountForUrl("https://account.example.com/settings")).toBe(2);
+    expect(await vault.loginCountForUrl("https://unrelated.test")).toBe(0);
+    expect(await vault.loginCountForUrl(undefined)).toBe(0);
+  });
+
+  it("does not count a trashed login", async () => {
+    await withSites();
+    const id = await vault.addItem({ ...CONTENT, name: "Gone", url: "https://example.com/old" });
+    await vault.trashItem(id);
+
+    expect(await vault.loginCountForUrl("https://example.com")).toBe(1);
+  });
+
+  it("counts nothing while locked, rather than throwing", async () => {
+    await withSites();
+    await vault.lock();
+
+    expect(await vault.loginCountForUrl("https://example.com")).toBe(0);
+  });
+
   it("offers nothing on an unrelated site", async () => {
     await withSites();
     activeTab.url = "https://unrelated.test";

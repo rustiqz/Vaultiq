@@ -28,6 +28,7 @@ import {
   type StrengthLevel,
   type VaultBackup,
   type VaultStatus,
+  type PendingSaveInfo,
 } from "../lib/messages.js";
 
 /** What each item type is called on screen. */
@@ -51,7 +52,7 @@ const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("popup root missing");
 const root = app;
 
-type UnlockedScreen = "vault" | "new" | "edit" | "settings" | "sync" | "generator" | "trash" | "import";
+type UnlockedScreen = "vault" | "new" | "edit" | "generator" | "trash" | "options";
 
 /**
  * Firefox closes a browser-action popup the moment a native file dialog takes
@@ -63,9 +64,10 @@ const pageParams = new URLSearchParams(location.search);
 const inTab = pageParams.has("tab");
 if (inTab) document.body.classList.add("tab-mode");
 
-function openInTab(screen: "import" | "restore"): void {
+function openInTab(target: "restore" | OptionsSection): void {
+  const query = target === "restore" ? "screen=restore" : `screen=options&section=${target}`;
   void browser.tabs
-    .create({ url: browser.runtime.getURL(`popup.html?tab=1&screen=${screen}`) })
+    .create({ url: browser.runtime.getURL(`popup.html?tab=1&${query}`) })
     .then(() => window.close());
 }
 
@@ -363,11 +365,33 @@ function renderEmpty(): void {
   );
 }
 
-/** PIN, auto-lock, this device's name, and the master password itself. */
-function settingsPanel(): HTMLElement {
-  const panel = el("div", { className: "group" }, [el("h2", { textContent: "Settings" })]);
+/** One setting: what it is and why on the left, the control on the right. */
+function settingRow(label: string, hint: string, control: HTMLElement): HTMLElement {
+  return el("div", { className: "setting-row" }, [
+    el("div", { className: "setting-copy" }, [el("strong", { textContent: label }), el("small", { textContent: hint })]),
+    el("div", { className: "setting-control" }, [control]),
+  ]);
+}
 
-  // --- PIN ---
+/**
+ * A setting that is on or off. The switch comes first, directly beside its
+ * label: pushed to the far edge of a wide row it ends up a screen away from the
+ * words that say what it does.
+ */
+function toggleRow(label: string, hint: string, input: HTMLInputElement): HTMLElement {
+  input.className = "switch";
+  return el("label", { className: "setting-row toggle-row" }, [
+    input,
+    el("span", { className: "setting-copy" }, [el("strong", { textContent: label }), el("small", { textContent: hint })]),
+  ]);
+}
+
+function card(title: string | undefined, children: HTMLElement[]): HTMLElement {
+  return el("section", { className: "card" }, [...(title ? [el("h2", { textContent: title })] : []), ...children]);
+}
+
+/** Quick-unlock PIN and auto-lock. */
+function unlockingCard(): HTMLElement {
   const pin = el("input", {
     type: "password",
     inputMode: "numeric",
@@ -392,16 +416,6 @@ function settingsPanel(): HTMLElement {
       });
   });
 
-  panel.append(
-    el("label", {}, ["Quick unlock PIN", el("div", { className: "field" }, [pin, setPin])]),
-    el("p", {
-      className: "muted",
-      textContent:
-        "Reopens the vault after it locks. Held in memory only, so it lasts until the browser closes.",
-    }),
-  );
-
-  // --- auto-lock ---
   const LOCK_CHOICES: [number, string][] = [
     [5, "5 minutes"],
     [15, "15 minutes"],
@@ -430,71 +444,27 @@ function settingsPanel(): HTMLElement {
     void send({ kind: "setAutoLock", minutes: Number(lockAfter.value) });
   });
 
-  panel.append(
-    el("label", {}, ["Lock the vault after", lockAfter]),
-    el("p", {
-      className: "muted",
-      textContent:
-        "A longer time is more convenient, but leaves your vault open for longer if you step away. Locking always happens when the browser closes.",
-    }),
-  );
+  return card("Unlocking", [
+    settingRow(
+      "Lock the vault after",
+      "A longer time is more convenient, but leaves your vault open for longer if you step away. Locking always happens when the browser closes.",
+      lockAfter,
+    ),
+    settingRow(
+      "Quick unlock PIN",
+      "Reopens the vault after it locks. Held in memory only, so it lasts until the browser closes.",
+      el("div", { className: "field" }, [pin, setPin]),
+    ),
+  ]);
+}
 
-  // --- device name ---
-  const name = el("input", { type: "text", autocomplete: "off" });
-  void send({ kind: "device" }).then((response) => {
-    if (response.ok && response.kind === "device") name.value = response.device.name;
-  });
-  name.addEventListener("change", () => {
-    void send({ kind: "renameDevice", name: name.value });
-  });
-
-  panel.append(el("label", {}, ["This device", name]));
-
-  // --- local-only mode ---
-  const localOnlyToggle = el("input", { type: "checkbox" });
-  void send({ kind: "localOnly" }).then((response) => {
-    if (response.ok && response.kind === "localOnly") localOnlyToggle.checked = response.value;
-  });
-  localOnlyToggle.addEventListener("change", () => {
-    const next = localOnlyToggle.checked;
-    void (async () => {
-      if (next) {
-        const status = unwrap(await send({ kind: "syncStatus" }));
-        if (status.kind === "syncStatus" && status.sync.connected) {
-          if (
-            !confirm(
-              `This will disconnect from ${status.sync.server ?? "the server"} and stop this vault from syncing anywhere. Continue?`,
-            )
-          ) {
-            localOnlyToggle.checked = false;
-            return;
-          }
-          unwrap(await send({ kind: "disconnectServer" }));
-        }
-      }
-      unwrap(await send({ kind: "setLocalOnly", value: next }));
-    })().catch((error: unknown) => {
-      localOnlyToggle.checked = !next;
-      showError(error instanceof Error ? error.message : "Failed.");
-    });
-  });
-
-  panel.append(
-    el("h3", { textContent: "Vault mode" }),
-    el("label", {}, [localOnlyToggle, " Never sync this vault"]),
-    el("p", {
-      className: "muted",
-      textContent:
-        "Keeps this vault on this device only. Turning it on disconnects any server this device is using. Turning it off does not connect anywhere by itself — it only makes syncing available again.",
-    }),
-  );
-
-  // --- master password ---
+/** Changing the master password. */
+function masterPasswordCard(): HTMLElement {
   const currentPassword = el("input", { type: "password", autocomplete: "off" });
   const nextPassword = el("input", { type: "password", autocomplete: "new-password" });
   const againPassword = el("input", { type: "password", autocomplete: "new-password" });
   const change = el("button", {
-    className: "inline",
+    className: "primary",
     type: "button",
     textContent: "Change password",
   });
@@ -530,20 +500,117 @@ function settingsPanel(): HTMLElement {
       });
   });
 
-  panel.append(
-    el("h3", { textContent: "Master password" }),
-    el("label", {}, ["Current", currentPassword]),
-    el("label", {}, ["New", nextPassword]),
-    el("label", {}, ["New again", againPassword]),
-    el("div", { className: "field" }, [change]),
-    el("p", {
-      className: "muted",
-      textContent:
-        "Re-wraps the vault key, so no item is re-encrypted and nothing has to re-sync. Other devices pick the change up the next time they sync. The old password then opens nothing, and there is no way back.",
-    }),
-  );
+  return card("Master password", [
+    el("div", { className: "card-body" }, [
+      el("div", { className: "form-grid" }, [
+        el("label", {}, ["Current", currentPassword]),
+        el("label", {}, ["New", nextPassword]),
+        el("label", {}, ["New again", againPassword]),
+      ]),
+      el("div", { className: "field" }, [change]),
+      el("p", {
+        className: "muted",
+        textContent:
+          "Re-wraps the vault key, so no item is re-encrypted and nothing has to re-sync. Other devices pick the change up the next time they sync. The old password then opens nothing, and there is no way back.",
+      }),
+    ]),
+  ]);
+}
 
-  return panel;
+/** This device's name, and whether the vault may sync at all. */
+function deviceCard(): HTMLElement {
+  const name = el("input", { type: "text", autocomplete: "off" });
+  void send({ kind: "device" }).then((response) => {
+    if (response.ok && response.kind === "device") name.value = response.device.name;
+  });
+  name.addEventListener("change", () => {
+    void send({ kind: "renameDevice", name: name.value });
+  });
+
+  const localOnlyToggle = el("input", { type: "checkbox" });
+  void send({ kind: "localOnly" }).then((response) => {
+    if (response.ok && response.kind === "localOnly") localOnlyToggle.checked = response.value;
+  });
+  localOnlyToggle.addEventListener("change", () => {
+    const next = localOnlyToggle.checked;
+    void (async () => {
+      if (next) {
+        const status = unwrap(await send({ kind: "syncStatus" }));
+        if (status.kind === "syncStatus" && status.sync.connected) {
+          if (
+            !confirm(
+              `This will disconnect from ${status.sync.server ?? "the server"} and stop this vault from syncing anywhere. Continue?`,
+            )
+          ) {
+            localOnlyToggle.checked = false;
+            return;
+          }
+          unwrap(await send({ kind: "disconnectServer" }));
+        }
+      }
+      unwrap(await send({ kind: "setLocalOnly", value: next }));
+    })().catch((error: unknown) => {
+      localOnlyToggle.checked = !next;
+      showError(error instanceof Error ? error.message : "Failed.");
+    });
+  });
+
+  return card("This device", [
+    settingRow("Device name", "Shown to your other devices, and in the record of where a login was used.", name),
+    toggleRow(
+      "Never sync this vault",
+      "Keeps this vault on this device only. Turning it on disconnects any server this device is using. Turning it off does not connect anywhere by itself — it only makes syncing available again.",
+      localOnlyToggle,
+    ),
+  ]);
+}
+
+/** Starts an export: the master password is asked for first, every time. */
+function startExport(): void {
+  askMasterPassword({
+    title: "Export backup",
+    detail: "Enter your master password to export. The file holds your whole vault, so this is asked every time.",
+    confirm: "Export",
+    action: async (masterPassword) => {
+      const response = unwrap(await send({ kind: "exportBackup", masterPassword }));
+      if (response.kind !== "exportBackup") throw new Error("unexpected reply");
+      downloadBackup(response.backup);
+    },
+  });
+}
+
+function backupCard(): HTMLElement {
+  const exportButton = el("button", { type: "button" }, [icon("copy", { size: 14 }), "Export backup"]);
+  exportButton.addEventListener("click", startExport);
+  return card("Backup", [
+    settingRow(
+      "Export a backup file",
+      "A copy of your whole vault, still encrypted, that opens with your master password. Restore it from the welcome screen on a device with no vault.",
+      exportButton,
+    ),
+  ]);
+}
+
+type OptionsSection = "security" | "devices" | "data" | "tools";
+
+const OPTIONS_SECTIONS: { id: OptionsSection; label: string; blurb: string }[] = [
+  { id: "security", label: "Security", blurb: "How and when the vault locks, and the password that opens it." },
+  { id: "devices", label: "Devices & sync", blurb: "This device, and the server it syncs through." },
+  { id: "data", label: "Import & backup", blurb: "Bring logins in from another manager, or take a copy out." },
+  { id: "tools", label: "Tools", blurb: "Things that do not need an unlocked vault." },
+];
+
+function optionsCards(section: OptionsSection): HTMLElement[] {
+  switch (section) {
+    case "security":
+      return [unlockingCard(), masterPasswordCard()];
+    case "devices":
+      return [deviceCard(), card(undefined, [el("div", { className: "card-body" }, [syncPanel(showError)])])];
+    case "data":
+      return [card(undefined, [el("div", { className: "card-body" }, [importPanel()])]), backupCard()];
+    case "tools":
+      return [card(undefined, [el("div", { className: "card-body" }, [generatorPanel()])])];
+  }
 }
 
 /**
@@ -579,8 +646,78 @@ function generatorPanel(): HTMLElement {
   ]);
 }
 
+/** Why a login typed into a page is waiting, and what to do about it. */
+function pendingSaveCopy(info: PendingSaveInfo): { title: string; detail: string } {
+  return {
+    title: info.update ? "Update this login?" : "Save this login?",
+    detail: `${info.username || "(no username)"} · ${info.site}`,
+  };
+}
+
+/**
+ * Ends whatever the decision was about. In the small window opened from a
+ * page's "Unlock to save" button, that window has nothing left to show.
+ */
+function afterPendingDecision(): void {
+  if (pageParams.get("screen") === "unlock") {
+    window.close();
+    return;
+  }
+  void refresh();
+}
+
+function decidePendingSave(save: boolean, button: HTMLButtonElement): void {
+  button.disabled = true;
+  void send({ kind: "resolvePendingSave", save })
+    .then(unwrap)
+    .then(afterPendingDecision)
+    .catch((error: unknown) => {
+      button.disabled = false;
+      showError(error instanceof Error ? error.message : "Could not save.");
+    });
+}
+
+/** The vault is open: save, update or drop the login that was typed while it was not. */
+function pendingSaveBanner(info: PendingSaveInfo): HTMLElement {
+  const copy = pendingSaveCopy(info);
+  const save = el("button", { className: "primary", type: "button", textContent: info.update ? "Update" : "Save" });
+  const dismiss = el("button", { type: "button", textContent: "Not now" });
+  save.addEventListener("click", () => decidePendingSave(true, save));
+  dismiss.addEventListener("click", () => decidePendingSave(false, dismiss));
+  return el("section", { className: "pending-save", role: "status" }, [
+    el("div", { className: "grow" }, [
+      el("strong", { textContent: copy.title }),
+      el("small", { textContent: copy.detail }),
+    ]),
+    dismiss,
+    save,
+  ]);
+}
+
+/** Still locked: say what unlocking will offer, and let it be dropped. */
+function pendingSaveNotice(info: PendingSaveInfo): HTMLElement {
+  const dismiss = el("button", { className: "inline", type: "button", textContent: "Not now" });
+  dismiss.addEventListener("click", () => decidePendingSave(false, dismiss));
+  return el("section", { className: "pending-save pending-note", role: "status" }, [
+    el("div", { className: "grow" }, [
+      el("strong", { textContent: "Unlock to save a login" }),
+      el("small", { textContent: pendingSaveCopy(info).detail }),
+    ]),
+    dismiss,
+  ]);
+}
+
+async function fetchPendingSave(): Promise<PendingSaveInfo | null> {
+  try {
+    const response = await send({ kind: "pendingSave" });
+    return response.ok && response.kind === "pendingSave" ? response.pending : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Unlocking with a PIN, when one is armed for this browser session. */
-function renderQuick(): void {
+function renderQuick(pending: PendingSaveInfo | null = null): void {
   const pin = el("input", {
     type: "password",
     required: true,
@@ -616,6 +753,7 @@ function renderQuick(): void {
   root.replaceChildren(
     el("main", {}, [
       el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Vaultiq is locked" })]),
+      ...(pending ? [pendingSaveNotice(pending)] : []),
       el("p", {
         className: "muted",
         textContent: "Your PIN lasts until the browser closes.",
@@ -628,10 +766,11 @@ function renderQuick(): void {
   );
 }
 
-function renderLocked(): void {
+function renderLocked(pending: PendingSaveInfo | null = null): void {
   root.replaceChildren(
     el("main", { className: "onboard" }, [
       el("div", { className: "brand" }, [logoMark({ size: 26 }), el("h1", { textContent: "Vaultiq is locked" })]),
+      ...(pending ? [pendingSaveNotice(pending)] : []),
       passwordForm("Unlock", async (value) => {
         unwrap(await send({ kind: "unlock", masterPassword: value }));
       }),
@@ -1135,7 +1274,9 @@ function untitled(item: DecryptedItem): string {
 let query = "";
 let selectedId: string | undefined;
 let listScope: "site" | "all" = "site";
-let unlockedScreen: UnlockedScreen = pageParams.get("screen") === "import" ? "import" : "vault";
+let unlockedScreen: UnlockedScreen = inTab && pageParams.get("screen") === "options" ? "options" : "vault";
+let optionsSection: OptionsSection =
+  OPTIONS_SECTIONS.find((candidate) => candidate.id === pageParams.get("section"))?.id ?? "security";
 let refocusSearch = false;
 
 function itemTitle(item: DecryptedItem): string {
@@ -1533,21 +1674,29 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
     icon("moreVertical", { size: 18 }),
   ]);
   const menu = el("div", { className: "overflow-menu", hidden: true });
-  const destinations: { label: string; screen: UnlockedScreen }[] = [
+  // Settings, sync, and import open in a full tab: they are longer than a
+  // popup can hold comfortably, and a file dialog closes a Firefox popup.
+  const destinations: { label: string; section?: OptionsSection; screen?: UnlockedScreen }[] = [
+    { label: "Settings", section: "security" },
+    { label: "Sync & devices", section: "devices" },
+    { label: "Import", section: "data" },
     { label: "Password generator", screen: "generator" },
-    { label: "Import", screen: "import" },
-    { label: "Sync & devices", screen: "sync" },
-    { label: "Settings", screen: "settings" },
     { label: "Trash", screen: "trash" },
   ];
   for (const destination of destinations) {
     const button = el("button", { className: "menu-item", type: "button", textContent: destination.label });
     button.addEventListener("click", () => {
-      if (destination.screen === "import" && !inTab) {
-        openInTab("import");
-        return;
+      const { section, screen } = destination;
+      if (section !== undefined) {
+        if (!inTab) {
+          openInTab(section);
+          return;
+        }
+        optionsSection = section;
+        unlockedScreen = "options";
+      } else if (screen !== undefined) {
+        unlockedScreen = screen;
       }
-      unlockedScreen = destination.screen;
       void renderUnlocked();
     });
     menu.append(button);
@@ -1555,16 +1704,7 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
   const exportBackup = el("button", { className: "menu-item", type: "button", textContent: "Export backup" });
   exportBackup.addEventListener("click", () => {
     menu.hidden = true;
-    askMasterPassword({
-      title: "Export backup",
-      detail: "Enter your master password to export. The file holds your whole vault, so this is asked every time.",
-      confirm: "Export",
-      action: async (masterPassword) => {
-        const response = unwrap(await send({ kind: "exportBackup", masterPassword }));
-        if (response.kind !== "exportBackup") throw new Error("unexpected reply");
-        downloadBackup(response.backup);
-      },
-    });
+    startExport();
   });
   menu.append(exportBackup);
 
@@ -1602,6 +1742,58 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
   ]);
 }
 
+/**
+ * Settings, sync and import: a side navigation and a page of cards.
+ *
+ * Only reached in a full tab (see `openInTab`); in the popup these entries open
+ * one.
+ */
+function renderOptionsPage(): void {
+  const current = OPTIONS_SECTIONS.find((candidate) => candidate.id === optionsSection) ?? OPTIONS_SECTIONS[0];
+  if (!current) return;
+
+  const nav = el(
+    "nav",
+    { className: "options-nav", ariaLabel: "Sections" },
+    OPTIONS_SECTIONS.map((section) => {
+      const button = el("button", {
+        className: `options-nav-item${section.id === current.id ? " active" : ""}`,
+        type: "button",
+        textContent: section.label,
+      });
+      button.addEventListener("click", () => {
+        optionsSection = section.id;
+        void renderUnlocked();
+      });
+      return button;
+    }),
+  );
+
+  const back = el("button", { type: "button" }, [icon("chevronLeft", { size: 14 }), "Back to vault"]);
+  back.addEventListener("click", () => {
+    unlockedScreen = "vault";
+    void renderUnlocked();
+  });
+
+  root.replaceChildren(
+    el("header", { className: "options-header" }, [
+      el("div", { className: "popup-brand" }, [logoMark({ size: 26 }), "Vaultiq"]),
+      el("div", { className: "grow" }),
+      back,
+    ]),
+    el("div", { className: "options-layout" }, [
+      nav,
+      el("section", { className: "options-content" }, [
+        el("div", { className: "options-title" }, [
+          el("h1", { textContent: current.label }),
+          el("p", { className: "muted", textContent: current.blurb }),
+        ]),
+        el("div", { className: "options-grid" }, optionsCards(current.id)),
+      ]),
+    ]),
+  );
+}
+
 function renderUtility(title: string, content: HTMLElement): void {
   root.replaceChildren(
     popupHeader(),
@@ -1610,6 +1802,7 @@ function renderUtility(title: string, content: HTMLElement): void {
 }
 
 async function renderUnlocked(): Promise<void> {
+  const pending = await fetchPendingSave();
   const response = unwrap(await send({ kind: "listItems" }));
   if (response.kind !== "listItems") throw new Error("unexpected reply");
 
@@ -1625,10 +1818,8 @@ async function renderUnlocked(): Promise<void> {
   const live = response.items.filter((item) => !item.deleted && matches(item)).sort(byRecentUse);
   const trashed = response.items.filter((item) => item.deleted && matches(item));
 
-  if (unlockedScreen === "settings") return renderUtility("Settings", settingsPanel());
-  if (unlockedScreen === "sync") return renderUtility("Sync & devices", syncPanel(showError));
+  if (unlockedScreen === "options") return renderOptionsPage();
   if (unlockedScreen === "generator") return renderUtility("Password generator", generatorPanel());
-  if (unlockedScreen === "import") return renderUtility("Import", importPanel());
   if (unlockedScreen === "trash") {
     return renderUtility(
       "Trash",
@@ -1767,6 +1958,7 @@ async function renderUnlocked(): Promise<void> {
 
   root.replaceChildren(
     popupHeader(search),
+    ...(pending && !pending.locked ? [pendingSaveBanner(pending)] : []),
     el("div", { className: "vault-workspace" }, [sidebar, detail]),
   );
 
@@ -1782,9 +1974,11 @@ function render(status: VaultStatus): void {
     case "empty":
       return renderEmpty();
     case "locked":
-      return renderLocked();
+      void fetchPendingSave().then(renderLocked);
+      return;
     case "quick":
-      return renderQuick();
+      void fetchPendingSave().then(renderQuick);
+      return;
     case "unlocked":
       void renderUnlocked().catch((error: unknown) => {
         root.replaceChildren();
