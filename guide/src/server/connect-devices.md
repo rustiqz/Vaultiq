@@ -27,10 +27,23 @@ another.
 
 ## When sync happens
 
-Sync runs when you unlock and shortly after any change. There is no periodic
-background sync, because that would mean keeping the vault key alive on a timer.
+Sync runs when you unlock and shortly after any change. It also looks for
+changes from your other devices on a timer, but only while the vault is already
+unlocked:
+
+- **Extension:** every five minutes. It does not count as using the vault, so it
+  never delays auto-lock, and while the vault is locked it does nothing.
+- **Android:** when you return to the app, and every five minutes while it stays
+  open in front. Open lists refresh by themselves when something new arrives.
+  Nothing runs in the background, so a change made on another device appears
+  the next time you open the app.
+
+There is no sync while locked, because the credential for the server is sealed
+under the vault key, so a timer cannot keep anything alive that you have locked.
+
 Edits made on two devices at once are never silently overwritten: the extension
-keeps both copies of a conflicting item.
+keeps both copies of a conflicting item. On Android a conflicting save is
+refused with a message, and nothing is lost.
 
 ## Moving a local vault onto a server
 
