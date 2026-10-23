@@ -1021,6 +1021,31 @@ export async function itemsForUrl(
 }
 
 /**
+ * How many saved logins belong to a page, for the toolbar badge.
+ *
+ * Cheaper than {@link itemsForUrl}: it decrypts logins only and skips the
+ * strength and reuse statistics the list needs. Zero while locked — the count
+ * takes the vault key to know, so a locked vault cannot say, and that is not an
+ * error.
+ */
+export async function loginCountForUrl(url: string | undefined): Promise<number> {
+  const vaultKey = await currentVaultKey();
+  if (!vaultKey || !url) return 0;
+
+  let count = 0;
+  for (const item of await allItems()) {
+    if (item.deleted || item.item_type !== "login") continue;
+    try {
+      const parsed = JSON.parse(decryptItem(item, vaultKey)) as { url?: unknown };
+      if (typeof parsed.url === "string" && matchesSite(parsed.url, url)) count += 1;
+    } catch {
+      // A record that will not decrypt is surfaced by the list, not here.
+    }
+  }
+  return count;
+}
+
+/**
  * The credential for one item, for filling into a page.
  *
  * One of the two paths by which a password leaves the background — see

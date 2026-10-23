@@ -54,11 +54,57 @@ import {
   totpCodeFor,
 } from "./vault.js";
 import type { Request, Response } from "../lib/messages.js";
+import { refreshToolbar } from "./toolbar.js";
+
+/**
+ * Requests after which the toolbar's dot or count can have changed: lock
+ * state moves, or the set of saved logins does. Anything else (the totp
+ * ticker, suggestions, usage records) fires too often to be worth a refresh.
+ */
+const TOOLBAR_AFFECTING = new Set<Request["kind"]>([
+  "create",
+  "unlock",
+  "unlockWithPin",
+  "lock",
+  "restoreBackup",
+  "addItem",
+  "updateItem",
+  "trashItem",
+  "restoreItem",
+  "purgeItem",
+  "saveSubmitted",
+  "syncNow",
+  "connectServer",
+  "disconnectServer",
+  "enrollWithServer",
+]);
+
+let toolbarTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Coalesces bursts (a page load fires several tab events) into one refresh. */
+function scheduleToolbarRefresh(): void {
+  if (toolbarTimer !== undefined) clearTimeout(toolbarTimer);
+  toolbarTimer = setTimeout(() => {
+    toolbarTimer = undefined;
+    void loadCrypto().then(() => refreshToolbar());
+  }, 120);
+}
+
+browser.tabs.onActivated.addListener(scheduleToolbarRefresh);
+browser.tabs.onUpdated.addListener((_tabId, change) => {
+  if (change.url !== undefined || change.status === "complete") scheduleToolbarRefresh();
+});
+browser.windows.onFocusChanged.addListener(scheduleToolbarRefresh);
+browser.runtime.onStartup.addListener(scheduleToolbarRefresh);
+browser.runtime.onInstalled.addListener(scheduleToolbarRefresh);
+// The service worker may have been restarted by one of the events above; this
+// covers the restart that no event announces.
+scheduleToolbarRefresh();
 
 browser.alarms.onAlarm.addListener((alarm) => {
   // Idle lock leaves the PIN armed: being asked for a PIN after twenty
   // minutes is the point of having one.
-  if (alarm.name === AUTO_LOCK_ALARM) void lock(false);
+  if (alarm.name === AUTO_LOCK_ALARM) void lock(false).then(scheduleToolbarRefresh);
 });
 
 /**
@@ -261,8 +307,12 @@ async function handle(
 
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   assertSessionStorage();
-  handle(message as Request, sender)
-    .then(sendResponse)
+  const request = message as Request;
+  handle(request, sender)
+    .then((response) => {
+      if (TOOLBAR_AFFECTING.has(request.kind)) scheduleToolbarRefresh();
+      sendResponse(response);
+    })
     .catch((error: unknown) => {
       // The message is whatever the crypto core chose to say, which for any
       // decryption failure is one opaque string. Nothing is added here.

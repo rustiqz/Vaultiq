@@ -13,7 +13,8 @@
     "test": "vitest run",
     "dev": "pnpm run build && concurrently \"vite build --watch\" \"web-ext run --source-dir dist\"",
     "dev:chrome": "pnpm run build && concurrently \"vite build --watch\" \"web-ext run --target chromium --source-dir dist\"",
-    "bundle": "tsx scripts/manifest.ts && vite build"
+    "bundle": "tsx scripts/manifest.ts && vite build",
+    "icons": "tsx scripts/build-icons.ts"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
