@@ -1039,6 +1039,21 @@ describe("password generation", () => {
     expect(cryptoFake.generatePassword).toHaveBeenLastCalledWith(options);
     expect(cryptoFake.recommendedPasswordOptions).not.toHaveBeenCalled();
   });
+
+  it("passes the look-alike setting through untouched", () => {
+    // Whether a character may appear is the crypto core's decision; the
+    // background must not drop or reinterpret the flag on the way there.
+    const options = {
+      length: 24,
+      lowercase: true,
+      uppercase: true,
+      digits: true,
+      symbols: true,
+      avoid_ambiguous: true,
+    };
+    vault.newPassword(options);
+    expect(cryptoFake.generatePassword).toHaveBeenLastCalledWith(options);
+  });
 });
 
 describe("mutating an item that does not exist", () => {

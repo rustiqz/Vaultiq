@@ -28,6 +28,7 @@ import {
   type StrengthLevel,
   type VaultBackup,
   type VaultStatus,
+  type PasswordOptions,
   type PendingSaveInfo,
 } from "../lib/messages.js";
 
@@ -72,67 +73,6 @@ function openInTab(target: "restore" | OptionsSection): void {
 }
 
 let currentError: HTMLElement | null = null;
-
-/**
- * A value that copies itself when clicked.
- *
- * Secrets go to the clipboard on a timer — see `copyForAWhile`. `masked`
- * keeps a password off screen until asked for, which is the default for one.
- */
-function copyable(
-  value: string,
-  options: { masked?: boolean; onCopy?: () => void } = {},
-): HTMLElement {
-  if (!value) return el("span", { className: "muted", textContent: "—" });
-
-  // Destructured rather than reached through on each call: a member access
-  // to a function property reads as an unbound method to the linter.
-  const { masked, onCopy } = options;
-  const hidden = masked === true;
-  const label = el("span");
-  const button = el(
-    "button",
-    {
-      className: "copyable",
-      type: "button",
-      title: `Copy — cleared after ${String(CLIPBOARD_SECONDS)} seconds`,
-    },
-    [icon("copy", { size: 13 }), label],
-  );
-
-  let shown = !hidden;
-  const paint = (text?: string): void => {
-    label.textContent = text ?? (shown ? value : "•".repeat(Math.min(value.length, 12)));
-  };
-  paint();
-
-  button.addEventListener("click", () => {
-    void copyForAWhile(value)
-      .then(() => {
-        onCopy?.();
-        button.classList.add("copied");
-        paint("Copied");
-        setTimeout(() => {
-          button.classList.remove("copied");
-          paint();
-        }, 1200);
-      })
-      .catch(() => {
-        showError("Could not copy.");
-      });
-  });
-
-  if (!hidden) return button;
-
-  const reveal = el("button", { className: "inline icon-button", type: "button", title: "Show" }, [icon("reveal", { size: 14 })]);
-  reveal.addEventListener("click", () => {
-    shown = !shown;
-    reveal.title = shown ? "Hide" : "Show";
-    paint();
-  });
-
-  return el("span", { className: "field" }, [button, reveal]);
-}
 
 function showError(message: string): void {
   currentError?.remove();
@@ -613,36 +553,184 @@ function optionsCards(section: OptionsSection): HTMLElement[] {
   }
 }
 
+const GENERATOR_KEY = "vaultiq:generator";
+const GENERATOR_MIN = 8;
+const GENERATOR_MAX = 64;
+
+const GENERATOR_DEFAULTS: PasswordOptions = {
+  length: 20,
+  lowercase: true,
+  uppercase: true,
+  digits: true,
+  symbols: true,
+  avoid_ambiguous: false,
+};
+
+/**
+ * What the generator was last set to. A convenience only — nothing in it is
+ * secret — so a browser that will not store it (private window, blocked site
+ * data) simply starts from the defaults each time.
+ */
+function savedGeneratorOptions(): PasswordOptions {
+  try {
+    const raw = localStorage.getItem(GENERATOR_KEY);
+    if (!raw) return { ...GENERATOR_DEFAULTS };
+    const saved = JSON.parse(raw) as Partial<Record<keyof PasswordOptions, unknown>>;
+    const length = typeof saved.length === "number" ? Math.round(saved.length) : GENERATOR_DEFAULTS.length;
+    const options: PasswordOptions = {
+      length: Math.min(GENERATOR_MAX, Math.max(GENERATOR_MIN, length)),
+      lowercase: saved.lowercase === true,
+      uppercase: saved.uppercase === true,
+      digits: saved.digits === true,
+      symbols: saved.symbols === true,
+      avoid_ambiguous: saved.avoid_ambiguous === true,
+    };
+    // A stored set with every type off could never generate anything.
+    return options.lowercase || options.uppercase || options.digits || options.symbols
+      ? options
+      : { ...GENERATOR_DEFAULTS };
+  } catch {
+    return { ...GENERATOR_DEFAULTS };
+  }
+}
+
+function saveGeneratorOptions(options: PasswordOptions): void {
+  try {
+    localStorage.setItem(GENERATOR_KEY, JSON.stringify(options));
+  } catch {
+    // Not remembered; see above.
+  }
+}
+
 /**
  * A generator that needs no vault.
  *
  * Offered on the locked screen too: wanting a password is not a reason to
- * have unlocked, and a signup form does not wait.
+ * have unlocked, and a signup form does not wait. The password itself is made
+ * by the crypto core in the background; this only chooses what it may contain.
  */
 function generatorPanel(): HTMLElement {
-  const output = el("div", { className: "muted", textContent: "—" });
-  const make = el("button", { className: "inline", type: "button" }, [icon("regenerate", { size: 12 }), "Generate one"]);
+  const options = savedGeneratorOptions();
+  const typeKeys = ["lowercase", "uppercase", "digits", "symbols"] as const;
 
-  make.addEventListener("click", () => {
-    make.disabled = true;
-    void send({ kind: "generatePassword" })
-      .then(unwrap)
-      .then((response) => {
-        if (response.kind !== "generatePassword") throw new Error("unexpected reply");
-        output.replaceChildren(copyable(response.password));
+  const output = el("div", { className: "gen-output", textContent: "—" });
+  const meter = el("div", { className: "meter gen-meter" });
+  const note = el("p", { className: "muted gen-note" });
+
+  const regenerate = el(
+    "button",
+    { className: "detail-action", type: "button", title: "Generate another", ariaLabel: "Generate another" },
+    [icon("regenerate", { size: 17 })],
+  );
+  const copy = el(
+    "button",
+    {
+      className: "detail-action",
+      type: "button",
+      title: `Copy — cleared after ${String(CLIPBOARD_SECONDS)} seconds`,
+      ariaLabel: "Copy password",
+    },
+    [icon("copy", { size: 17 })],
+  );
+
+  let current = "";
+  let latest = 0;
+
+  const generate = async (): Promise<void> => {
+    const mine = ++latest;
+    try {
+      const made = unwrap(await send({ kind: "generatePassword", options: { ...options } }));
+      if (made.kind !== "generatePassword" || mine !== latest) return;
+      current = made.password;
+      output.textContent = current;
+
+      const rated = unwrap(await send({ kind: "checkStrength", password: current }));
+      if (rated.kind !== "checkStrength" || mine !== latest) return;
+      meter.className = `meter gen-meter level-${rated.strength.level}`;
+      meter.textContent = `${STRENGTH_LABEL[rated.strength.level]} · ~${String(rated.strength.bits)} bits`;
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Failed.");
+    }
+  };
+
+  const changed = (): void => {
+    saveGeneratorOptions(options);
+    void generate();
+  };
+
+  regenerate.addEventListener("click", () => void generate());
+  copy.addEventListener("click", () => {
+    if (current === "") return;
+    void copyForAWhile(current)
+      .then(() => {
+        copy.replaceChildren("Copied");
+        setTimeout(() => copy.replaceChildren(icon("copy", { size: 17 })), 1200);
       })
-      .catch((error: unknown) => {
-        showError(error instanceof Error ? error.message : "Failed.");
-      })
-      .finally(() => {
-        make.disabled = false;
-      });
+      .catch(() => showError("Could not copy."));
   });
 
-  return el("div", { className: "group" }, [
+  // --- length ---
+  const lengthValue = el("strong", { textContent: String(options.length) });
+  const slider = el("input", {
+    type: "range",
+    min: String(GENERATOR_MIN),
+    max: String(GENERATOR_MAX),
+    step: "1",
+    value: String(options.length),
+  });
+  slider.addEventListener("input", () => {
+    options.length = Number(slider.value);
+    lengthValue.textContent = String(options.length);
+    changed();
+  });
+
+  // --- character types ---
+  const chip = (key: (typeof typeKeys)[number], title: string, sample: string): HTMLElement => {
+    const box = el("input", { type: "checkbox", checked: options[key] });
+    box.addEventListener("change", () => {
+      options[key] = box.checked;
+      // The core refuses a password with nothing to draw from, so the last
+      // type cannot be switched off — say why rather than silently ignoring it.
+      if (!typeKeys.some((each) => options[each])) {
+        options[key] = true;
+        box.checked = true;
+        note.textContent = "Keep at least one type selected.";
+        setTimeout(() => (note.textContent = ""), 2200);
+        return;
+      }
+      changed();
+    });
+    return el("label", { className: "chip", title }, [box, el("span", { textContent: sample })]);
+  };
+
+  // --- look-alikes ---
+  const ambiguous = el("input", { type: "checkbox", className: "switch", checked: options.avoid_ambiguous === true });
+  ambiguous.addEventListener("change", () => {
+    options.avoid_ambiguous = ambiguous.checked;
+    changed();
+  });
+
+  void generate();
+
+  return el("div", { className: "group generator" }, [
     el("h2", { textContent: "Password generator" }),
-    output,
-    make,
+    el("div", { className: "gen-result" }, [output, el("div", { className: "gen-actions" }, [regenerate, copy])]),
+    meter,
+    el("label", { className: "gen-length" }, [
+      el("span", { className: "gen-length-row" }, ["Length", lengthValue]),
+      slider,
+    ]),
+    el("div", { className: "chips" }, [
+      chip("lowercase", "Lowercase letters", "a–z"),
+      chip("uppercase", "Uppercase letters", "A–Z"),
+      chip("digits", "Numbers", "0–9"),
+      chip("symbols", "Symbols", "!@#"),
+    ]),
+    note,
+    el("label", { className: "gen-toggle" }, [
+      ambiguous,
+      el("span", {}, ["Avoid look-alike characters ", el("small", { className: "muted", textContent: "0 O o 1 l I" })]),
+    ]),
   ]);
 }
 

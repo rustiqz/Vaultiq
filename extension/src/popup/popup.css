@@ -199,8 +199,6 @@ li.trashed .name { text-decoration: line-through; }
 .name { font: 600 14.5px/1.25 "ArchivoSemiCondensed-SemiBold", sans-serif; }
 .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
 li .row { margin-top: 8px; flex-wrap: wrap; }
-.copyable { min-height: 30px; padding: 4px 7px; font: 12px/1.2 "IBMPlexMono-Regular", monospace; letter-spacing: 0; text-transform: none; }
-.copyable.copied { color: var(--good); border-color: var(--sage); }
 .badge { padding: 2px 7px; border: 1px solid currentColor; border-radius: 999px; font-size: 10px; }
 .meter { padding: 9px 12px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .level-very-weak, .level-weak { color: var(--danger); }
@@ -288,3 +286,21 @@ input.switch:focus-visible { outline: 2px solid var(--amber); outline-offset: 2p
 /* The welcome screen has three tabs; two columns wrapped the third onto its own row. */
 .scope-tabs:has(> :nth-child(3)) { grid-template-columns: repeat(3, 1fr); }
 .scope-tabs:has(> :nth-child(3)) .scope-tab { font-size: 12px; padding-inline: 2px; }
+
+/* Password generator */
+.gen-result { display: flex; align-items: center; gap: 6px; padding: 10px 8px 10px 12px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); }
+.gen-output { flex: 1; min-width: 0; font: 600 17px/1.35 "IBMPlexMono-Regular", monospace; overflow-wrap: anywhere; user-select: all; }
+.gen-actions { flex: none; display: flex; gap: 2px; }
+.gen-meter { padding: 0 2px; min-height: 1.4em; }
+.gen-length { gap: 8px; color: var(--text); font-size: 13px; }
+.gen-length-row { display: flex; justify-content: space-between; align-items: baseline; }
+input[type="range"] { width: 100%; padding: 0; border: 0; background: transparent; accent-color: var(--accent); cursor: pointer; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+label.chip { position: relative; flex-direction: row; align-items: center; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--text); font: 600 13px/1.2 "IBMPlexMono-Regular", monospace; cursor: pointer; }
+label.chip:hover { background: var(--hover); }
+label.chip:has(input:checked) { background: var(--selected); border-color: color-mix(in srgb, var(--sage) 62%, transparent); }
+label.chip:has(input:focus-visible) { outline: 2px solid var(--amber); outline-offset: 2px; }
+label.chip input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
+.gen-note { min-height: 1.3em; margin: -4px 0 0; color: var(--danger); }
+label.gen-toggle { gap: 10px; color: var(--text); font-size: 13px; cursor: pointer; }
+label.gen-toggle input.switch { margin-top: 0; }

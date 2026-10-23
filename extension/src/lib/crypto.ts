@@ -50,6 +50,8 @@ export interface PasswordOptions {
   uppercase: boolean;
   digits: boolean;
   symbols: boolean;
+  /** Leave out characters that look alike (`0 O o 1 l I`). Absent means no. */
+  avoid_ambiguous?: boolean;
 }
 
 export type StrengthLevel = "very-weak" | "weak" | "fair" | "strong" | "excellent";
