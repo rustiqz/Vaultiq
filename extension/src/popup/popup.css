@@ -151,7 +151,6 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
 .item-glyph { width: 34px; height: 34px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); }
 .item-glyph-login { color: var(--danger); }
 .item-glyph-totp { color: var(--good); }
-.empty-list { padding: 18px 8px; text-align: center; }
 
 .item-detail { min-width: 0; overflow-y: auto; scrollbar-color: var(--sage) transparent; scrollbar-width: thin; padding: 14px 16px 16px; background: var(--bg); display: flex; flex-direction: column; gap: 11px; }
 .detail-heading { display: flex; align-items: center; gap: 12px; }
@@ -316,3 +315,16 @@ label.gen-toggle input.switch { margin-top: 0; }
 .pin-status small { font-size: 12.5px; line-height: 1.4; }
 .pin-dot { flex: none; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--line-strong); }
 .pin-dot.on { background: var(--good); border-color: var(--good); }
+
+/* Empty states */
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 340px; margin: auto; padding: 24px 12px; text-align: center; }
+.empty-art { display: flex; align-items: center; justify-content: center; width: 72px; height: 72px; margin-bottom: 6px; border: 2px dashed var(--line-strong); border-radius: 50%; background: var(--surface); color: var(--text); }
+.empty-title { font: 700 17px/1.2 "ArchivoSemiCondensed-Bold", sans-serif; letter-spacing: 0; text-transform: none; }
+.empty-hint { line-height: 1.5; }
+.empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+.empty-state.compact { gap: 5px; padding: 18px 8px; margin: 0 auto; }
+.empty-state.compact .empty-art { width: 48px; height: 48px; margin-bottom: 2px; border-width: 1.5px; }
+.empty-state.compact .empty-title { font-size: 14px; }
+.empty-state.compact .empty-hint { font-size: 12.5px; }
+.empty-state.compact .empty-actions { margin-top: 6px; }
+.empty-state.compact button { min-height: 30px; padding: 4px 10px; font-size: 12.5px; }

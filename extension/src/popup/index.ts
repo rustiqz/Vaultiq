@@ -9,6 +9,7 @@ import { CLIPBOARD_SECONDS, copyForAWhile } from "../lib/clipboard.js";
 import { el } from "./dom.js";
 import { ago } from "./format.js";
 import { icon, logoMark, svgEl } from "./icons.js";
+import { emptyState } from "./empty-state.js";
 import { importPanel } from "./import-panel.js";
 import { syncPanel } from "./sync-panel.js";
 import {
@@ -2124,7 +2125,11 @@ async function renderUnlocked(): Promise<void> {
       "Trash",
       trashed.length
         ? el("ul", { className: "trash-list" }, trashed.map(trashedRow))
-        : el("p", { className: "muted", textContent: "Trash is empty." }),
+        : emptyState({
+            icon: "trash",
+            title: "Trash is empty",
+            hint: "Items you delete wait here until you remove them for good, so a slip is never final.",
+          }),
     );
   }
 
@@ -2235,7 +2240,29 @@ async function renderUnlocked(): Promise<void> {
     });
     rows.append(row);
   }
-  if (!shownItems.length) rows.append(el("p", { className: "empty-list muted", textContent: needle ? "Nothing matches that." : "Nothing saved here yet." }));
+  const vaultEmpty = response.items.every((item) => item.deleted);
+  if (!shownItems.length) {
+    rows.append(
+      vaultEmpty
+        ? emptyState({ icon: "login", title: "Nothing yet", hint: "Items you save will be listed here.", compact: true })
+        : emptyState({
+            icon: "search",
+            title: "No matches",
+            hint: `Nothing matches “${query.trim()}”.`,
+            compact: true,
+            actions: [
+              {
+                label: "Clear search",
+                onClick: () => {
+                  query = "";
+                  refocusSearch = true;
+                  void renderUnlocked();
+                },
+              },
+            ],
+          }),
+    );
+  }
 
   const sidebar = el("aside", { className: "vault-sidebar" }, [
     el("div", { className: "site-context" }, [
@@ -2249,7 +2276,26 @@ async function renderUnlocked(): Promise<void> {
 
   const detail = active
     ? detailForItem(active, forSite.site, siteIds.has(active.id))
-    : el("section", { className: "item-detail detail-empty" }, [
+    : vaultEmpty
+      ? el("section", { className: "item-detail detail-empty" }, [
+          emptyState({
+            icon: "login",
+            title: "Your vault is empty",
+            hint: "Add a login, or bring them in from another password manager. Everything is encrypted before it is saved.",
+            actions: [
+              {
+                label: "Add item",
+                primary: true,
+                onClick: () => {
+                  unlockedScreen = "new";
+                  void renderUnlocked();
+                },
+              },
+              { label: "Import", onClick: () => openInTab("data") },
+            ],
+          }),
+        ])
+      : el("section", { className: "item-detail detail-empty" }, [
         logoMark({ size: 42 }),
         el("h1", { textContent: "Choose an item" }),
         el("p", { className: "muted", textContent: "Select a vault item to see its details and quick actions." }),
