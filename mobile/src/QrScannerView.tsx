@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import { type Code, Camera, useCameraDevice, useCameraPermission, useCodeScanner } from 'react-native-vision-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from './icons';
@@ -23,6 +23,19 @@ export default function QrScannerView(props: {
   useEffect(() => {
     if (!hasPermission) requestPermission();
   }, [hasPermission, requestPermission]);
+
+  // The scanner is also shown before any navigator exists (enrollment), where
+  // the system back gesture has nothing to pop and would close the app.
+  // Routing it to the same cancel the on-screen button uses keeps both paths
+  // behaving identically.
+  const { onCancel } = props;
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      onCancel();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [onCancel]);
 
   const onCode = useCallback(
     (value: string | undefined) => {
@@ -61,48 +74,53 @@ export default function QrScannerView(props: {
     setPreview({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height });
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']} onLayout={onLayout}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* A solid bar, not text laid over the live feed: the camera image can be
+          any colour, including the cream this text is drawn in. */}
       <View style={styles.appBar}>
         <Pressable style={styles.back} onPress={props.onCancel} accessibilityRole="button" accessibilityLabel="Back">
           <Icon name="chevronLeft" size={22} color={colors.onInk} />
+          <Text style={styles.backLabel}>Back</Text>
         </Pressable>
         <Text style={styles.appBarTitle}>{props.title}</Text>
       </View>
 
-      {hasPermission && device !== undefined && (
-        <Camera style={StyleSheet.absoluteFill} device={device} isActive={!handled} codeScanner={codeScanner} />
-      )}
+      <View style={styles.stage} onLayout={onLayout}>
+        {hasPermission && device !== undefined && (
+          <Camera style={StyleSheet.absoluteFill} device={device} isActive={!handled} codeScanner={codeScanner} />
+        )}
 
-      {hasPermission && device !== undefined && (
-        <View style={styles.overlay} pointerEvents="none">
-          <View style={[styles.viewfinder, { width: viewfinderSide(preview), height: viewfinderSide(preview) }]}>
-            <View style={[styles.corner, styles.tl]} />
-            <View style={[styles.corner, styles.tr]} />
-            <View style={[styles.corner, styles.bl]} />
-            <View style={[styles.corner, styles.br]} />
+        {hasPermission && device !== undefined && (
+          <View style={styles.overlay} pointerEvents="none">
+            <View style={[styles.viewfinder, { width: viewfinderSide(preview), height: viewfinderSide(preview) }]}>
+              <View style={[styles.corner, styles.tl]} />
+              <View style={[styles.corner, styles.tr]} />
+              <View style={[styles.corner, styles.bl]} />
+              <View style={[styles.corner, styles.br]} />
+            </View>
+            <Text style={styles.hint}>Point the camera at the QR code inside the square</Text>
           </View>
-          <Text style={styles.hint}>Point the camera at the QR code inside the square</Text>
-        </View>
-      )}
+        )}
 
-      {!hasPermission && (
-        <View style={styles.centered}>
-          <Text style={styles.message}>Vaultiq needs camera access to scan a QR code.</Text>
-          <Button title="Grant camera access" onPress={() => requestPermission()} />
-        </View>
-      )}
-      {hasPermission && device === undefined && (
-        <View style={styles.centered}>
-          <Text style={styles.message}>No usable camera was found on this device.</Text>
-        </View>
-      )}
+        {!hasPermission && (
+          <View style={styles.centered}>
+            <Text style={styles.message}>Vaultiq needs camera access to scan a QR code.</Text>
+            <Button title="Grant camera access" onPress={() => requestPermission()} />
+          </View>
+        )}
+        {hasPermission && device === undefined && (
+          <View style={styles.centered}>
+            <Text style={styles.message}>No usable camera was found on this device.</Text>
+          </View>
+        )}
 
-      {scanError !== null && (
-        <View style={styles.errorBanner}>
-          <Icon name="alertTriangle" size={16} color={colors.onInk} />
-          <Text style={styles.errorBannerText}>{scanError}</Text>
-        </View>
-      )}
+        {scanError !== null && (
+          <View style={styles.errorBanner}>
+            <Icon name="alertTriangle" size={16} color={colors.onInk} />
+            <Text style={styles.errorBannerText}>{scanError}</Text>
+          </View>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
@@ -127,10 +145,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 6,
-    zIndex: 1,
+    backgroundColor: colors.ink,
   },
-  back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  appBarTitle: { fontFamily: fonts.condensedBold, fontSize: 22, color: colors.onInk },
+  back: { height: 44, flexDirection: 'row', alignItems: 'center', paddingRight: 10 },
+  backLabel: { fontFamily: fonts.body, fontSize: 15, color: colors.onInk },
+  stage: { flex: 1, overflow: 'hidden' },
+  appBarTitle: { flex: 1, fontFamily: fonts.condensedBold, fontSize: 22, color: colors.onInk, textAlign: 'right', paddingRight: 12 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.lg },
   message: { fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: colors.onInk, textAlign: 'center' },
   errorBanner: {
