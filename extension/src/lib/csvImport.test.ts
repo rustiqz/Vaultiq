@@ -50,6 +50,22 @@ describe("parseCsv", () => {
 });
 
 describe("rowsToItems", () => {
+  it("falls back to the email column when username is empty (Proton Pass)", () => {
+    const { items } = rowsToItems(
+      parseCsv(
+        "type,name,url,email,username,password,note\nlogin,Example,https://example.com,alice@example.test,,correct-horse-battery-staple,",
+      ),
+    );
+    expect(items[0]).toMatchObject({ type: "login", username: "alice@example.test" });
+  });
+
+  it("prefers username over email when both are present", () => {
+    const { items } = rowsToItems(
+      parseCsv("name,email,username,password\nExample,alice@example.test,alice,correct-horse-battery-staple"),
+    );
+    expect(items[0]).toMatchObject({ username: "alice" });
+  });
+
   it("maps a header-less-type export (Chrome-style) to logins", () => {
     const rows = parseCsv(
       "name,url,username,password\nExample,https://example.com,alice,correct-horse-battery-staple",

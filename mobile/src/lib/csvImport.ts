@@ -75,13 +75,16 @@ function parseCsv(text: string): string[][] {
   return rows.filter(cells => !(cells.length === 1 && cells[0] === ''));
 }
 
-type Field = 'name' | 'url' | 'username' | 'password' | 'notes' | 'type';
+type Field = 'name' | 'url' | 'username' | 'email' | 'password' | 'notes' | 'type';
 
 /** Column names this recognises, by field, lowercase, checked in order. */
 const ALIASES: Record<Field, string[]> = {
   name: ['name', 'title'],
   url: ['url', 'login_uri', 'uri', 'website'],
   username: ['username', 'login_username'],
+  // Proton Pass keeps the sign-in address in its own column and leaves
+  // `username` empty for most logins; it is used only as a fallback.
+  email: ['email', 'login_email', 'e-mail'],
   password: ['password', 'login_password'],
   notes: ['notes', 'extra', 'note'],
   type: ['type'],
@@ -149,7 +152,7 @@ function rowsToItems(rows: string[][]): ImportResult {
       continue;
     }
 
-    const username = cell(row, index, 'username');
+    const username = cell(row, index, 'username') || cell(row, index, 'email');
     const password = cell(row, index, 'password');
     if (username === '' && password === '') {
       skipped += 1;
