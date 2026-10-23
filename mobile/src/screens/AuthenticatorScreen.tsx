@@ -11,6 +11,7 @@ import { text } from '../itemContent';
 import type { RootTabParamList } from '../navigation';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { SearchBar, useConfirmDialog } from '../ui';
+import useRefreshOnRemoteChange from '../useRefreshOnRemoteChange';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 import { useTotpCode } from '../useTotpCode';
@@ -100,6 +101,9 @@ export default function AuthenticatorScreen() {
       sync();
     }, [sync]),
   );
+
+  // Another device's changes arriving while this screen is in front.
+  useRefreshOnRemoteChange(sync);
 
   const visible = (items ?? []).filter(item => {
     if (query.trim() === '') return true;

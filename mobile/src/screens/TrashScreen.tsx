@@ -9,6 +9,7 @@ import { displayName, text } from '../itemContent';
 import type { SettingsStackScreenProps } from '../navigation';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Card, useConfirmDialog } from '../ui';
+import useRefreshOnRemoteChange from '../useRefreshOnRemoteChange';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 
@@ -42,6 +43,9 @@ export default function TrashScreen({ navigation }: SettingsStackScreenProps<'Tr
       sync();
     }, [sync]),
   );
+
+  // Another device's changes arriving while this screen is in front.
+  useRefreshOnRemoteChange(sync);
 
   const restore = async (item: DecryptedItem) => {
     setBusyId(item.id);

@@ -9,6 +9,7 @@ import type { VaultStackScreenProps } from '../navigation';
 import * as storage from '../storage';
 import { colors, fonts, spacing } from '../theme';
 import { Card, SearchBar } from '../ui';
+import useRefreshOnRemoteChange from '../useRefreshOnRemoteChange';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 
@@ -53,6 +54,9 @@ export default function TypeListScreen({ route, navigation }: VaultStackScreenPr
       sync();
     }, [sync]),
   );
+
+  // Another device's changes arriving while this screen is in front.
+  useRefreshOnRemoteChange(sync);
 
   const openItem = async (item: DecryptedItem) => {
     await storage.recordItemUsed(item.id);

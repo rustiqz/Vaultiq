@@ -17,7 +17,7 @@ import { NavigationContainer, getFocusedRouteNameFromRoute, type Theme } from '@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Appearance, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Appearance, AppState, Pressable, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Icon, { type IconName } from './src/icons';
 import type { ItemContent } from './src/itemContent';
@@ -25,6 +25,8 @@ import LogoMark from './src/LogoMark';
 import * as storage from './src/storage';
 import { brandColors, colors, darkColors, fonts, inkAlpha, lightColors } from './src/theme';
 import { useConfirmDialog } from './src/ui';
+import { startForegroundSync } from './src/lib/foregroundSync';
+import { announceRemoteChange } from './src/lib/remoteChange';
 import * as vault from './src/vault';
 import type { DecryptedItem, Status } from './src/vault';
 import type { RootTabParamList, SettingsStackParamList, VaultStackParamList, VaultStackScreenProps } from './src/navigation';
@@ -307,6 +309,26 @@ function App(props: { autofillRequest?: AutofillRequest }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, autoLockMinutes]);
+
+  // While unlocked and in front, look for what other devices have changed: on
+  // returning to the app, and every few minutes after. Nothing runs in the
+  // background. Not for an autofill request, which is a short visit, and not
+  // touching the idle timer above: a sync is not the person using the app.
+  const syncing = status === 'unlocked' && props.autofillRequest === undefined;
+  useEffect(() => {
+    if (!syncing) return undefined;
+    return startForegroundSync({
+      catchUp: vault.catchUp,
+      announce: announceRemoteChange,
+      isActive: () => AppState.currentState === 'active',
+      subscribeActive: onActive => {
+        const subscription = AppState.addEventListener('change', next => {
+          if (next === 'active') onActive();
+        });
+        return () => subscription.remove();
+      },
+    });
+  }, [syncing]);
 
   return (
     <SafeAreaProvider>
