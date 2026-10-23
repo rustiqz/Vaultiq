@@ -103,7 +103,7 @@ button.primary:hover { filter: brightness(1.08); }
 button.inline { min-height: 32px; padding: 5px 9px; font-size: 12px; }
 button.icon-button { padding: 6px 8px; }
 button.danger { color: var(--danger); }
-input, textarea { width: 100%; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); color: var(--text); padding: 9px 11px; }
+input, textarea, select { width: 100%; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); color: var(--text); padding: 9px 11px; }
 textarea { resize: vertical; min-height: 82px; }
 label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; }
 /* `input` is full width for text fields; a checkbox must stay its own size and

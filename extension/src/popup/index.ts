@@ -402,16 +402,41 @@ function settingsPanel(): HTMLElement {
   );
 
   // --- auto-lock ---
-  const minutes = el("input", { type: "number", min: "0", max: "1440", step: "1" });
+  const LOCK_CHOICES: [number, string][] = [
+    [5, "5 minutes"],
+    [15, "15 minutes"],
+    [30, "30 minutes"],
+    [60, "1 hour"],
+    [240, "4 hours"],
+    [480, "8 hours"],
+    [1440, "24 hours"],
+    [0, "Never (until the browser closes)"],
+  ];
+  const lockAfter = el("select", {});
+  const addChoice = (value: number, label: string): void => {
+    lockAfter.append(el("option", { value: String(value), textContent: label }));
+  };
+  for (const [value, label] of LOCK_CHOICES) addChoice(value, label);
   void send({ kind: "autoLock" }).then((response) => {
-    if (response.ok && response.kind === "autoLock") minutes.value = String(response.minutes);
+    if (!response.ok || response.kind !== "autoLock") return;
+    // A value saved by an older version (the field used to take any number of
+    // minutes) stays selectable rather than silently snapping to a preset.
+    if (!LOCK_CHOICES.some(([value]) => value === response.minutes)) {
+      addChoice(response.minutes, `${String(response.minutes)} minutes`);
+    }
+    lockAfter.value = String(response.minutes);
   });
-  minutes.addEventListener("change", () => {
-    void send({ kind: "setAutoLock", minutes: Number(minutes.value) });
+  lockAfter.addEventListener("change", () => {
+    void send({ kind: "setAutoLock", minutes: Number(lockAfter.value) });
   });
 
   panel.append(
-    el("label", {}, ["Lock after (minutes, 0 for never)", minutes]),
+    el("label", {}, ["Lock the vault after", lockAfter]),
+    el("p", {
+      className: "muted",
+      textContent:
+        "A longer time is more convenient, but leaves your vault open for longer if you step away. Locking always happens when the browser closes.",
+    }),
   );
 
   // --- device name ---
