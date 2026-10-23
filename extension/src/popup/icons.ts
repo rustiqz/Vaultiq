@@ -72,7 +72,7 @@ const ICONS = {
 
 type IconName = keyof typeof ICONS;
 
-function svgEl(tag: string, attrs: Record<string, string | number>): SVGElement {
+export function svgEl(tag: string, attrs: Record<string, string | number>): SVGElement {
   const node = document.createElementNS(SVG_NS, tag);
   for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
   return node;

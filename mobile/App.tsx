@@ -43,6 +43,7 @@ import AuthenticatorScreen from './src/screens/AuthenticatorScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import AutoLockScreen from './src/screens/AutoLockScreen';
 import ChangeMasterPasswordScreen from './src/screens/ChangeMasterPasswordScreen';
+import ExportBackupScreen from './src/screens/ExportBackupScreen';
 import EnableBiometricScreen from './src/screens/EnableBiometricScreen';
 import ImportScreen from './src/screens/ImportScreen';
 import TrashScreen from './src/screens/TrashScreen';
@@ -178,6 +179,7 @@ function SettingsTab(props: { onLock: () => void; themeMode: storage.ThemeMode; 
         options={{ headerShown: false, presentation: 'transparentModal', animation: 'fade' }}
       />
       <SettingsStack.Screen name="ChangeMasterPassword" component={ChangeMasterPasswordScreen} options={{ headerShown: false }} />
+      <SettingsStack.Screen name="ExportBackup" component={ExportBackupScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="EnableBiometric" component={EnableBiometricScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="Import" component={ImportScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="Trash" component={TrashScreen} options={{ headerShown: false }} />

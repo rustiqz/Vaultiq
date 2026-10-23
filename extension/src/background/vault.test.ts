@@ -185,11 +185,14 @@ describe("purge", () => {
   });
 });
 
+// Test-only value, the same one `withOneItem` creates the vault with.
+const PASSWORD = "correct horse battery staple";
+
 describe("backup", () => {
   it("exports the wrapped key and every stored item", async () => {
     const id = await withOneItem();
 
-    const backup = await vault.exportBackup();
+    const backup = await vault.exportBackup(PASSWORD);
 
     expect(backup.kind).toBe("vaultiq-backup");
     expect(backup.vault.saltB64).toBe(db.vault?.saltB64);
@@ -199,27 +202,34 @@ describe("backup", () => {
     expect(backup.items[0]?.deleted).toBe(false);
   });
 
-  it("touches no key material", async () => {
+  it("requires the master password, even while the vault is unlocked", async () => {
+    await withOneItem();
+    expect(await vault.status()).toBe("unlocked");
+    cryptoFake.unwrapVaultKey.mockImplementation(() => {
+      throw new Error("decryption failed");
+    });
+
+    await expect(vault.exportBackup("wrong")).rejects.toThrow(/decryption failed/);
+  });
+
+  it("verifies the password without keeping the key it unwraps", async () => {
     await withOneItem();
     await vault.lock();
-    const unwrapCalls = cryptoFake.unwrapVaultKey.mock.calls.length;
-    const deriveCalls = cryptoFake.deriveMasterKey.mock.calls.length;
 
-    // Every field here is already ciphertext or a wrapped key, so exporting
-    // a locked vault must not derive or unwrap anything to do it.
-    await vault.exportBackup();
+    const backup = await vault.exportBackup(PASSWORD);
 
-    expect(cryptoFake.unwrapVaultKey.mock.calls).toHaveLength(unwrapCalls);
-    expect(cryptoFake.deriveMasterKey.mock.calls).toHaveLength(deriveCalls);
+    expect(backup.items).toHaveLength(1);
+    // Exporting must not leave the vault unlocked as a side effect.
+    expect(await vault.status()).toBe("locked");
   });
 
   it("refuses when there is no vault yet", async () => {
-    await expect(vault.exportBackup()).rejects.toThrow(/no vault/i);
+    await expect(vault.exportBackup(PASSWORD)).rejects.toThrow(/no vault/i);
   });
 
   it("round-trips into a working, unlocked vault on a fresh device", async () => {
     const id = await withOneItem();
-    const backup = await vault.exportBackup();
+    const backup = await vault.exportBackup(PASSWORD);
     db.vault = undefined;
     db.items.clear();
 
@@ -232,7 +242,7 @@ describe("backup", () => {
 
   it("restores a backup written by the mobile app", async () => {
     const id = await withOneItem();
-    const backup = await vault.exportBackup();
+    const backup = await vault.exportBackup(PASSWORD);
     const mobileShape = (source: VaultBackup) => ({
       ...source,
       vault: {
@@ -282,7 +292,7 @@ describe("backup", () => {
 
   it("refuses when a vault already exists", async () => {
     await withOneItem();
-    const backup = await vault.exportBackup();
+    const backup = await vault.exportBackup(PASSWORD);
 
     await expect(vault.restoreBackup(backup, "correct horse battery staple")).rejects.toThrow(
       /already exists/i,
@@ -297,7 +307,7 @@ describe("backup", () => {
 
   it("refuses a backup from a newer, unrecognised format", async () => {
     await withOneItem();
-    const backup = await vault.exportBackup();
+    const backup = await vault.exportBackup(PASSWORD);
     db.vault = undefined;
     db.items.clear();
 
@@ -308,7 +318,7 @@ describe("backup", () => {
 
   it("writes nothing on a wrong password", async () => {
     await withOneItem();
-    const backup = await vault.exportBackup();
+    const backup = await vault.exportBackup(PASSWORD);
     db.vault = undefined;
     db.items.clear();
     cryptoFake.unwrapVaultKey.mockImplementation(() => {

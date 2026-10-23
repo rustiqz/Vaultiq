@@ -433,7 +433,7 @@ export type Request =
   | { kind: "remoteDevices" }
   | { kind: "newEnrollmentToken" }
   | { kind: "revokeRemoteDevice"; deviceId: string }
-  | { kind: "exportBackup" }
+  | { kind: "exportBackup"; masterPassword: string }
   | { kind: "restoreBackup"; backup: VaultBackup; masterPassword: string };
 
 export type Response =

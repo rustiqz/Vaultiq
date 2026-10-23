@@ -217,9 +217,23 @@ async function createLocalVaultAndUnlock(deviceName: string, password: string): 
  * `pullItems()` uses to catch it up first, which does need the vault
  * unlocked and a network round trip.
  */
-async function exportBackup(): Promise<CanonicalBackup> {
+async function exportBackup(masterPassword: string): Promise<CanonicalBackup> {
   const enrollment = await storage.readEnrollment();
   if (enrollment === null) throw new Error('not enrolled on this device yet');
+
+  // The vault is unlocked to be here at all, but an unlocked, unattended phone
+  // is exactly when a copy of the whole vault must not be one tap away. Asking
+  // for the password again proves who is holding it, not just that it was
+  // unlocked. This is the same call `unlock` makes, so a wrong password fails
+  // identically; on success it simply re-holds the same vault key.
+  await CryptoCore.unlock(
+    masterPassword,
+    enrollment.vault.saltB64,
+    enrollment.vault.argon2.memoryKib,
+    enrollment.vault.argon2.iterations,
+    enrollment.vault.argon2.parallelism,
+    enrollment.vault.wrappedVaultKey,
+  );
 
   const items =
     enrollment.mode === 'local'
@@ -380,14 +394,13 @@ async function disableBiometric(): Promise<void> {
  * turned into forgetting the cached password rather than a confusing
  * crypto error, since it can never be recovered again regardless.
  */
-async function unlockWithBiometric(): Promise<void> {
+async function recoverBiometricPassword(): Promise<string> {
   const enrollment = await storage.readEnrollment();
   if (enrollment === null) throw new Error('not enrolled on this device yet');
   if (enrollment.biometric === undefined) throw new Error('fingerprint unlock is not turned on');
 
-  let password: string;
   try {
-    password = await Biometric.unlock(enrollment.biometric.ciphertextB64, enrollment.biometric.ivB64);
+    return await Biometric.unlock(enrollment.biometric.ciphertextB64, enrollment.biometric.ivB64);
   } catch (thrown) {
     // React Native's native-module bridge attaches the code passed to
     // Promise.reject(code, message, ...) as `.code` on the resulting JS
@@ -400,8 +413,20 @@ async function unlockWithBiometric(): Promise<void> {
     }
     throw thrown;
   }
+}
 
-  await unlock(password);
+async function unlockWithBiometric(): Promise<void> {
+  await unlock(await recoverBiometricPassword());
+}
+
+/**
+ * Exports a backup after a fingerprint instead of a typed password. The
+ * fingerprint only releases the cached master password, which then goes
+ * through exactly the check a typed one does -- so this is no weaker, just
+ * quicker.
+ */
+async function exportBackupWithBiometric(): Promise<CanonicalBackup> {
+  return exportBackup(await recoverBiometricPassword());
 }
 
 /**
@@ -720,6 +745,7 @@ export {
   enableBiometric,
   enrollAndUnlock,
   exportBackup,
+  exportBackupWithBiometric,
   isLocalOnly,
   listDevices,
   lock,

@@ -8,7 +8,7 @@ import { parseOtpauth, TOTP_DEFAULTS } from "../lib/otpauth.js";
 import { CLIPBOARD_SECONDS, copyForAWhile } from "../lib/clipboard.js";
 import { el } from "./dom.js";
 import { ago } from "./format.js";
-import { icon, logoMark } from "./icons.js";
+import { icon, logoMark, svgEl } from "./icons.js";
 import { importPanel } from "./import-panel.js";
 import { syncPanel } from "./sync-panel.js";
 import {
@@ -50,6 +50,25 @@ const STRENGTH_LABEL: Record<StrengthLevel, string> = {
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("popup root missing");
 const root = app;
+
+type UnlockedScreen = "vault" | "new" | "edit" | "settings" | "sync" | "generator" | "trash" | "import";
+
+/**
+ * Firefox closes a browser-action popup the moment a native file dialog takes
+ * focus, so anything that picks a file cannot run inside one. Those screens
+ * open this same page in a full tab instead (`?tab=1`), where the dialog is
+ * harmless. Chrome keeps the popup open, but one code path serves both.
+ */
+const pageParams = new URLSearchParams(location.search);
+const inTab = pageParams.has("tab");
+if (inTab) document.body.classList.add("tab-mode");
+
+function openInTab(screen: "import" | "restore"): void {
+  void browser.tabs
+    .create({ url: browser.runtime.getURL(`popup.html?tab=1&screen=${screen}`) })
+    .then(() => window.close());
+}
+
 let currentError: HTMLElement | null = null;
 
 /**
@@ -171,7 +190,7 @@ function passwordForm(label: string, action: (value: string) => Promise<void>): 
   return form;
 }
 
-let emptyMode: "create" | "join" | "restore" = "create";
+let emptyMode: "create" | "join" | "restore" = inTab && pageParams.get("screen") === "restore" ? "restore" : "create";
 
 /** A backup file, picked and parsed, plus the password to unlock it with. */
 function restoreForm(): HTMLFormElement {
@@ -297,6 +316,10 @@ function renderEmpty(): void {
     ["Restore backup"],
   );
   restoreTab.addEventListener("click", () => {
+    if (!inTab) {
+      openInTab("restore");
+      return;
+    }
     emptyMode = "restore";
     renderEmpty();
   });
@@ -379,16 +402,41 @@ function settingsPanel(): HTMLElement {
   );
 
   // --- auto-lock ---
-  const minutes = el("input", { type: "number", min: "0", max: "1440", step: "1" });
+  const LOCK_CHOICES: [number, string][] = [
+    [5, "5 minutes"],
+    [15, "15 minutes"],
+    [30, "30 minutes"],
+    [60, "1 hour"],
+    [240, "4 hours"],
+    [480, "8 hours"],
+    [1440, "24 hours"],
+    [0, "Never (until the browser closes)"],
+  ];
+  const lockAfter = el("select", {});
+  const addChoice = (value: number, label: string): void => {
+    lockAfter.append(el("option", { value: String(value), textContent: label }));
+  };
+  for (const [value, label] of LOCK_CHOICES) addChoice(value, label);
   void send({ kind: "autoLock" }).then((response) => {
-    if (response.ok && response.kind === "autoLock") minutes.value = String(response.minutes);
+    if (!response.ok || response.kind !== "autoLock") return;
+    // A value saved by an older version (the field used to take any number of
+    // minutes) stays selectable rather than silently snapping to a preset.
+    if (!LOCK_CHOICES.some(([value]) => value === response.minutes)) {
+      addChoice(response.minutes, `${String(response.minutes)} minutes`);
+    }
+    lockAfter.value = String(response.minutes);
   });
-  minutes.addEventListener("change", () => {
-    void send({ kind: "setAutoLock", minutes: Number(minutes.value) });
+  lockAfter.addEventListener("change", () => {
+    void send({ kind: "setAutoLock", minutes: Number(lockAfter.value) });
   });
 
   panel.append(
-    el("label", {}, ["Lock after (minutes, 0 for never)", minutes]),
+    el("label", {}, ["Lock the vault after", lockAfter]),
+    el("p", {
+      className: "muted",
+      textContent:
+        "A longer time is more convenient, but leaves your vault open for longer if you step away. Locking always happens when the browser closes.",
+    }),
   );
 
   // --- device name ---
@@ -1087,7 +1135,7 @@ function untitled(item: DecryptedItem): string {
 let query = "";
 let selectedId: string | undefined;
 let listScope: "site" | "all" = "site";
-let unlockedScreen: "vault" | "new" | "edit" | "settings" | "sync" | "generator" | "trash" | "import" = "vault";
+let unlockedScreen: UnlockedScreen = pageParams.get("screen") === "import" ? "import" : "vault";
 let refocusSearch = false;
 
 function itemTitle(item: DecryptedItem): string {
@@ -1117,6 +1165,105 @@ function itemGlyph(item: DecryptedItem): HTMLElement {
 
 function recordCopy(item: DecryptedItem): void {
   void send({ kind: "recordUse", id: item.id, event: "copied" });
+}
+
+const RING_RADIUS = 20;
+const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
+
+/** "123456" as "123 456", so a code can be read off the screen and typed. */
+function groupCode(code: string): string {
+  const half = Math.ceil(code.length / 2);
+  return code.length >= 6 ? `${code.slice(0, half)} ${code.slice(half)}` : code;
+}
+
+/**
+ * A live one-time code: the digits, a ring draining toward the next one, and a
+ * copy button.
+ *
+ * Only the code crosses from the background, once a second, and only while
+ * this element is on screen — the secret never reaches the popup, and the
+ * background decrypts a single item per request rather than the whole vault.
+ * The digits start hidden, like a password, and the copy button works either
+ * way, so a code is never shown to someone who only wanted to paste it.
+ */
+function totpTicker(item: DecryptedTotp): HTMLElement {
+  const digits = el("span", { className: "totp-code", textContent: "•••  •••" });
+  const seconds = el("span", { className: "totp-seconds" });
+  const arc = svgEl("circle", {
+    cx: 24, cy: 24, r: RING_RADIUS, fill: "none", "stroke-width": 4, "stroke-linecap": "round",
+    "stroke-dasharray": RING_LENGTH, "stroke-dashoffset": 0, transform: "rotate(-90 24 24)",
+  });
+  arc.setAttribute("class", "totp-arc");
+  const track = svgEl("circle", { cx: 24, cy: 24, r: RING_RADIUS, fill: "none", "stroke-width": 4 });
+  track.setAttribute("class", "totp-track");
+  const ring = svgEl("svg", { width: 48, height: 48, viewBox: "0 0 48 48" });
+  ring.setAttribute("aria-hidden", "true");
+  ring.append(track, arc);
+
+  const reveal = el("button", { className: "detail-action", type: "button", title: "Show", ariaLabel: "Show code" }, [
+    icon("reveal", { size: 17 }),
+  ]);
+  const copy = el("button", { className: "detail-action", type: "button", title: "Copy code", ariaLabel: "Copy code" }, [
+    icon("copy", { size: 17 }),
+  ]);
+
+  const widget = el("div", { className: "totp-ticker" }, [
+    el("div", { className: "totp-ring" }, [ring, seconds]),
+    el("div", { className: "totp-main" }, [
+      el("span", { className: "detail-label", textContent: "One-time code" }),
+      digits,
+    ]),
+    reveal,
+    copy,
+  ]);
+
+  let code = "";
+  let revealed = false;
+  const paint = (remaining: number): void => {
+    digits.textContent = code === "" ? "—" : revealed ? groupCode(code) : "•••  •••";
+    seconds.textContent = code === "" ? "" : String(remaining);
+    const fraction = Math.max(0, Math.min(1, remaining / item.period));
+    arc.setAttribute("stroke-dashoffset", String(RING_LENGTH * (1 - fraction)));
+    // The last few seconds are the ones where a typed code can expire.
+    widget.classList.toggle("totp-expiring", code !== "" && remaining <= 5);
+  };
+
+  const tick = async (): Promise<void> => {
+    try {
+      const response = await send({ kind: "totpCode", id: item.id });
+      if (!response.ok || response.kind !== "totpCode") return;
+      code = response.code;
+      paint(response.secondsRemaining);
+    } catch {
+      // A locked or closing vault is handled by the screen that owns it.
+    }
+  };
+
+  reveal.addEventListener("click", () => {
+    revealed = !revealed;
+    reveal.title = revealed ? "Hide" : "Show";
+    reveal.ariaLabel = revealed ? "Hide code" : "Show code";
+    if (revealed) void send({ kind: "recordUse", id: item.id, event: "revealed" });
+    digits.textContent = code === "" ? "—" : revealed ? groupCode(code) : "•••  •••";
+  });
+  copy.addEventListener("click", () => {
+    if (code === "") return;
+    void copyForAWhile(code)
+      .then(() => {
+        recordCopy(item);
+        copy.replaceChildren("Copied");
+        setTimeout(() => copy.replaceChildren(icon("copy", { size: 17 })), 1200);
+      })
+      .catch(() => showError("Could not copy."));
+  });
+
+  void tick();
+  const timer = setInterval(() => {
+    // The popup rebuilds its DOM on every render; stop with the element.
+    if (!widget.isConnected) clearInterval(timer);
+    else void tick();
+  }, 1000);
+  return widget;
 }
 
 function detailField(
@@ -1249,8 +1396,8 @@ function detailForItem(item: DecryptedItem, currentSite: string | null, isForSit
     if (item.nationalId) fields.append(detailField(item, "Passport or national ID", item.nationalId, { masked: true }));
   } else if (item.type === "totp") {
     fields.append(
+      totpTicker(item),
       detailField(item, "Account", item.account),
-      detailField(item, "One-time code", item.code),
       detailField(item, "Issuer", item.issuer),
     );
   } else {
@@ -1300,6 +1447,62 @@ function detailForItem(item: DecryptedItem, currentSite: string | null, isForSit
   return el("section", { className: "item-detail" }, content);
 }
 
+/**
+ * A modal that asks for the master password and runs `action` with it.
+ *
+ * Stays open on failure so a mistyped password can be retried; a wrong one
+ * reads the same as it does on the lock screen.
+ */
+function askMasterPassword(options: {
+  title: string;
+  detail: string;
+  confirm: string;
+  action: (masterPassword: string) => Promise<void>;
+}): void {
+  const input = el("input", { type: "password", required: true, autocomplete: "current-password" });
+  const error = el("p", { className: "error", hidden: true });
+  const cancel = el("button", { type: "button", textContent: "Cancel" });
+  const submit = el("button", { className: "primary", type: "submit", textContent: options.confirm });
+  const form = el("form", { className: "modal" }, [
+    el("h2", { textContent: options.title }),
+    el("p", { className: "muted", textContent: options.detail }),
+    el("label", {}, ["Master password", input]),
+    error,
+    el("div", { className: "modal-actions" }, [cancel, submit]),
+  ]);
+  const backdrop = el("div", { className: "modal-backdrop" }, [form]);
+  const close = (): void => {
+    input.value = "";
+    backdrop.remove();
+  };
+  cancel.addEventListener("click", close);
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) close();
+  });
+  form.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") close();
+  });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    submit.textContent = "Working…";
+    error.hidden = true;
+    void options
+      .action(input.value)
+      .then(close)
+      .catch((failure: unknown) => {
+        submit.disabled = false;
+        submit.textContent = options.confirm;
+        error.hidden = false;
+        error.textContent = failure instanceof Error ? failure.message : "Failed.";
+        input.select();
+      });
+  });
+  document.body.append(backdrop);
+  input.focus();
+}
+
+
 function popupHeader(search?: HTMLInputElement): HTMLElement {
   const brand = el("div", { className: "popup-brand" }, [
     logoMark({ size: 30 }),
@@ -1330,7 +1533,7 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
     icon("moreVertical", { size: 18 }),
   ]);
   const menu = el("div", { className: "overflow-menu", hidden: true });
-  const destinations: { label: string; screen: typeof unlockedScreen }[] = [
+  const destinations: { label: string; screen: UnlockedScreen }[] = [
     { label: "Password generator", screen: "generator" },
     { label: "Import", screen: "import" },
     { label: "Sync & devices", screen: "sync" },
@@ -1340,6 +1543,10 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
   for (const destination of destinations) {
     const button = el("button", { className: "menu-item", type: "button", textContent: destination.label });
     button.addEventListener("click", () => {
+      if (destination.screen === "import" && !inTab) {
+        openInTab("import");
+        return;
+      }
       unlockedScreen = destination.screen;
       void renderUnlocked();
     });
@@ -1347,22 +1554,45 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
   }
   const exportBackup = el("button", { className: "menu-item", type: "button", textContent: "Export backup" });
   exportBackup.addEventListener("click", () => {
-    void send({ kind: "exportBackup" })
-      .then(unwrap)
-      .then((response) => {
+    menu.hidden = true;
+    askMasterPassword({
+      title: "Export backup",
+      detail: "Enter your master password to export. The file holds your whole vault, so this is asked every time.",
+      confirm: "Export",
+      action: async (masterPassword) => {
+        const response = unwrap(await send({ kind: "exportBackup", masterPassword }));
         if (response.kind !== "exportBackup") throw new Error("unexpected reply");
         downloadBackup(response.backup);
-      })
-      .catch((error: unknown) => showError(error instanceof Error ? error.message : "Failed."));
+      },
+    });
   });
   menu.append(exportBackup);
 
   const lock = el("button", { className: "menu-item", type: "button" }, [icon("lock", { size: 14 }), "Lock vault"]);
   lock.addEventListener("click", () => void send({ kind: "lock" }).then(refresh));
   menu.append(lock);
-  more.addEventListener("click", () => {
+  more.addEventListener("click", (event) => {
+    event.stopPropagation();
     menu.hidden = !menu.hidden;
   });
+  // The header is rebuilt on every render, so these listeners are removed with
+  // the menu rather than accumulating on the document.
+  const closeMenu = (): void => {
+    menu.hidden = true;
+  };
+  const onDocumentClick = (event: Event): void => {
+    if (!menu.isConnected) {
+      document.removeEventListener("click", onDocumentClick);
+      document.removeEventListener("keydown", onDocumentKey);
+      return;
+    }
+    if (!menu.hidden && !menu.contains(event.target as Node)) closeMenu();
+  };
+  const onDocumentKey = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") closeMenu();
+  };
+  document.addEventListener("click", onDocumentClick);
+  document.addEventListener("keydown", onDocumentKey);
 
   return el("header", { className: "popup-header" }, [
     brand,

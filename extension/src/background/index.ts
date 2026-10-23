@@ -87,7 +87,7 @@ async function handle(
       await extendAutoLock();
       return { ok: true, kind: "create" };
     case "exportBackup":
-      return { ok: true, kind: "exportBackup", backup: await exportBackup() };
+      return { ok: true, kind: "exportBackup", backup: await exportBackup(request.masterPassword) };
     case "restoreBackup":
       await restoreBackup(request.backup, request.masterPassword);
       await extendAutoLock();

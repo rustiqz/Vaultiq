@@ -112,9 +112,9 @@ impl TotpParams {
 
 /// A shared secret, scrubbed when it is dropped.
 ///
-/// Variable length by nature — RFC 4226 requires at least 128 bits and
-/// recommends 160, and issuers hand out anything from 10 to 64 bytes — so
-/// this is not one of the fixed-width key types in `secret.rs`.
+/// Variable length by nature — RFC 4226 recommends 160 bits and issuers hand
+/// out anything from 10 to 64 bytes — so this is not one of the fixed-width
+/// key types in `secret.rs`.
 #[derive(ZeroizeOnDrop)]
 pub struct TotpSecret(Vec<u8>);
 
@@ -126,15 +126,22 @@ impl core::fmt::Debug for TotpSecret {
     }
 }
 
-/// Shortest secret RFC 4226 §4 allows, in bytes.
-const MIN_SECRET_LEN: usize = 16;
+/// Shortest secret this accepts, in bytes.
+///
+/// Deliberately below RFC 4226 §4's 128-bit "MUST": the secret is chosen by
+/// the service being logged in to, not by us, and widely used services issue
+/// 80-bit secrets (16 base32 characters). Refusing those makes an account
+/// impossible to add at all, which sends people to an authenticator with no
+/// such scruples. 80 bits is the shortest in real use; anything under it is
+/// still refused as a typo rather than a secret.
+const MIN_SECRET_LEN: usize = 10;
 
 impl TotpSecret {
     /// Takes a secret that is already bytes.
     ///
     /// # Errors
     ///
-    /// [`CryptoError::InvalidInput`] if it is shorter than RFC 4226 allows.
+    /// [`CryptoError::InvalidInput`] if it is shorter than [`MIN_SECRET_LEN`].
     /// The length of a value the caller just supplied is not a secret from
     /// the caller.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self> {
@@ -453,11 +460,24 @@ mod tests {
 
     #[test]
     fn refuses_a_secret_too_short_to_be_one() {
-        // RFC 4226 §4 requires 128 bits. A four-byte "secret" is a typo.
+        // A five-byte "secret" is a typo.
         assert!(matches!(
             TotpSecret::parse("GEZDGNBV"),
             Err(CryptoError::InvalidInput(_))
         ));
+        // One byte under the floor.
+        assert!(matches!(
+            TotpSecret::from_bytes(vec![1; MIN_SECRET_LEN - 1]),
+            Err(CryptoError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn accepts_the_80_bit_secrets_real_services_issue() {
+        // Test-only value: 16 base32 characters decode to exactly 10 bytes.
+        let secret = TotpSecret::parse("JBSWY3DPEHPK3PXP").unwrap();
+        assert!(totp_code(&secret, &TotpParams::default(), 59).is_ok());
+        assert!(TotpSecret::from_bytes(vec![1; MIN_SECRET_LEN]).is_ok());
     }
 
     #[test]

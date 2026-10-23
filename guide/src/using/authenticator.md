@@ -8,7 +8,8 @@ shared Rust core and checked against RFC 6238's published test vectors.
 
 - **Paste an `otpauth://` link.** The link an issuer shows beside its QR code
   carries the algorithm, digit count and period, so nothing is guessed.
-- **Type the secret.** Anything under 16 bytes is refused as too short.
+- **Type the secret.** Anything under 10 bytes (80 bits, the shortest
+  secret services issue) is refused as a typo.
 - **Scan a QR code (Android).** The Codes tab, and the new item form, open the
   camera.
 
