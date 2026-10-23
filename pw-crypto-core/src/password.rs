@@ -18,6 +18,11 @@ const DIGITS: &[u8] = b"0123456789";
 /// them costs about half a bit per character.
 const SYMBOLS: &[u8] = b"!@#$%^&*()-_=+[]{}<>?,.:;";
 
+/// Characters easily mistaken for one another when a password is read off a
+/// screen or copied from paper: zero and the letters O and o, and one with the
+/// letters l and I. Dropping them costs about a third of a bit per character.
+const AMBIGUOUS: &[u8] = b"0Oo1lI";
+
 /// Shortest password this will produce. Below this, length is the problem
 /// regardless of which character classes are enabled.
 pub const MIN_LENGTH: usize = 8;
@@ -46,6 +51,12 @@ pub struct PasswordOptions {
     pub digits: bool,
     /// Include punctuation.
     pub symbols: bool,
+    /// Leave out characters that look alike (`0 O o 1 l I`).
+    ///
+    /// Absent from older callers, who get `false` — exactly what they had
+    /// before this field existed.
+    #[serde(default)]
+    pub avoid_ambiguous: bool,
 }
 
 impl Default for PasswordOptions {
@@ -61,30 +72,40 @@ impl Default for PasswordOptions {
             uppercase: true,
             digits: true,
             symbols: true,
+            avoid_ambiguous: false,
         }
     }
 }
 
 impl PasswordOptions {
     /// The character classes this enables, in a stable order.
-    fn classes(&self) -> Vec<&'static [u8]> {
-        let mut classes = Vec::new();
+    fn classes(&self) -> Vec<Vec<u8>> {
+        let mut classes: Vec<Vec<u8>> = Vec::new();
         if self.lowercase {
-            classes.push(LOWERCASE);
+            classes.push(LOWERCASE.to_vec());
         }
         if self.uppercase {
-            classes.push(UPPERCASE);
+            classes.push(UPPERCASE.to_vec());
         }
         if self.digits {
-            classes.push(DIGITS);
+            classes.push(DIGITS.to_vec());
         }
         if self.symbols {
-            classes.push(SYMBOLS);
+            classes.push(SYMBOLS.to_vec());
+        }
+        if self.avoid_ambiguous {
+            // Removed from each class rather than from the final pool, so the
+            // "at least one of every enabled class" guarantee is checked
+            // against what can actually be drawn. No class is ever emptied:
+            // each keeps at least eight characters.
+            for class in &mut classes {
+                class.retain(|byte| !AMBIGUOUS.contains(byte));
+            }
         }
         classes
     }
 
-    fn validate(&self) -> Result<Vec<&'static [u8]>> {
+    fn validate(&self) -> Result<Vec<Vec<u8>>> {
         if self.length < MIN_LENGTH || self.length > MAX_LENGTH {
             return Err(CryptoError::InvalidInput(format!(
                 "length must be between {MIN_LENGTH} and {MAX_LENGTH}, got {}",
@@ -129,7 +150,7 @@ fn rejection_limit(bound: u32) -> Result<u32> {
 }
 
 /// Draws a uniformly distributed index below `bound`.
-fn uniform_index(bound: usize) -> Result<usize> {
+pub(crate) fn uniform_index(bound: usize) -> Result<usize> {
     let bound = u32::try_from(bound)
         .map_err(|_| CryptoError::InvalidInput("character set is too large".to_owned()))?;
     if bound == 0 {
@@ -371,6 +392,7 @@ mod tests {
             uppercase: core::ptr::eq(class, UPPERCASE),
             digits: core::ptr::eq(class, DIGITS),
             symbols: core::ptr::eq(class, SYMBOLS),
+            avoid_ambiguous: false,
         }
     }
 
@@ -467,6 +489,85 @@ mod tests {
         assert!(seen.iter().all(|hit| *hit), "some digits never appeared");
     }
 
+    // --- Look-alike characters ---
+
+    #[test]
+    fn avoiding_ambiguous_characters_leaves_them_out() {
+        let options = PasswordOptions {
+            length: MAX_LENGTH,
+            avoid_ambiguous: true,
+            ..PasswordOptions::default()
+        };
+        for _ in 0..50 {
+            let password = generate_password(&options).unwrap();
+            assert!(
+                !password.bytes().any(|byte| AMBIGUOUS.contains(&byte)),
+                "password {password} contains a look-alike character"
+            );
+        }
+    }
+
+    #[test]
+    fn ambiguous_characters_do_appear_when_not_avoided() {
+        // Without this the test above could pass for a generator that never
+        // produced them in the first place.
+        let options = PasswordOptions {
+            length: MAX_LENGTH,
+            ..PasswordOptions::default()
+        };
+        let mut seen = [false; 6];
+        for _ in 0..50 {
+            for byte in generate_password(&options).unwrap().bytes() {
+                if let Some(at) = AMBIGUOUS.iter().position(|ambiguous| *ambiguous == byte)
+                    && let Some(slot) = seen.get_mut(at)
+                {
+                    *slot = true;
+                }
+            }
+        }
+        assert!(
+            seen.iter().all(|hit| *hit),
+            "some look-alikes never appeared"
+        );
+    }
+
+    #[test]
+    fn avoiding_ambiguous_characters_still_covers_every_enabled_class() {
+        let options = PasswordOptions {
+            length: MIN_LENGTH,
+            avoid_ambiguous: true,
+            ..PasswordOptions::default()
+        };
+        for _ in 0..200 {
+            let password = generate_password(&options).unwrap();
+            for class in options.classes() {
+                assert!(
+                    password.bytes().any(|byte| class.contains(&byte)),
+                    "password {password} is missing a class"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn no_class_is_emptied_by_avoiding_ambiguous_characters() {
+        let options = PasswordOptions {
+            avoid_ambiguous: true,
+            ..PasswordOptions::default()
+        };
+        assert_eq!(options.classes().len(), 4);
+        assert!(options.classes().iter().all(|class| class.len() >= 8));
+    }
+
+    #[test]
+    fn options_from_an_older_caller_default_to_not_avoiding() {
+        // The wire shape before the field existed.
+        let older =
+            r#"{"length":20,"lowercase":true,"uppercase":true,"digits":true,"symbols":true}"#;
+        let options: PasswordOptions = serde_json::from_str(older).unwrap();
+        assert!(!options.avoid_ambiguous);
+    }
+
     // --- Refusals ---
 
     #[test]
@@ -491,6 +592,7 @@ mod tests {
             uppercase: false,
             digits: false,
             symbols: false,
+            avoid_ambiguous: false,
         };
         assert!(matches!(
             generate_password(&options),

@@ -11,6 +11,8 @@ import init, {
   defaultPasswordOptions,
   estimateStrength,
   generatePassword,
+  generatePassphrase,
+  passphraseBits,
   deriveAuthKey,
   deriveMasterKey,
   encryptItem,
@@ -26,6 +28,8 @@ import init, {
 export type { MasterKeyHandle, VaultKeyHandle };
 export {
   generatePassword,
+  generatePassphrase,
+  passphraseBits,
   decryptItem,
   deriveAuthKey,
   deriveMasterKey,
@@ -50,6 +54,16 @@ export interface PasswordOptions {
   uppercase: boolean;
   digits: boolean;
   symbols: boolean;
+  /** Leave out characters that look alike (`0 O o 1 l I`). Absent means no. */
+  avoid_ambiguous?: boolean;
+}
+
+/** What a passphrase may look like. See `pw-crypto-core/src/passphrase.rs`. */
+export interface PassphraseOptions {
+  words: number;
+  separator: string;
+  capitalize: boolean;
+  include_number: boolean;
 }
 
 export type StrengthLevel = "very-weak" | "weak" | "fair" | "strong" | "excellent";

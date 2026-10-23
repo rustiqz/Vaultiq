@@ -38,6 +38,9 @@ use crate::keys::{
     KEY_LEN, NONCE_LEN, VaultKey, WrappedVaultKey, derive_auth_key as derive_auth,
     derive_stretched_encryption_key, unwrap_vault_key as unwrap_key, wrap_vault_key as wrap_key,
 };
+use crate::passphrase::{
+    PassphraseOptions, generate_passphrase as generate_phrase, passphrase_bits as phrase_bits,
+};
 use crate::password::{
     PasswordOptions, PasswordStrength, StrengthLevel, estimate_strength,
     generate_password as generate,
@@ -402,6 +405,8 @@ pub struct PasswordOptionsFfi {
     pub digits: bool,
     /// Include punctuation.
     pub symbols: bool,
+    /// Leave out characters that look alike (`0 O o 1 l I`).
+    pub avoid_ambiguous: bool,
 }
 
 impl From<PasswordOptions> for PasswordOptionsFfi {
@@ -412,6 +417,7 @@ impl From<PasswordOptions> for PasswordOptionsFfi {
             uppercase: options.uppercase,
             digits: options.digits,
             symbols: options.symbols,
+            avoid_ambiguous: options.avoid_ambiguous,
         }
     }
 }
@@ -424,6 +430,7 @@ impl From<PasswordOptionsFfi> for PasswordOptions {
             uppercase: options.uppercase,
             digits: options.digits,
             symbols: options.symbols,
+            avoid_ambiguous: options.avoid_ambiguous,
         }
     }
 }
@@ -445,6 +452,70 @@ pub fn generate_password_ffi(options: PasswordOptionsFfi) -> Result<String, FfiE
     // Unsatisfiable settings are a caller bug and say nothing secret, so the
     // reason is reported rather than collapsed.
     generate(&options.into()).map_err(|error| match error {
+        CryptoError::InvalidInput(reason) => bad_argument(&reason),
+        other => opaque(other),
+    })
+}
+
+/// Mirror of [`PassphraseOptions`].
+#[derive(uniffi::Record)]
+pub struct PassphraseOptionsFfi {
+    /// Number of words.
+    pub words: u32,
+    /// Put between words. Up to four printable characters, or empty.
+    pub separator: String,
+    /// Capitalise the first letter of every word.
+    pub capitalize: bool,
+    /// Append one random digit to one random word.
+    pub include_number: bool,
+}
+
+impl From<PassphraseOptions> for PassphraseOptionsFfi {
+    fn from(options: PassphraseOptions) -> Self {
+        Self {
+            words: options.words as u32,
+            separator: options.separator,
+            capitalize: options.capitalize,
+            include_number: options.include_number,
+        }
+    }
+}
+
+impl From<PassphraseOptionsFfi> for PassphraseOptions {
+    fn from(options: PassphraseOptionsFfi) -> Self {
+        Self {
+            words: options.words as usize,
+            separator: options.separator,
+            capitalize: options.capitalize,
+            include_number: options.include_number,
+        }
+    }
+}
+
+/// The passphrase settings this build recommends.
+#[uniffi::export]
+pub fn default_passphrase_options() -> PassphraseOptionsFfi {
+    PassphraseOptions::default().into()
+}
+
+/// Generates a passphrase from the EFF long word list.
+///
+/// A secret, like a generated password: meant to be read, and a Kotlin/Swift
+/// `String` cannot be scrubbed, so the caller should not hold it longer than
+/// the user needs it on screen.
+#[uniffi::export]
+pub fn generate_passphrase_ffi(options: PassphraseOptionsFfi) -> Result<String, FfiError> {
+    generate_phrase(&options.into()).map_err(|error| match error {
+        CryptoError::InvalidInput(reason) => bad_argument(&reason),
+        other => opaque(other),
+    })
+}
+
+/// How many bits of entropy a passphrase made with these options has. Not a
+/// secret: it depends only on the options.
+#[uniffi::export]
+pub fn passphrase_bits_ffi(options: PassphraseOptionsFfi) -> Result<u32, FfiError> {
+    phrase_bits(&options.into()).map_err(|error| match error {
         CryptoError::InvalidInput(reason) => bad_argument(&reason),
         other => opaque(other),
     })

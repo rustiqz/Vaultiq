@@ -32,6 +32,7 @@ import {
   setLocalOnly,
   setPin,
   unlockWithPin,
+  newPassphrase,
   newPassword,
   lock,
   purgeItem,
@@ -205,6 +206,8 @@ async function handle(
       return { ok: true, kind: "purgeItem" };
     case "generatePassword":
       return { ok: true, kind: "generatePassword", password: newPassword(request.options) };
+    case "generatePassphrase":
+      return { ok: true, kind: "generatePassphrase", ...newPassphrase(request.options) };
     case "checkStrength":
       return { ok: true, kind: "checkStrength", strength: checkStrength(request.password) };
     case "itemsForSite": {

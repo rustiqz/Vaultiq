@@ -45,6 +45,8 @@ export const cryptoFake = {
     symbols: true,
   })),
   generatePassword: vi.fn(() => "Generated-Password-1!"),
+  generatePassphrase: vi.fn(() => "alpha-bravo-charlie-delta-echo-foxtrot"),
+  passphraseBits: vi.fn(() => 77),
   // Scores by length alone, which is enough to tell the vault's plumbing
   // apart from the real estimator. The estimator itself is tested in Rust.
   scorePassword: vi.fn((password: string) => ({

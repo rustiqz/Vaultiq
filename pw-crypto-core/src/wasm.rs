@@ -31,6 +31,9 @@ use crate::keys::{
     KEY_LEN, VaultKey, WrappedVaultKey, derive_auth_key as derive_auth,
     derive_stretched_encryption_key, unwrap_vault_key as unwrap_key, wrap_vault_key as wrap_key,
 };
+use crate::passphrase::{
+    PassphraseOptions, generate_passphrase as generate_phrase, passphrase_bits as phrase_bits,
+};
 use crate::password::{PasswordOptions, estimate_strength, generate_password as generate};
 use crate::totp::{TotpAlgorithm, TotpParams, TotpSecret, seconds_remaining, totp_code};
 use crate::vault_item::{EncryptedItem, ItemHeader, decrypt_item as decrypt, encrypt_item};
@@ -332,6 +335,42 @@ pub fn generate_password_js(options: wasm_bindgen::JsValue) -> Result<String, Js
     // Unsatisfiable settings are a caller bug and say nothing secret, so the
     // reason is reported rather than collapsed.
     generate(&options).map_err(|error| match error {
+        CryptoError::InvalidInput(reason) => JsError::new(&format!("invalid options: {reason}")),
+        other => opaque(other),
+    })
+}
+
+/// The passphrase settings this build recommends.
+#[wasm_bindgen(js_name = defaultPassphraseOptions)]
+pub fn default_passphrase_options() -> Result<wasm_bindgen::JsValue, JsError> {
+    serde_wasm_bindgen::to_value(&PassphraseOptions::default())
+        .map_err(|_| JsError::new("could not serialize options"))
+}
+
+/// Generates a passphrase from the EFF long word list.
+///
+/// A secret, like a generated password: meant to be read, and not scrubbable
+/// once it is a JavaScript string.
+#[wasm_bindgen(js_name = generatePassphrase)]
+pub fn generate_passphrase_js(options: wasm_bindgen::JsValue) -> Result<String, JsError> {
+    let options: PassphraseOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|_| bad_argument("passphrase options"))?;
+
+    generate_phrase(&options).map_err(|error| match error {
+        CryptoError::InvalidInput(reason) => JsError::new(&format!("invalid options: {reason}")),
+        other => opaque(other),
+    })
+}
+
+/// How many bits of entropy a passphrase made with these options has.
+///
+/// Not a secret: it depends only on the options, never on any passphrase.
+#[wasm_bindgen(js_name = passphraseBits)]
+pub fn passphrase_bits_js(options: wasm_bindgen::JsValue) -> Result<u32, JsError> {
+    let options: PassphraseOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|_| bad_argument("passphrase options"))?;
+
+    phrase_bits(&options).map_err(|error| match error {
         CryptoError::InvalidInput(reason) => JsError::new(&format!("invalid options: {reason}")),
         other => opaque(other),
     })

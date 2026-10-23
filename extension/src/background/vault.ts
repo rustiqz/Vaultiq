@@ -17,6 +17,8 @@ import {
   generateVaultKey,
   loadCrypto,
   generatePassword,
+  generatePassphrase,
+  passphraseBits,
   recommendedParams,
   recommendedPasswordOptions,
   scorePassword,
@@ -51,6 +53,7 @@ import type {
   TotpFacts,
   UsageEvent,
   LoginContent,
+  PassphraseOptions,
   PasswordOptions,
   PasswordStrength,
   SyncSummary,
@@ -764,6 +767,17 @@ export function newPassword(options?: PasswordOptions): string {
 }
 
 /** Scores a password. Needs no vault key, so it works while locked. */
+/**
+ * A passphrase of random words, and the entropy it has by construction.
+ *
+ * The figure comes from the options, not from the text: a passphrase is
+ * strong because of how it was drawn, which a scorer reading the finished
+ * string cannot know and would overstate.
+ */
+export function newPassphrase(options: PassphraseOptions): { passphrase: string; bits: number } {
+  return { passphrase: generatePassphrase(options), bits: passphraseBits(options) };
+}
+
 export function checkStrength(password: string): PasswordStrength {
   return scorePassword(password);
 }

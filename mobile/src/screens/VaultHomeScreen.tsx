@@ -212,6 +212,17 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
           }}
         />
       )}
+      {/* Always one tap away, over the list and the empty state alike. */}
+      <Pressable
+        // On the empty vault the "Add first item" button sits where this would,
+        // so it rides above it there.
+        style={[styles.fab, isEmptyVault && styles.fabAboveEmpty]}
+        onPress={() => navigation.navigate('Generator')}
+        accessibilityRole="button"
+        accessibilityLabel="Password generator"
+      >
+        <Icon name="regenerate" size={24} color={colors.onInk} />
+      </Pressable>
       <NewItemSheet
         visible={pickerVisible}
         onClose={() => setPickerVisible(false)}
@@ -290,9 +301,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  fab: {
+    position: 'absolute',
+    right: spacing.screen,
+    bottom: spacing.screen,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.ink,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  fabAboveEmpty: {
+    bottom: spacing.screen + 76,
+  },
   listContent: {
     paddingHorizontal: spacing.screen,
-    paddingBottom: spacing.screen,
+    // Clears the generator button, so the last row is never stuck under it.
+    paddingBottom: spacing.screen + 72,
     paddingTop: spacing.xs,
   },
   header: {
