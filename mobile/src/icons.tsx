@@ -20,6 +20,7 @@ type IconShape = {
 
 const ICONS = {
   chevronLeft: { paths: ['M15 5l-7 7 7 7'], strokeWidth: 1.9 },
+  check: { paths: ['M5 12.5l4.5 4.5L19 7'], strokeWidth: 2.2 },
   close: { paths: ['M6 6l12 12', 'M18 6L6 18'], strokeWidth: 1.9 },
   plus: { paths: ['M4 12h16', 'M12 4v16'], strokeWidth: 1.8 },
   search: { paths: ['M15.5 15.5L21 21'], circles: [{ cx: 10.5, cy: 10.5, r: 6.8 }], strokeWidth: 1.8 },
