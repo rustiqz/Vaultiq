@@ -7,6 +7,9 @@
 
 import {
   AUTO_LOCK_ALARM,
+  SYNC_ALARM,
+  SYNC_PERIOD_MINUTES,
+  periodicSync,
   addItem,
   changeMasterPassword,
   assertSessionStorage,
@@ -116,10 +119,30 @@ browser.alarms.onAlarm.addListener((alarm) => {
   // Idle lock leaves the PIN armed: being asked for a PIN after twenty
   // minutes is the point of having one.
   if (alarm.name === AUTO_LOCK_ALARM) void lock(false).then(scheduleToolbarRefresh);
+  if (alarm.name === SYNC_ALARM) {
+    // The new items may change the toolbar's login count, so it follows.
+    void loadCrypto()
+      .then(() => periodicSync())
+      .then(scheduleToolbarRefresh);
+  }
   // A held login that nobody decided on is wiped when its time is up, even if
   // no page or popup ever asks about it again.
   if (alarm.name === PENDING_SAVE_ALARM) void clearPendingSave().then(scheduleToolbarRefresh);
 });
+
+/**
+ * Makes sure the sync alarm exists, without resetting it.
+ *
+ * Looked up first because creating an alarm that already exists restarts its
+ * clock: a background that is restarted more often than the period would then
+ * never fire it.
+ */
+async function ensureSyncAlarm(): Promise<void> {
+  if (!(await browser.alarms.get(SYNC_ALARM))) {
+    browser.alarms.create(SYNC_ALARM, { delayInMinutes: SYNC_PERIOD_MINUTES, periodInMinutes: SYNC_PERIOD_MINUTES });
+  }
+}
+void ensureSyncAlarm();
 
 /**
  * The URL to treat as "the current site" for a request.

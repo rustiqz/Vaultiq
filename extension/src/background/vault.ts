@@ -98,6 +98,10 @@ import {
 const DEFAULT_AUTO_LOCK_MINUTES = 15;
 const AUTO_LOCK_SETTING = "autoLockMinutes";
 export const AUTO_LOCK_ALARM = "vaultiq-auto-lock";
+
+/** Wakes the background to look for changes made on another device. */
+export const SYNC_ALARM = "vaultiq-sync";
+export const SYNC_PERIOD_MINUTES = 5;
 const USAGE_TYPE = "usage";
 
 /** How many recent events one device keeps. Enough to be useful, bounded. */
@@ -1606,6 +1610,63 @@ export async function syncNow(): Promise<SyncOutcome> {
     const settled = await readState();
     if (settled) await writeState({ ...settled, lastError: message });
     throw error;
+  }
+}
+
+/** Why a background sync would not run right now. */
+export type PeriodicSkip = "local-only" | "not-connected" | "locked" | "busy";
+
+/**
+ * Whether a background sync should run, and if not, why.
+ *
+ * Locked is a skip, not an error: the device credential is sealed under the
+ * vault key, so there is nothing to sync with until it is unlocked — and
+ * unlocking syncs by itself.
+ */
+export function periodicSyncSkip(facts: {
+  localOnly: boolean;
+  connected: boolean;
+  unlocked: boolean;
+  running: boolean;
+}): PeriodicSkip | undefined {
+  if (facts.running) return "busy";
+  if (facts.localOnly) return "local-only";
+  if (!facts.connected) return "not-connected";
+  if (!facts.unlocked) return "locked";
+  return undefined;
+}
+
+let periodicRunning = false;
+
+/**
+ * A sync on a timer, so a change made on another device turns up without the
+ * popup being opened.
+ *
+ * Quiet by design: it does not throw, and a failure is already recorded on the
+ * sync state (`lastError`) for the popup to report. It deliberately does *not*
+ * extend the auto-lock timer. That timer exists to lock an unattended vault,
+ * and a sync every few minutes would otherwise keep it open forever.
+ *
+ * `run` is a parameter only so a test can stand in for the network.
+ */
+export async function periodicSync(
+  run: () => Promise<unknown> = syncNow,
+): Promise<"synced" | "failed" | PeriodicSkip> {
+  const localOnly = await isLocalOnly();
+  const connected = (await readState()) !== undefined;
+  const unlocked = (await currentVaultKey()) !== undefined;
+  // Read and set with nothing awaited in between, so two ticks cannot both start.
+  const skip = periodicSyncSkip({ localOnly, connected, unlocked, running: periodicRunning });
+  if (skip) return skip;
+
+  periodicRunning = true;
+  try {
+    await run();
+    return "synced";
+  } catch {
+    return "failed";
+  } finally {
+    periodicRunning = false;
   }
 }
 
