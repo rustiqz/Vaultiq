@@ -13,6 +13,8 @@ import com.facebook.react.bridge.WritableMap
 import uniffi.pw_crypto_core.EncryptedItemFfi
 import uniffi.pw_crypto_core.FfiException
 import uniffi.pw_crypto_core.ItemHeaderInput
+import uniffi.pw_crypto_core.PassphraseOptionsFfi
+import uniffi.pw_crypto_core.PasswordOptionsFfi
 import uniffi.pw_crypto_core.VaultKeyHandle
 import uniffi.pw_crypto_core.WrappedVaultKeyFfi
 import uniffi.pw_crypto_core.decryptItemFfi
@@ -21,8 +23,11 @@ import uniffi.pw_crypto_core.deriveAuthKey as deriveAuthKeyFfi
 import uniffi.pw_crypto_core.deriveMasterKey
 import uniffi.pw_crypto_core.encryptItemFfi
 import uniffi.pw_crypto_core.estimateStrengthFfi
+import uniffi.pw_crypto_core.generatePassphraseFfi
+import uniffi.pw_crypto_core.generatePasswordFfi
 import uniffi.pw_crypto_core.generateSalt as generateSaltFfi
 import uniffi.pw_crypto_core.generateVaultKey
+import uniffi.pw_crypto_core.passphraseBitsFfi
 import uniffi.pw_crypto_core.totpCodeFfi
 import uniffi.pw_crypto_core.totpSecondsRemainingFfi
 import uniffi.pw_crypto_core.unwrapVaultKey
@@ -105,6 +110,59 @@ class CryptoCoreModule(reactContext: ReactApplicationContext) :
             },
         )
     }
+
+    /**
+     * Generates a password from the OS CSPRNG in the crypto core. The options
+     * only choose what it may contain; an unsatisfiable set (no character type
+     * at all, a length out of range) is the core's to refuse.
+     */
+    @ReactMethod
+    fun generatePassword(options: ReadableMap, promise: Promise) {
+        try {
+            val made =
+                generatePasswordFfi(
+                    PasswordOptionsFfi(
+                        length = options.getInt("length").toUInt(),
+                        lowercase = options.getBoolean("lowercase"),
+                        uppercase = options.getBoolean("uppercase"),
+                        digits = options.getBoolean("digits"),
+                        symbols = options.getBoolean("symbols"),
+                        avoidAmbiguous = options.getBoolean("avoidAmbiguous"),
+                    ),
+                )
+            promise.resolve(made)
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
+    }
+
+    /** Generates a passphrase of random words from the EFF long list. */
+    @ReactMethod
+    fun generatePassphrase(options: ReadableMap, promise: Promise) {
+        try {
+            promise.resolve(generatePassphraseFfi(passphraseOptions(options)))
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
+    }
+
+    /** The entropy of a passphrase made with these options. Not a secret. */
+    @ReactMethod
+    fun passphraseBits(options: ReadableMap, promise: Promise) {
+        try {
+            promise.resolve(passphraseBitsFfi(passphraseOptions(options)).toInt())
+        } catch (error: Exception) {
+            rejectFfi(promise, error)
+        }
+    }
+
+    private fun passphraseOptions(options: ReadableMap) =
+        PassphraseOptionsFfi(
+            words = options.getInt("words").toUInt(),
+            separator = requireNotNull(options.getString("separator")),
+            capitalize = options.getBoolean("capitalize"),
+            includeNumber = options.getBoolean("includeNumber"),
+        )
 
     /**
      * Derives the auth key for enrollment, base64 encoded. Frees the master

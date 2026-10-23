@@ -21,6 +21,8 @@ type VaultStackParamList = {
    * other param on that screen to optional too.
    */
   QrScan: undefined;
+  /** Needs no params and no unlocked vault: it only asks the core for something random. */
+  Generator: undefined;
 };
 
 type VaultStackScreenProps<Screen extends keyof VaultStackParamList> = NativeStackScreenProps<

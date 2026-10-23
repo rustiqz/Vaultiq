@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { type GeneratorSettings, defaultGeneratorSettings, parseGeneratorSettings } from './lib/generator';
 import type { Argon2Params, EncryptedItem, WrappedVaultKey } from './nativeCryptoCore';
 import type { SealedPassword } from './nativeBiometric';
 
@@ -107,6 +108,22 @@ function subscribeAutoLockMinutes(listener: AutoLockListener): () => void {
   return () => { autoLockListeners.delete(listener); };
 }
 
+// Device-local, like the auto-lock timeout: what the generator was last set to.
+// Nothing in it is secret, and a failed read just means the defaults.
+const GENERATOR_KEY = 'vaultiq:generator';
+
+async function readGeneratorSettings(): Promise<GeneratorSettings> {
+  try {
+    return parseGeneratorSettings(await AsyncStorage.getItem(GENERATOR_KEY));
+  } catch {
+    return defaultGeneratorSettings();
+  }
+}
+
+async function writeGeneratorSettings(settings: GeneratorSettings): Promise<void> {
+  await AsyncStorage.setItem(GENERATOR_KEY, JSON.stringify(settings));
+}
+
 async function readThemeMode(): Promise<ThemeMode> {
   const raw = await AsyncStorage.getItem(THEME_MODE_KEY);
   return raw === 'light' || raw === 'dark' ? raw : 'system';
@@ -191,12 +208,14 @@ export {
   readAutoLockMinutes,
   subscribeAutoLockMinutes,
   readEnrollment,
+  readGeneratorSettings,
   readLastUsed,
   readLocalItems,
   readSyncCache,
   readThemeMode,
   recordItemUsed,
   writeAutoLockMinutes,
+  writeGeneratorSettings,
   writeLocalItems,
   writeSyncCache,
   writeThemeMode,

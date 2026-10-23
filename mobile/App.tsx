@@ -44,6 +44,7 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import AutoLockScreen from './src/screens/AutoLockScreen';
 import ChangeMasterPasswordScreen from './src/screens/ChangeMasterPasswordScreen';
 import ExportBackupScreen from './src/screens/ExportBackupScreen';
+import GeneratorScreen from './src/screens/GeneratorScreen';
 import EnableBiometricScreen from './src/screens/EnableBiometricScreen';
 import ImportScreen from './src/screens/ImportScreen';
 import TrashScreen from './src/screens/TrashScreen';
@@ -160,6 +161,7 @@ function VaultTab() {
         options={{ headerShown: false }}
       />
       <VaultStack.Screen name="QrScan" component={QrScanScreen} options={{ headerShown: false }} />
+      <VaultStack.Screen name="Generator" component={GeneratorScreen} options={{ title: 'Generator' }} />
     </VaultStack.Navigator>
   );
 }

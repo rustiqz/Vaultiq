@@ -49,10 +49,30 @@ type PasswordStrength = {
   level: string;
 };
 
+type PasswordOptions = {
+  length: number;
+  lowercase: boolean;
+  uppercase: boolean;
+  digits: boolean;
+  symbols: boolean;
+  avoidAmbiguous: boolean;
+};
+
+type PassphraseOptions = {
+  words: number;
+  separator: string;
+  capitalize: boolean;
+  includeNumber: boolean;
+};
+
 type CryptoCoreNativeModule = {
   generateSalt(): Promise<string>;
   defaultArgon2Params(): Promise<Argon2Params>;
   estimateStrength(password: string): Promise<PasswordStrength>;
+  generatePassword(options: PasswordOptions): Promise<string>;
+  generatePassphrase(options: PassphraseOptions): Promise<string>;
+  /** Entropy by construction. Not a secret: it depends only on the options. */
+  passphraseBits(options: PassphraseOptions): Promise<number>;
   deriveAuthKey(
     password: string,
     saltB64: string,
@@ -99,4 +119,4 @@ type CryptoCoreNativeModule = {
 const { CryptoCore } = NativeModules as { CryptoCore: CryptoCoreNativeModule };
 
 export default CryptoCore;
-export type { Argon2Params, EncryptedItem, ItemHeader, PasswordStrength, WrappedVaultKey };
+export type { Argon2Params, EncryptedItem, ItemHeader, PassphraseOptions, PasswordOptions, PasswordStrength, WrappedVaultKey };
