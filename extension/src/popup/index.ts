@@ -1447,6 +1447,62 @@ function detailForItem(item: DecryptedItem, currentSite: string | null, isForSit
   return el("section", { className: "item-detail" }, content);
 }
 
+/**
+ * A modal that asks for the master password and runs `action` with it.
+ *
+ * Stays open on failure so a mistyped password can be retried; a wrong one
+ * reads the same as it does on the lock screen.
+ */
+function askMasterPassword(options: {
+  title: string;
+  detail: string;
+  confirm: string;
+  action: (masterPassword: string) => Promise<void>;
+}): void {
+  const input = el("input", { type: "password", required: true, autocomplete: "current-password" });
+  const error = el("p", { className: "error", hidden: true });
+  const cancel = el("button", { type: "button", textContent: "Cancel" });
+  const submit = el("button", { className: "primary", type: "submit", textContent: options.confirm });
+  const form = el("form", { className: "modal" }, [
+    el("h2", { textContent: options.title }),
+    el("p", { className: "muted", textContent: options.detail }),
+    el("label", {}, ["Master password", input]),
+    error,
+    el("div", { className: "modal-actions" }, [cancel, submit]),
+  ]);
+  const backdrop = el("div", { className: "modal-backdrop" }, [form]);
+  const close = (): void => {
+    input.value = "";
+    backdrop.remove();
+  };
+  cancel.addEventListener("click", close);
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) close();
+  });
+  form.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") close();
+  });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    submit.textContent = "Working…";
+    error.hidden = true;
+    void options
+      .action(input.value)
+      .then(close)
+      .catch((failure: unknown) => {
+        submit.disabled = false;
+        submit.textContent = options.confirm;
+        error.hidden = false;
+        error.textContent = failure instanceof Error ? failure.message : "Failed.";
+        input.select();
+      });
+  });
+  document.body.append(backdrop);
+  input.focus();
+}
+
+
 function popupHeader(search?: HTMLInputElement): HTMLElement {
   const brand = el("div", { className: "popup-brand" }, [
     logoMark({ size: 30 }),
@@ -1498,13 +1554,17 @@ function popupHeader(search?: HTMLInputElement): HTMLElement {
   }
   const exportBackup = el("button", { className: "menu-item", type: "button", textContent: "Export backup" });
   exportBackup.addEventListener("click", () => {
-    void send({ kind: "exportBackup" })
-      .then(unwrap)
-      .then((response) => {
+    menu.hidden = true;
+    askMasterPassword({
+      title: "Export backup",
+      detail: "Enter your master password to export. The file holds your whole vault, so this is asked every time.",
+      confirm: "Export",
+      action: async (masterPassword) => {
+        const response = unwrap(await send({ kind: "exportBackup", masterPassword }));
         if (response.kind !== "exportBackup") throw new Error("unexpected reply");
         downloadBackup(response.backup);
-      })
-      .catch((error: unknown) => showError(error instanceof Error ? error.message : "Failed."));
+      },
+    });
   });
   menu.append(exportBackup);
 

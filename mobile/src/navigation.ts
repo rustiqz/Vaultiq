@@ -34,6 +34,7 @@ type SettingsStackParamList = {
   AutoLock: undefined;
   ChangeMasterPassword: undefined;
   EnableBiometric: undefined;
+  ExportBackup: undefined;
   Import: undefined;
   Trash: undefined;
 };

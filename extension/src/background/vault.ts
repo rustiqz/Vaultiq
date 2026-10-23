@@ -252,16 +252,30 @@ export async function create(masterPassword: string): Promise<void> {
  * and every item exactly as stored — restorable with the master password
  * alone, on this device or any other.
  *
- * No key material is touched. Every field here is already ciphertext or a
- * wrapped key, so this reads IndexedDB straight through and needs no unlock
- * — the same reason it needs no crypto import. Local-only bookkeeping
- * (`synced_version`, `conflict_of`) describes this device's relationship to
- * a server, not the vault's content, so it is stripped rather than carried
- * into the file.
+ * Every field in the file is already ciphertext or a wrapped key, so building
+ * it needs no key. The master password is still required, and checked here in
+ * the background rather than in the popup: an unlocked, unattended browser (or
+ * anything that can message the extension) must not be able to walk away with
+ * a copy of the vault. Verification unwraps the stored key under the password
+ * — the same check `unlock` makes, failing with the same error — and the
+ * handle is freed straight away; nothing from it is used or kept. This holds
+ * whether or not the vault is currently unlocked, because the PIN and the
+ * warm session key prove only that the device was unlocked, not who is at it.
+ *
+ * Local-only bookkeeping (`synced_version`, `conflict_of`) describes this
+ * device's relationship to a server, not the vault's content, so it is
+ * stripped rather than carried into the file.
  */
-export async function exportBackup(): Promise<VaultBackup> {
+export async function exportBackup(masterPassword: string): Promise<VaultBackup> {
   const vault = await getVault();
   if (!vault) throw new Error("No vault on this device yet.");
+
+  withMasterKey(
+    masterPassword,
+    vault.saltB64,
+    { memory_kib: vault.memoryKib, iterations: vault.iterations, parallelism: vault.parallelism },
+    (masterKey) => unwrapVaultKey(vault.wrappedVaultKey, masterKey),
+  ).free();
 
   const items = await allItems();
   return {
