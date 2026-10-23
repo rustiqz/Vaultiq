@@ -20,6 +20,7 @@
 - [Autofill and saving logins](using/autofill.md)
 - [Unlocking and locking](using/unlock.md)
 - [Authenticator codes](using/authenticator.md)
+- [Password generator](using/generator.md)
 
 # Your data
 
