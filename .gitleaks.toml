@@ -23,3 +23,10 @@ condition = "AND"
 targetRules = ["generic-api-key"]
 paths = ['''pw-crypto-core/tests/wasm\.rs''']
 regexes = ['''bm90LWEtc2FsdA==''']
+
+[[allowlists]]
+description = "Fake password in the import screen's duplicate-detection test fixture"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''mobile/__tests__/ImportScreen\.test\.tsx''']
+regexes = ['''fixture-pass-1''']
