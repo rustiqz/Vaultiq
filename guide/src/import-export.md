@@ -13,8 +13,9 @@ Vaultiq imports from a file you export from another manager or browser.
 Rows of any other type are skipped and counted, never guessed at. Authenticator
 secrets are not imported from any format.
 
-**Extension:** overflow menu → **Import**. **Android:** **Settings → Import from
-file**. Pick the file; Vaultiq detects the format.
+**Extension:** overflow menu → **Import**; it opens in a browser tab, because
+Firefox closes a toolbar popup when a file dialog opens. **Android:**
+**Settings → Import from file**. Pick the file; Vaultiq detects the format.
 
 You then get a preview list with a checkbox on each row. Vaultiq checks each
 row against what is already in your vault:
@@ -41,7 +42,10 @@ item, all still encrypted. It is the only way to get a local-only vault off the
 device, so make one regularly.
 
 - **Export:** the extension's overflow menu → **Export backup**; Android
-  **Settings → Export backup**. Trashed items are included.
+  **Settings → Export backup**. Both ask for your master password every time,
+  even while the vault is unlocked (on Android a fingerprint works instead if
+  fingerprint unlock is on), because the file is your whole vault. Trashed
+  items are included.
 - **Restore:** the extension's welcome screen → **Restore backup**; Android's
   first screen → **Restore**. You enter the backup's master password, which is
   checked before anything is written.
