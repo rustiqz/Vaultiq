@@ -57,6 +57,28 @@ export async function quickUnlockReady(): Promise<boolean> {
   return typeof stored[BLOB] === "object" && stored[BLOB] !== null;
 }
 
+/** What is known about the PIN, for the settings screen. */
+export interface QuickUnlockStatus {
+  /** A PIN is armed and can reopen the vault. */
+  set: boolean;
+  /** Wrong tries left before it is removed. Zero when no PIN is set. */
+  attemptsLeft: number;
+}
+
+/**
+ * Whether a PIN is armed, and how many wrong tries it has left.
+ *
+ * Says nothing about the PIN itself, and nothing a person at the screen could
+ * not already see: whether quick unlock is on is visible on the lock screen.
+ */
+export async function quickUnlockStatus(): Promise<QuickUnlockStatus> {
+  const stored = await browser.storage.session.get([BLOB, ATTEMPTS]);
+  if (typeof stored[BLOB] !== "object" || stored[BLOB] === null) return { set: false, attemptsLeft: 0 };
+
+  const used = typeof stored[ATTEMPTS] === "number" ? stored[ATTEMPTS] : 0;
+  return { set: true, attemptsLeft: Math.max(0, MAX_ATTEMPTS - used) };
+}
+
 /** Arms the PIN for this browser session, from an unlocked vault. */
 export async function armQuickUnlock(
   pin: string,

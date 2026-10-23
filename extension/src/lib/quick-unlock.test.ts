@@ -14,6 +14,7 @@ const {
   disarmQuickUnlock,
   quickUnlock,
   quickUnlockReady,
+  quickUnlockStatus,
 } = await import("./quick-unlock.js");
 
 const salt = (): string => "salt-b64";
@@ -113,5 +114,65 @@ describe("disarming", () => {
 
     expect(await quickUnlockReady()).toBe(false);
     expect(sessionStore.has("quickUnlockAttempts")).toBe(false);
+  });
+});
+
+describe("status", () => {
+  it("says no PIN is set before one is armed", async () => {
+    expect(await quickUnlockStatus()).toEqual({ set: false, attemptsLeft: 0 });
+  });
+
+  it("says a PIN is set, with every try left", async () => {
+    await armQuickUnlock("1234", vaultKey(), salt);
+
+    expect(await quickUnlockStatus()).toEqual({ set: true, attemptsLeft: MAX_ATTEMPTS });
+  });
+
+  it("counts wrong tries down", async () => {
+    await armQuickUnlock("1234", vaultKey(), salt);
+    cryptoFake.unwrapVaultKey.mockImplementation(() => {
+      throw new Error("decryption failed");
+    });
+
+    await expect(quickUnlock("0000")).rejects.toThrow();
+    await expect(quickUnlock("0000")).rejects.toThrow();
+
+    expect(await quickUnlockStatus()).toEqual({ set: true, attemptsLeft: MAX_ATTEMPTS - 2 });
+  });
+
+  it("says no PIN is set once the tries are spent", async () => {
+    await armQuickUnlock("1234", vaultKey(), salt);
+    cryptoFake.unwrapVaultKey.mockImplementation(() => {
+      throw new Error("decryption failed");
+    });
+    for (let i = 0; i < MAX_ATTEMPTS; i += 1) await expect(quickUnlock("0000")).rejects.toThrow();
+
+    expect(await quickUnlockStatus()).toEqual({ set: false, attemptsLeft: 0 });
+  });
+
+  it("goes back to full tries after a right one", async () => {
+    await armQuickUnlock("1234", vaultKey(), salt);
+    cryptoFake.unwrapVaultKey.mockImplementationOnce(() => {
+      throw new Error("decryption failed");
+    });
+    await expect(quickUnlock("0000")).rejects.toThrow();
+    expect((await quickUnlockStatus()).attemptsLeft).toBe(MAX_ATTEMPTS - 1);
+
+    await quickUnlock("1234");
+
+    expect((await quickUnlockStatus()).attemptsLeft).toBe(MAX_ATTEMPTS);
+  });
+
+  it("says no PIN is set after it is removed", async () => {
+    await armQuickUnlock("1234", vaultKey(), salt);
+    await disarmQuickUnlock();
+
+    expect(await quickUnlockStatus()).toEqual({ set: false, attemptsLeft: 0 });
+  });
+
+  it("never reports anything derived from the PIN", async () => {
+    await armQuickUnlock("1234", vaultKey(), salt);
+
+    expect(JSON.stringify(await quickUnlockStatus())).not.toContain("1234");
   });
 });

@@ -1,6 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
+import EmptyState from '../EmptyState';
 import Icon from '../icons';
 import ItemAvatar from '../ItemAvatar';
 import { displayName, text } from '../itemContent';
@@ -8,8 +9,30 @@ import type { VaultStackScreenProps } from '../navigation';
 import * as storage from '../storage';
 import { colors, fonts, spacing } from '../theme';
 import { Card, SearchBar } from '../ui';
+import useRefreshOnRemoteChange from '../useRefreshOnRemoteChange';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
+
+const EMPTY_COPY: Record<'card' | 'identity' | 'note', { icon: 'card' | 'identity' | 'note'; title: string; hint: string; action: string }> = {
+  card: {
+    icon: 'card',
+    title: 'No cards yet',
+    hint: 'Store a payment card so its number, expiry and security code are one tap from copying.',
+    action: 'Add a card',
+  },
+  identity: {
+    icon: 'identity',
+    title: 'No identities yet',
+    hint: 'Keep your name, address and documents ready for the next form that asks.',
+    action: 'Add an identity',
+  },
+  note: {
+    icon: 'note',
+    title: 'No secure notes yet',
+    hint: 'Keep recovery codes, licence keys and private notes encrypted alongside everything else.',
+    action: 'Add a note',
+  },
+};
 
 const SEARCH_PLURAL: Record<'card' | 'identity' | 'note', string> = { card: 'cards', identity: 'identities', note: 'notes' };
 
@@ -32,6 +55,9 @@ export default function TypeListScreen({ route, navigation }: VaultStackScreenPr
     }, [sync]),
   );
 
+  // Another device's changes arriving while this screen is in front.
+  useRefreshOnRemoteChange(sync);
+
   const openItem = async (item: DecryptedItem) => {
     await storage.recordItemUsed(item.id);
     navigation.navigate('ItemDetail', { item });
@@ -53,10 +79,28 @@ export default function TypeListScreen({ route, navigation }: VaultStackScreenPr
       ItemSeparatorComponent={() => <View style={styles.rowGap} />}
       ListHeaderComponent={
         <View style={styles.header}>
-          <SearchBar value={query} onChangeText={setQuery} placeholder={`Search ${SEARCH_PLURAL[itemType]}`} />
-          {items !== null && visible.length === 0 && (
-            <Text style={styles.emptyState}>{items.length === 0 ? 'Nothing here yet.' : 'No matches.'}</Text>
-          )}
+          {/* Nothing to search while there is nothing here. */}
+          {items === null || items.length > 0 ? (
+            <SearchBar value={query} onChangeText={setQuery} placeholder={`Search ${SEARCH_PLURAL[itemType]}`} />
+          ) : null}
+          {items !== null && visible.length === 0 &&
+            (items.length === 0 ? (
+              <EmptyState
+                icon={EMPTY_COPY[itemType].icon}
+                title={EMPTY_COPY[itemType].title}
+                hint={EMPTY_COPY[itemType].hint}
+                actionLabel={EMPTY_COPY[itemType].action}
+                onAction={() => navigation.navigate('ItemEdit', { mode: 'create', itemType })}
+              />
+            ) : (
+              <EmptyState
+                icon="search"
+                title="No matches"
+                hint={`Nothing matches “${query.trim()}”.`}
+                actionLabel="Clear search"
+                onAction={() => setQuery('')}
+              />
+            ))}
         </View>
       }
       renderItem={({ item }) => {
@@ -99,12 +143,6 @@ const styles = StyleSheet.create({
   header: {
     gap: spacing.md,
     marginBottom: spacing.sm,
-  },
-  emptyState: {
-    fontFamily: fonts.body,
-    color: colors.ink,
-    textAlign: 'center',
-    padding: spacing.lg,
   },
   rowGap: {
     height: spacing.sm,

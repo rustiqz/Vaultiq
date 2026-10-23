@@ -391,6 +391,7 @@ export type Request =
   | { kind: "lock"; forget?: boolean }
   | { kind: "setPin"; pin: string }
   | { kind: "forgetPin" }
+  | { kind: "pinStatus" }
   | { kind: "unlockWithPin"; pin: string }
   | { kind: "autoLock" }
   | { kind: "setAutoLock"; minutes: number }
@@ -474,6 +475,7 @@ export type Response =
   | { ok: true; kind: "lock" }
   | { ok: true; kind: "setPin" }
   | { ok: true; kind: "forgetPin" }
+  | { ok: true; kind: "pinStatus"; set: boolean; attemptsLeft: number; maxAttempts: number; minLength: number }
   | { ok: true; kind: "unlockWithPin" }
   | { ok: true; kind: "autoLock"; minutes: number }
   | { ok: true; kind: "setAutoLock" }

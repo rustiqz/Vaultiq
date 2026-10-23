@@ -603,6 +603,23 @@ async function syncCiphertext(url: string, deviceId: string, cred: string): Prom
 }
 
 /**
+ * Brings the cached ciphertext up to date, and says whether anything arrived.
+ *
+ * What the foreground sync calls. It pulls and merges but decrypts nothing: the
+ * screens decrypt for themselves when they are told to re-read. A local-only
+ * vault has no server and nothing to catch up on. Needs the vault unlocked,
+ * since the device credential is sealed under the vault key.
+ */
+async function catchUp(): Promise<boolean> {
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null || enrollment.mode === 'local') return false;
+
+  const before = (await storage.readSyncCache()).cursor;
+  await authenticated((url, deviceId, cred) => syncCiphertext(url, deviceId, cred));
+  return (await storage.readSyncCache()).cursor !== before;
+}
+
+/**
  * Pulls and decrypts the vault's current items.
  *
  * A local-only vault reads and decrypts straight from `storage.ts`'s local
@@ -734,6 +751,7 @@ async function purgeItem(id: string, version: number, itemType: string): Promise
 export {
   addItem,
   biometricAvailable,
+  catchUp,
   biometricEnabled,
   changeMasterPassword,
   checkStrength,

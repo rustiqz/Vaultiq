@@ -3,18 +3,19 @@ import { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '../icons';
-import type { ItemContent } from '../itemContent';
 import { displayName } from '../itemContent';
 import { parseBitwardenJson } from '../lib/bitwardenImport';
 import { parseCsv, rowsToItems, type ImportResult } from '../lib/csvImport';
-import { findMatch, type DedupeMatch } from '../lib/importDedupe';
+import { findMatch } from '../lib/importDedupe';
+import { type ImportOutcome, type ImportProgress, type ImportRow, runImport } from '../lib/importRun';
 import { parseProtonPassJson } from '../lib/protonPassImport';
 import type { SettingsStackScreenProps } from '../navigation';
-import { colors, fonts, inkAlpha, spacing } from '../theme';
+import { PickArt, ProgressBar, ResultBadge, SpinningDial, StatTile, Steps, clampFraction, stepIndex } from '../ImportVisuals';
+import { colors, fonts, inkAlpha, radii, spacing } from '../theme';
 import { Button } from '../ui';
 import * as vault from '../vault';
 
-type Row = { item: ItemContent; included: boolean; match: DedupeMatch | null; replace: boolean };
+type Row = ImportRow;
 type Stage = 'pick' | 'preview' | 'importing' | 'done';
 
 /**
@@ -58,10 +59,13 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
   const [rows, setRows] = useState<Row[]>([]);
   const [skipped, setSkipped] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ imported: number; errors: string[] } | null>(null);
+  const [outcome, setOutcome] = useState<ImportOutcome | null>(null);
+  const [progress, setProgress] = useState<ImportProgress>({ done: 0, total: 0, current: '' });
+  const [reading, setReading] = useState(false);
 
   const choose = async () => {
     setError(null);
+    setReading(true);
     try {
       const [picked] = await pick({
         type: ['text/csv', 'text/comma-separated-values', 'text/plain', 'application/json'],
@@ -86,27 +90,26 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
     } catch (thrown) {
       if (isErrorWithCode(thrown) && thrown.code === errorCodes.OPERATION_CANCELED) return;
       setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      setReading(false);
     }
   };
 
-  const runImport = async () => {
+  const startImport = async () => {
+    const total = rows.filter(row => row.included).length;
+    setProgress({ done: 0, total, current: '' });
     setStage('importing');
-    const errors: string[] = [];
-    let imported = 0;
-    for (const row of rows) {
-      if (!row.included) continue;
-      try {
-        if (row.match !== null && row.replace) {
-          await vault.updateItem(row.match.id, row.match.version, row.item);
-        } else {
-          await vault.addItem(row.item);
-        }
-        imported += 1;
-      } catch (thrown) {
-        errors.push(`${displayName(row.item.type, row.item, String(imported + errors.length))}: ${thrown instanceof Error ? thrown.message : String(thrown)}`);
-      }
-    }
-    setResult({ imported, errors });
+    // A big file would otherwise redraw this screen twice per row; about a
+    // hundred updates is plenty for a bar to look smooth.
+    const step = Math.max(1, Math.floor(total / 100));
+    const result = await runImport(
+      rows,
+      { add: vault.addItem, update: vault.updateItem },
+      update => {
+        if (update.done === 0 || update.done === update.total || update.done % step === 0) setProgress(update);
+      },
+    );
+    setOutcome(result);
     setRows([]);
     setSkipped(0);
     setStage('done');
@@ -122,11 +125,6 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
 
   const includedCount = rows.filter(row => row.included).length;
   const duplicateCount = rows.filter(row => row.match?.identical ?? false).length;
-  const summaryParts = [
-    `${String(includedCount)} ready to import`,
-    skipped > 0 ? `${String(skipped)} skipped (unrecognised type or empty)` : null,
-    duplicateCount > 0 ? `${String(duplicateCount)} already in your vault` : null,
-  ].filter((part): part is string => part !== null);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -137,21 +135,42 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
         <Text style={styles.appBarTitle}>Import</Text>
       </View>
 
+      <Steps current={stepIndex(stage)} />
+
       {stage === 'pick' && (
-        <View style={styles.content}>
+        <View style={styles.pick}>
+          <PickArt />
+          <Text style={styles.heading}>Bring your logins over</Text>
           <Text style={styles.intro}>
-            Pick a CSV export from Chrome, Firefox, LastPass, 1Password, or similar, a Bitwarden JSON export
-            (logins, secure notes, cards and identities), or a Proton Pass JSON export (logins and secure notes).
-            Anything else in the file is skipped and counted before you confirm.
+            Choose an export from another password manager or your browser. It is read on this device and encrypted
+            before it is saved.
+          </Text>
+          <View style={styles.formats}>
+            {['CSV', 'Bitwarden JSON', 'Proton Pass JSON'].map(format => (
+              <View key={format} style={styles.format}>
+                <Text style={styles.formatText}>{format}</Text>
+              </View>
+            ))}
+          </View>
+          <Text style={styles.fine}>
+            Logins and secure notes from any of them. Cards and identities too from Bitwarden. Anything else in the
+            file is skipped, and counted before you confirm.
           </Text>
           {error !== null && <Text style={styles.error}>{error}</Text>}
-          <Button title="Choose file" onPress={choose} />
+          <View style={styles.action}>
+            <Button title={reading ? 'Reading file…' : 'Choose file'} disabled={reading} onPress={choose} />
+          </View>
         </View>
       )}
 
       {stage === 'preview' && (
         <>
-          <Text style={styles.summary}>{`${summaryParts.join(', ')}.`}</Text>
+          <View style={styles.tiles}>
+            <StatTile value={includedCount} label="ready to import" />
+            <StatTile value={duplicateCount} label="already in your vault" />
+            <StatTile value={skipped} label="skipped" tone={skipped > 0 ? 'warn' : 'plain'} />
+          </View>
+          {skipped > 0 && <Text style={styles.fine}>Skipped rows were an unrecognised type, or empty.</Text>}
           <FlatList
             data={rows}
             keyExtractor={(_, index) => String(index)}
@@ -184,31 +203,53 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
             )}
           />
           <View style={styles.footer}>
-            <Button title={`Import ${String(includedCount)}`} disabled={includedCount === 0} onPress={runImport} />
+            <Button title={`Import ${String(includedCount)}`} disabled={includedCount === 0} onPress={startImport} />
           </View>
         </>
       )}
 
       {stage === 'importing' && (
-        <View style={styles.content}>
-          <Text style={styles.intro}>Importing…</Text>
+        <View style={styles.centre}>
+          <SpinningDial />
+          <Text style={styles.heading}>{`Importing ${String(progress.done)} of ${String(progress.total)}`}</Text>
+          <View style={styles.progress}>
+            <ProgressBar fraction={clampFraction(progress.done, progress.total)} label="Import progress" />
+          </View>
+          <Text style={styles.current} numberOfLines={1}>
+            {progress.current}
+          </Text>
+          <Text style={styles.fine}>Keep the app open until this finishes.</Text>
         </View>
       )}
 
-      {stage === 'done' && result !== null && (
-        <View style={styles.content}>
-          <Text style={styles.intro}>
-            {result.errors.length > 0
-              ? `Imported ${String(result.imported)}. ${String(result.errors.length)} failed.`
-              : `Imported ${String(result.imported)}.`}
+      {stage === 'done' && outcome !== null && (
+        <View style={styles.doneWrap}>
+          <ResultBadge ok={outcome.failures.length === 0} />
+          <Text style={styles.heading}>
+            {outcome.failures.length === 0 ? 'All done' : `Imported, with ${String(outcome.failures.length)} problem${outcome.failures.length === 1 ? '' : 's'}`}
           </Text>
-          {result.errors.map(message => (
-            <Text key={message} style={styles.error}>
-              {message}
-            </Text>
-          ))}
-          <Text style={styles.intro}>Delete the file now that it's imported -- it holds your passwords in plain text.</Text>
-          <Button title="Import another file" variant="outline" onPress={() => setStage('pick')} />
+          <View style={styles.tiles}>
+            <StatTile value={outcome.added} label="added" />
+            <StatTile value={outcome.replaced} label="replaced" />
+            <StatTile value={outcome.failures.length} label="failed" tone={outcome.failures.length > 0 ? 'warn' : 'plain'} />
+          </View>
+          {outcome.failures.length > 0 && (
+            <View style={styles.failures}>
+              {outcome.failures.map(failure => (
+                <Text key={`${failure.name}:${failure.message}`} style={styles.error}>
+                  {`${failure.name}: ${failure.message}`}
+                </Text>
+              ))}
+            </View>
+          )}
+          <View style={styles.callout}>
+            <Icon name="alertTriangle" size={18} color={colors.amber} />
+            <Text style={styles.calloutText}>Delete the file now. It holds your passwords in plain text.</Text>
+          </View>
+          <View style={styles.action}>
+            <Button title="Done" onPress={() => navigation.goBack()} />
+            <Button title="Import another file" variant="outline" onPress={() => setStage('pick')} />
+          </View>
         </View>
       )}
     </SafeAreaView>
@@ -240,9 +281,102 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: colors.ink,
   },
-  content: {
+  pick: {
+    alignItems: 'center',
     padding: spacing.lg,
     gap: spacing.md,
+  },
+  centre: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  doneWrap: {
+    flex: 1,
+    alignItems: 'center',
+    padding: spacing.lg,
+    paddingTop: spacing.lg * 1.5,
+    gap: spacing.md,
+  },
+  heading: {
+    fontFamily: fonts.condensedBold,
+    fontSize: 24,
+    color: colors.ink,
+    textAlign: 'center',
+  },
+  formats: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  format: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+    borderWidth: 1.5,
+    borderColor: inkAlpha(0.3),
+    backgroundColor: colors.card,
+  },
+  formatText: {
+    fontFamily: fonts.semiCondensedSemiBold,
+    fontSize: 13,
+    color: colors.ink,
+  },
+  fine: {
+    fontFamily: fonts.body,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: colors.ink,
+    textAlign: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  action: {
+    alignSelf: 'stretch',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  tiles: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    alignSelf: 'stretch',
+  },
+  progress: {
+    alignSelf: 'stretch',
+    paddingHorizontal: spacing.lg,
+  },
+  current: {
+    fontFamily: fonts.mono,
+    fontSize: 12.5,
+    color: colors.ink,
+    maxWidth: '80%',
+  },
+  failures: {
+    alignSelf: 'stretch',
+    paddingHorizontal: spacing.lg,
+    gap: 4,
+  },
+  callout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    alignSelf: 'stretch',
+    marginHorizontal: spacing.lg,
+    padding: spacing.md,
+    borderRadius: radii.card,
+    borderWidth: 1.5,
+    borderColor: colors.amber,
+    backgroundColor: colors.card,
+  },
+  calloutText: {
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.ink,
   },
   intro: {
     fontFamily: fonts.body,
@@ -254,13 +388,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     color: colors.rust,
     fontSize: 12.5,
-  },
-  summary: {
-    fontFamily: fonts.body,
-    fontSize: 12.5,
-    color: colors.ink,
-    padding: spacing.lg,
-    paddingBottom: spacing.sm,
   },
   list: {
     paddingHorizontal: spacing.lg,

@@ -1084,6 +1084,133 @@ describe("generating a passphrase", () => {
   });
 });
 
+describe("PIN status", () => {
+  it("says no PIN is set, with the limits it would work to", async () => {
+    await vault.create("correct horse battery staple");
+
+    expect(await vault.pinStatus()).toEqual({ set: false, attemptsLeft: 0, maxAttempts: 5, minLength: 4 });
+  });
+
+  it("says a PIN is set once one is armed, and not after it is forgotten", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.setPin("4821");
+    expect(await vault.pinStatus()).toMatchObject({ set: true, attemptsLeft: 5 });
+
+    await vault.forgetPin();
+    expect(await vault.pinStatus()).toMatchObject({ set: false });
+  });
+
+  it("changing the PIN replaces it and restores every try", async () => {
+    await vault.create("correct horse battery staple");
+    await vault.setPin("4821");
+    cryptoFake.unwrapVaultKey.mockImplementationOnce(() => {
+      throw new Error("decryption failed");
+    });
+    await expect(vault.unlockWithPin("0000")).rejects.toThrow();
+    expect((await vault.pinStatus()).attemptsLeft).toBe(4);
+
+    await vault.setPin("9034");
+
+    expect(await vault.pinStatus()).toMatchObject({ set: true, attemptsLeft: 5 });
+  });
+});
+
+describe("periodic sync", () => {
+  const PASSWORD = "correct horse battery staple";
+
+  /** A device that has been connected to a server, as far as the vault can tell. */
+  async function connected(): Promise<void> {
+    await browser.storage.local.set({
+      sync: { server: "https://sync.test", cursor: "0", credential: { id: "sync:credential" } },
+    });
+  }
+
+  it("decides from four facts, and says why not", () => {
+    const ready = { localOnly: false, connected: true, unlocked: true, running: false };
+
+    expect(vault.periodicSyncSkip(ready)).toBeUndefined();
+    expect(vault.periodicSyncSkip({ ...ready, running: true })).toBe("busy");
+    expect(vault.periodicSyncSkip({ ...ready, localOnly: true })).toBe("local-only");
+    expect(vault.periodicSyncSkip({ ...ready, connected: false })).toBe("not-connected");
+    expect(vault.periodicSyncSkip({ ...ready, unlocked: false })).toBe("locked");
+  });
+
+  it("does nothing on a device with no server", async () => {
+    await vault.create(PASSWORD);
+    const run = vi.fn(() => Promise.resolve());
+
+    expect(await vault.periodicSync(run)).toBe("not-connected");
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("does nothing for a vault set never to sync", async () => {
+    await vault.create(PASSWORD);
+    await vault.setLocalOnly(true);
+    const run = vi.fn(() => Promise.resolve());
+
+    expect(await vault.periodicSync(run)).toBe("local-only");
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("does nothing while locked, since the credential needs the vault key", async () => {
+    await vault.create(PASSWORD);
+    await connected();
+    await vault.lock();
+    const run = vi.fn(() => Promise.resolve());
+
+    expect(await vault.periodicSync(run)).toBe("locked");
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("syncs when connected and unlocked", async () => {
+    await vault.create(PASSWORD);
+    await connected();
+    const run = vi.fn(() => Promise.resolve());
+
+    expect(await vault.periodicSync(run)).toBe("synced");
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("does not keep the vault open: it never extends the auto-lock timer", async () => {
+    await vault.create(PASSWORD);
+    await connected();
+    vi.mocked(browser.alarms.create).mockClear();
+
+    await vault.periodicSync(() => Promise.resolve());
+
+    // Extending the timer is what a user action does. A sync every few minutes
+    // that did the same would mean the vault never locked.
+    expect(browser.alarms.create).not.toHaveBeenCalled();
+  });
+
+  it("reports a failure instead of throwing, and tries again next time", async () => {
+    await vault.create(PASSWORD);
+    await connected();
+    const run = vi.fn(() => Promise.reject(new Error("server unreachable")));
+
+    expect(await vault.periodicSync(run)).toBe("failed");
+    expect(await vault.periodicSync(run)).toBe("failed");
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("never runs two at once", async () => {
+    await vault.create(PASSWORD);
+    await connected();
+    let release: () => void = () => {};
+    const slow = vi.fn(() => new Promise<void>((resolve) => (release = resolve)));
+
+    const first = vault.periodicSync(slow);
+    // Let the first get as far as starting its sync.
+    await vi.waitFor(() => expect(slow).toHaveBeenCalled());
+    const second = await vault.periodicSync(slow);
+    release();
+
+    expect(second).toBe("busy");
+    expect(await first).toBe("synced");
+    expect(slow).toHaveBeenCalledOnce();
+  });
+});
+
 describe("mutating an item that does not exist", () => {
   it("is refused rather than silently creating one", async () => {
     await vault.create("correct horse battery staple");
