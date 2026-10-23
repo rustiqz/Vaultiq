@@ -8,7 +8,7 @@ import { parseOtpauth, TOTP_DEFAULTS } from "../lib/otpauth.js";
 import { CLIPBOARD_SECONDS, copyForAWhile } from "../lib/clipboard.js";
 import { el } from "./dom.js";
 import { ago } from "./format.js";
-import { icon, logoMark } from "./icons.js";
+import { icon, logoMark, svgEl } from "./icons.js";
 import { importPanel } from "./import-panel.js";
 import { syncPanel } from "./sync-panel.js";
 import {
@@ -1142,6 +1142,105 @@ function recordCopy(item: DecryptedItem): void {
   void send({ kind: "recordUse", id: item.id, event: "copied" });
 }
 
+const RING_RADIUS = 20;
+const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
+
+/** "123456" as "123 456", so a code can be read off the screen and typed. */
+function groupCode(code: string): string {
+  const half = Math.ceil(code.length / 2);
+  return code.length >= 6 ? `${code.slice(0, half)} ${code.slice(half)}` : code;
+}
+
+/**
+ * A live one-time code: the digits, a ring draining toward the next one, and a
+ * copy button.
+ *
+ * Only the code crosses from the background, once a second, and only while
+ * this element is on screen — the secret never reaches the popup, and the
+ * background decrypts a single item per request rather than the whole vault.
+ * The digits start hidden, like a password, and the copy button works either
+ * way, so a code is never shown to someone who only wanted to paste it.
+ */
+function totpTicker(item: DecryptedTotp): HTMLElement {
+  const digits = el("span", { className: "totp-code", textContent: "•••  •••" });
+  const seconds = el("span", { className: "totp-seconds" });
+  const arc = svgEl("circle", {
+    cx: 24, cy: 24, r: RING_RADIUS, fill: "none", "stroke-width": 4, "stroke-linecap": "round",
+    "stroke-dasharray": RING_LENGTH, "stroke-dashoffset": 0, transform: "rotate(-90 24 24)",
+  });
+  arc.setAttribute("class", "totp-arc");
+  const track = svgEl("circle", { cx: 24, cy: 24, r: RING_RADIUS, fill: "none", "stroke-width": 4 });
+  track.setAttribute("class", "totp-track");
+  const ring = svgEl("svg", { width: 48, height: 48, viewBox: "0 0 48 48" });
+  ring.setAttribute("aria-hidden", "true");
+  ring.append(track, arc);
+
+  const reveal = el("button", { className: "detail-action", type: "button", title: "Show", ariaLabel: "Show code" }, [
+    icon("reveal", { size: 17 }),
+  ]);
+  const copy = el("button", { className: "detail-action", type: "button", title: "Copy code", ariaLabel: "Copy code" }, [
+    icon("copy", { size: 17 }),
+  ]);
+
+  const widget = el("div", { className: "totp-ticker" }, [
+    el("div", { className: "totp-ring" }, [ring, seconds]),
+    el("div", { className: "totp-main" }, [
+      el("span", { className: "detail-label", textContent: "One-time code" }),
+      digits,
+    ]),
+    reveal,
+    copy,
+  ]);
+
+  let code = "";
+  let revealed = false;
+  const paint = (remaining: number): void => {
+    digits.textContent = code === "" ? "—" : revealed ? groupCode(code) : "•••  •••";
+    seconds.textContent = code === "" ? "" : String(remaining);
+    const fraction = Math.max(0, Math.min(1, remaining / item.period));
+    arc.setAttribute("stroke-dashoffset", String(RING_LENGTH * (1 - fraction)));
+    // The last few seconds are the ones where a typed code can expire.
+    widget.classList.toggle("totp-expiring", code !== "" && remaining <= 5);
+  };
+
+  const tick = async (): Promise<void> => {
+    try {
+      const response = await send({ kind: "totpCode", id: item.id });
+      if (!response.ok || response.kind !== "totpCode") return;
+      code = response.code;
+      paint(response.secondsRemaining);
+    } catch {
+      // A locked or closing vault is handled by the screen that owns it.
+    }
+  };
+
+  reveal.addEventListener("click", () => {
+    revealed = !revealed;
+    reveal.title = revealed ? "Hide" : "Show";
+    reveal.ariaLabel = revealed ? "Hide code" : "Show code";
+    if (revealed) void send({ kind: "recordUse", id: item.id, event: "revealed" });
+    digits.textContent = code === "" ? "—" : revealed ? groupCode(code) : "•••  •••";
+  });
+  copy.addEventListener("click", () => {
+    if (code === "") return;
+    void copyForAWhile(code)
+      .then(() => {
+        recordCopy(item);
+        copy.replaceChildren("Copied");
+        setTimeout(() => copy.replaceChildren(icon("copy", { size: 17 })), 1200);
+      })
+      .catch(() => showError("Could not copy."));
+  });
+
+  void tick();
+  const timer = setInterval(() => {
+    // The popup rebuilds its DOM on every render; stop with the element.
+    if (!widget.isConnected) clearInterval(timer);
+    else void tick();
+  }, 1000);
+  return widget;
+}
+
 function detailField(
   item: DecryptedItem,
   label: string,
@@ -1272,8 +1371,8 @@ function detailForItem(item: DecryptedItem, currentSite: string | null, isForSit
     if (item.nationalId) fields.append(detailField(item, "Passport or national ID", item.nationalId, { masked: true }));
   } else if (item.type === "totp") {
     fields.append(
+      totpTicker(item),
       detailField(item, "Account", item.account),
-      detailField(item, "One-time code", item.code),
       detailField(item, "Issuer", item.issuer),
     );
   } else {
