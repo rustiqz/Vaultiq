@@ -2,9 +2,10 @@ package com.vaultiq.mobile
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.service.autofill.Dataset
-import android.service.autofill.FillResponse
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
 import android.view.autofill.AutofillValue
@@ -43,6 +44,12 @@ class AutofillActivity : ReactActivity() {
         passwordFieldId = intent.getParcelableExtra(EXTRA_PASSWORD_FIELD)
         emailFieldId = intent.getParcelableExtra(EXTRA_EMAIL_FIELD)
         super.onCreate(savedInstanceState)
+        // When the vault is locked this hosts the unlock screen, whose master
+        // password field must never be offered autofill or saved as a login.
+        // Set on the window: the manifest attribute alone was not enough.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            window.decorView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        }
     }
 
     override fun createReactActivityDelegate(): ReactActivityDelegate =
@@ -54,6 +61,7 @@ class AutofillActivity : ReactActivity() {
                         putString("domain", intent.getStringExtra(EXTRA_DOMAIN) ?: "")
                         putString("caller", intent.getStringExtra(EXTRA_CALLER_LABEL) ?: "")
                         putBoolean("callerVerified", intent.getBooleanExtra(EXTRA_CALLER_VERIFIED, false))
+                        putString("callerPackage", intent.getStringExtra(EXTRA_CALLER_PACKAGE) ?: "")
                         if (saveMode) {
                             putString("username", intent.getStringExtra(EXTRA_USERNAME) ?: "")
                             putString("password", intent.getStringExtra(EXTRA_PASSWORD) ?: "")
@@ -91,13 +99,12 @@ class AutofillActivity : ReactActivity() {
             return
         }
 
-        // The original placeholder was authenticated at the whole-FillResponse
-        // level (FillResponse.Builder.setAuthentication in
-        // VaultiqAutofillService), so the framework expects a FillResponse
-        // back here, not a bare Dataset -- the two authentication levels
-        // have different result contracts.
-        val response = FillResponse.Builder().addDataset(builder.build()).build()
-        val result = Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, response)
+        // The placeholder was authenticated at the *dataset* level
+        // (VaultiqAutofillService), so the framework expects a Dataset back
+        // and fills the fields with it immediately. (A whole-FillResponse
+        // authentication returns a FillResponse instead, which only re-shows
+        // the dropdown for another tap.)
+        val result = Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, builder.build())
         setResult(Activity.RESULT_OK, result)
         finish()
     }
@@ -133,6 +140,7 @@ class AutofillActivity : ReactActivity() {
         const val EXTRA_DOMAIN = "com.vaultiq.mobile.autofill.DOMAIN"
         const val EXTRA_CALLER_LABEL = "com.vaultiq.mobile.autofill.CALLER_LABEL"
         const val EXTRA_CALLER_VERIFIED = "com.vaultiq.mobile.autofill.CALLER_VERIFIED"
+        const val EXTRA_CALLER_PACKAGE = "com.vaultiq.mobile.autofill.CALLER_PACKAGE"
         const val EXTRA_USERNAME_FIELD = "com.vaultiq.mobile.autofill.USERNAME_FIELD"
         const val EXTRA_PASSWORD_FIELD = "com.vaultiq.mobile.autofill.PASSWORD_FIELD"
         const val EXTRA_EMAIL_FIELD = "com.vaultiq.mobile.autofill.EMAIL_FIELD"

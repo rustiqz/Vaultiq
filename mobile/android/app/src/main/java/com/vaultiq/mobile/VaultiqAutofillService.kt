@@ -5,6 +5,7 @@ import android.app.assist.AssistStructure
 import android.content.Intent
 import android.os.CancellationSignal
 import android.service.autofill.AutofillService
+import android.service.autofill.Dataset
 import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
@@ -12,6 +13,7 @@ import android.service.autofill.SaveCallback
 import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
 import android.text.InputType
+import android.util.Log
 import android.view.View
 import android.view.autofill.AutofillId
 import android.widget.RemoteViews
@@ -66,12 +68,11 @@ class VaultiqAutofillService : AutofillService() {
      * login screen -- so [verifiedWebDomain] being false is meant to change
      * how the picker/save screen presents this, not just what it prints.
      */
-    private class Caller(val label: String, val verifiedWebDomain: Boolean)
+    private class Caller(val label: String, val verifiedWebDomain: Boolean, val packageName: String? = null)
 
     private fun callerFor(structure: AssistStructure, webDomain: String?): Caller {
-        if (!webDomain.isNullOrEmpty()) return Caller(webDomain, true)
-
         val callerPackage = structure.activityComponent?.packageName
+        if (!webDomain.isNullOrEmpty()) return Caller(webDomain, true, callerPackage)
         if (callerPackage == null) return Caller("an unidentified app", false)
 
         val label =
@@ -81,7 +82,28 @@ class VaultiqAutofillService : AutofillService() {
             } catch (error: Exception) {
                 callerPackage
             }
-        return Caller(label, false)
+        return Caller(label, false, callerPackage)
+    }
+
+    /**
+     * Whether the screen asking belongs to the operating system itself rather
+     * than an app the user installed or a web page: Settings (the Wi-Fi
+     * password dialog), System UI, the phone and network stacks. A password
+     * field there is a network key or a lock credential, not a login, so
+     * offering to fill or save it would only put a Wi-Fi key in the vault.
+     *
+     * Deliberately a short list of core OS packages, not "any app flagged as
+     * a system app": phones preinstall ordinary apps (streaming, social) as
+     * system apps, and those have real login screens. Package visibility
+     * rules also stop this service reading arbitrary apps' flags without the
+     * broad QUERY_ALL_PACKAGES permission, which a password manager should
+     * not ask for. Only consulted when there is no browser-verified web
+     * domain, so a page in any browser is never affected.
+     */
+    private fun isOsSurface(structure: AssistStructure): Boolean {
+        val callerPackage = structure.activityComponent?.packageName ?: return false
+        return callerPackage == "android" ||
+            OS_PACKAGE_PREFIXES.any { callerPackage == it || callerPackage.startsWith("$it.") }
     }
 
     override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
@@ -91,7 +113,21 @@ class VaultiqAutofillService : AutofillService() {
             return
         }
 
+        // Never our own screens: the unlock field in AutofillActivity is the
+        // master password, which must not be offered a fill or recorded as a
+        // login. (Also excluded at the activity, in the manifest.)
+        if (structure.activityComponent?.packageName == packageName) {
+            callback.onSuccess(null)
+            return
+        }
+
         val fields = collectLoginFields(structure)
+        // Wi-Fi, lock-screen and other OS dialogs have password fields but are
+        // not logins, and the system cannot anchor our suggestion to them.
+        if (fields.domain.isNullOrEmpty() && isOsSurface(structure)) {
+            callback.onSuccess(null)
+            return
+        }
         // No explicit USERNAME hint anywhere -- the common shape for a form
         // that never set autocomplete attributes is "whatever free-text
         // field came right before the password field".
@@ -110,6 +146,7 @@ class VaultiqAutofillService : AutofillService() {
                 putExtra(AutofillActivity.EXTRA_DOMAIN, fields.domain ?: "")
                 putExtra(AutofillActivity.EXTRA_CALLER_LABEL, caller.label)
                 putExtra(AutofillActivity.EXTRA_CALLER_VERIFIED, caller.verifiedWebDomain)
+                putExtra(AutofillActivity.EXTRA_CALLER_PACKAGE, caller.packageName ?: "")
                 fields.username?.id?.let { putExtra(AutofillActivity.EXTRA_USERNAME_FIELD, it) }
                 fields.password?.id?.let { putExtra(AutofillActivity.EXTRA_PASSWORD_FIELD, it) }
                 fields.email?.id?.let { putExtra(AutofillActivity.EXTRA_EMAIL_FIELD, it) }
@@ -123,9 +160,21 @@ class VaultiqAutofillService : AutofillService() {
             )
 
         val presentation = RemoteViews(packageName, R.layout.autofill_suggestion)
+        // Authenticate a *dataset*, not the whole response: a dataset's
+        // authentication result is a ready Dataset that the framework fills in
+        // immediately, whereas an authenticated FillResponse comes back as a
+        // new response whose dropdown has to be shown and tapped all over
+        // again (and is lost if focus has moved in the meantime). The values
+        // are null on purpose -- there is nothing to offer until the vault has
+        // been unlocked and a login chosen.
+        val placeholder =
+            Dataset.Builder(presentation)
+                .setAuthentication(pendingIntent.intentSender)
+                .apply { autofillIds.forEach { setValue(it, null) } }
+                .build()
         val response =
             FillResponse.Builder()
-                .setAuthentication(autofillIds.toTypedArray(), pendingIntent.intentSender, presentation)
+                .addDataset(placeholder)
                 .apply {
                     val saveIds = listOfNotNull(fields.username?.id, fields.password?.id)
                     if (saveIds.isNotEmpty()) {
@@ -155,9 +204,21 @@ class VaultiqAutofillService : AutofillService() {
             return
         }
 
-        val fields = collectLoginFields(structure)
+        if (structure.activityComponent?.packageName == packageName) {
+            // See onFillRequest: our own unlock screen is never a login to save.
+            callback.onSuccess()
+            return
+        }
+
+        val fields = collectSaveFields(request)
         if (fields.username == null && fields.password == null) {
             callback.onFailure("nothing recognizable to save")
+            return
+        }
+        // Belt and braces: a fill response never offers saving on an OS
+        // surface, but if a request arrives anyway, record nothing.
+        if (fields.domain.isNullOrEmpty() && isOsSurface(structure)) {
+            callback.onSuccess()
             return
         }
 
@@ -170,11 +231,48 @@ class VaultiqAutofillService : AutofillService() {
                 putExtra(AutofillActivity.EXTRA_DOMAIN, fields.domain ?: "")
                 putExtra(AutofillActivity.EXTRA_CALLER_LABEL, caller.label)
                 putExtra(AutofillActivity.EXTRA_CALLER_VERIFIED, caller.verifiedWebDomain)
+                putExtra(AutofillActivity.EXTRA_CALLER_PACKAGE, caller.packageName ?: "")
                 putExtra(AutofillActivity.EXTRA_USERNAME, fields.username?.value ?: "")
                 putExtra(AutofillActivity.EXTRA_PASSWORD, fields.password?.value ?: "")
             }
         startActivity(intent)
     }
+
+    /**
+     * The save request carries every fill context the session saw, not only
+     * the last, and the typed values are not guaranteed to be on the newest
+     * one (a context captured after an authentication round trip can be
+     * thinner). So read all of them, newest first, and keep the first
+     * non-empty value for each field -- and apply the same "free-text field
+     * just before the password" fallback the fill path uses, which the save
+     * path did not, so a form with no hints still yields its username.
+     */
+    private fun collectSaveFields(request: SaveRequest): LoginFields {
+        val merged = LoginFields()
+        for (context in request.fillContexts.reversed()) {
+            val one = collectLoginFields(context.structure)
+            if (one.username == null && one.password != null) one.username = one.lastFreeText
+            merged.username = betterOf(merged.username, one.username)
+            merged.password = betterOf(merged.password, one.password)
+            merged.email = betterOf(merged.email, one.email)
+            if (merged.domain.isNullOrEmpty()) merged.domain = one.domain
+        }
+        // An email-hinted field stands in for a missing username field.
+        if (merged.username?.value.isNullOrEmpty() && !merged.email?.value.isNullOrEmpty()) merged.username = merged.email
+        if (BuildConfig.DEBUG) {
+            // Presence only, never a value: what the save path could and could not read.
+            Log.d(
+                "VaultiqAutofill",
+                "save: contexts=${request.fillContexts.size} usernameField=${merged.username != null} " +
+                    "usernameValue=${!merged.username?.value.isNullOrEmpty()} passwordField=${merged.password != null} " +
+                    "passwordValue=${!merged.password?.value.isNullOrEmpty()} emailValue=${!merged.email?.value.isNullOrEmpty()}",
+            )
+        }
+        return merged
+    }
+
+    private fun betterOf(current: Field?, candidate: Field?): Field? =
+        if (current == null || (current.value.isNullOrEmpty() && !candidate?.value.isNullOrEmpty())) candidate ?: current else current
 
     private fun collectLoginFields(structure: AssistStructure): LoginFields {
         val fields = LoginFields()
@@ -236,6 +334,19 @@ class VaultiqAutofillService : AutofillService() {
         (inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT && !isPasswordInputType(inputType)
 
     companion object {
+        private val OS_PACKAGE_PREFIXES =
+            listOf(
+                "com.android.settings",
+                "com.android.systemui",
+                "com.android.phone",
+                "com.android.server",
+                "com.android.networkstack",
+                "com.android.wifi",
+                "com.android.providers.settings",
+                "com.vivo.settings",
+                "com.vivo.systemui",
+            )
+
         // Android requires the PendingIntent request code to be stable-ish
         // per distinct request, or a queued fill request can clobber an
         // in-flight one's. Not persisted -- this only needs to be unique
