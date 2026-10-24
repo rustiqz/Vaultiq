@@ -153,7 +153,15 @@ void ensureSyncAlarm();
  * its own site.
  */
 async function requestOrigin(sender: browser.runtime.MessageSender): Promise<string | undefined> {
-  return sender.tab?.url ?? (await activeTabUrl());
+  // An extension page opened as a tab or window has a `tab` of its own, whose
+  // URL is the extension's, not a site's.
+  if (sender.tab?.url && !isExtensionPage(sender)) return sender.tab.url;
+  return activeTabUrl();
+}
+
+/** The popup, or an extension page in a tab or window — as opposed to a content script. */
+function isExtensionPage(sender: browser.runtime.MessageSender): boolean {
+  return sender.url?.startsWith(browser.runtime.getURL("")) ?? false;
 }
 
 async function handle(
@@ -272,8 +280,14 @@ async function handle(
     case "shouldOfferToSave":
       return await offerOrHoldSave(request, await requestOrigin(sender), sender.tab?.id);
     case "pendingSave":
-      // From a page, only the tab the login came from is told about it.
-      return { ok: true, kind: "pendingSave", pending: await pendingSaveInfo(sender.tab?.id) };
+      // From a page, only the tab the login came from is told about it. The
+      // extension's own pages are not "a page" here: the unlock window is a tab
+      // of its own, and is exactly where the answer is wanted.
+      return {
+        ok: true,
+        kind: "pendingSave",
+        pending: await pendingSaveInfo(isExtensionPage(sender) ? undefined : sender.tab?.id),
+      };
     case "resolvePendingSave": {
       const { saved } = await resolvePendingSave(request);
       if (saved) await extendAutoLock();

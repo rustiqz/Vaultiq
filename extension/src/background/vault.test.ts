@@ -470,6 +470,20 @@ describe("items for the current site", () => {
     expect(items).toHaveLength(0);
   });
 
+  it("skips the extension's own page and uses the web page last in use", async () => {
+    const query = vi.mocked(browser.tabs.query);
+    query
+      .mockResolvedValueOnce([{ url: "moz-extension://test/popup.html?tab=1" }] as never)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([
+        { url: "https://older.test/", lastAccessed: 1 },
+        { url: "moz-extension://test/popup.html?tab=1", lastAccessed: 9 },
+        { url: "https://example.com/login", lastAccessed: 5 },
+      ] as never);
+
+    expect(await vault.activeTabUrl()).toBe("https://example.com/login");
+  });
+
   it("offers nothing when there is no tab to read", async () => {
     await withSites();
     activeTab.url = undefined;

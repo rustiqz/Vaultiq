@@ -312,12 +312,13 @@ async function offerToSave(target: EventTarget | null): Promise<void> {
       confirm: decision.existingId ? "Update" : "Save",
     },
     (answer) => {
-      if (!answer) return;
+      // The background is holding this capture in case the page redirects away
+      // before an answer; either answer ends that, so a dismissal is sent too.
       void ask({
-        kind: "saveSubmitted",
-        ...submitted,
-        ...(answer.name ? { name: answer.name } : {}),
-        ...(answer.notes ? { notes: answer.notes } : {}),
+        kind: "resolvePendingSave",
+        save: answer !== undefined,
+        ...(answer?.name ? { name: answer.name } : {}),
+        ...(answer?.notes ? { notes: answer.notes } : {}),
       });
     },
   );

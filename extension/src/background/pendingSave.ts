@@ -1,12 +1,14 @@
-// A login typed into a page while the vault is locked.
+// A login typed into a page, held until the user decides.
 //
 // Declining silently (what a locked vault used to do) loses it: a sign-in form
 // usually redirects, so by the time the user has unlocked, the page, its URL
-// and the form are gone. So the capture is held here, in the background, and
-// the decision is made afterwards.
+// and the form are gone. The same redirect destroys the save prompt drawn on
+// an unlocked page. So the capture is held here, in the background, and the
+// decision is made afterwards, on whatever page the tab lands on.
 //
 // What this holds is a plaintext password, which nothing else the extension
-// keeps while locked is. That is limited as far as it can be:
+// keeps while locked is, and which while unlocked is otherwise only ever seen
+// inside the vault's own encryption path. That is limited as far as it can be:
 //   - in session storage only — memory-backed, never written to disk, gone when
 //     the browser closes;
 //   - one capture at a time (a new one replaces the old);
@@ -59,8 +61,13 @@ export async function pendingSaveExists(): Promise<boolean> {
 }
 
 /**
- * Answers a submitted login: the ordinary decision while unlocked, and while
- * locked, holds it and says so.
+ * Answers a submitted login, and holds it either way.
+ *
+ * A sign-in or sign-up form usually redirects, so the prompt drawn on the form
+ * page is destroyed before the user can answer it. Holding the capture lets
+ * the next page in the same tab show it again. That is as true unlocked as it
+ * is locked: unlocked, the vault decides whether there is anything to offer
+ * (already stored, or no site) and only then is the capture held.
  */
 export async function offerOrHoldSave(
   submitted: { username: string; password: string },
@@ -70,9 +77,9 @@ export async function offerOrHoldSave(
   const state = await status();
   if (state === "unlocked") {
     const decision = await shouldOfferToSave(submitted, url);
-    return decision.offer
-      ? { ok: true, kind: "shouldOfferToSave", ...decision }
-      : { ok: true, kind: "shouldOfferToSave", offer: false };
+    if (!decision.offer || !url) return { ok: true, kind: "shouldOfferToSave", offer: false };
+    await hold(submitted, url, decision.site, tabId);
+    return { ok: true, kind: "shouldOfferToSave", ...decision };
   }
 
   const site = url ? siteScope(url) : null;
@@ -82,11 +89,20 @@ export async function offerOrHoldSave(
     return { ok: true, kind: "shouldOfferToSave", offer: false };
   }
 
+  await hold(submitted, url, site, tabId);
+  return { ok: true, kind: "shouldOfferToSave", offer: true, site, existingId: null, locked: true };
+}
+
+async function hold(
+  submitted: { username: string; password: string },
+  url: string,
+  site: string,
+  tabId: number | undefined,
+): Promise<void> {
   await browser.storage.session.set({
     [KEY]: { ...submitted, url, site, tabId, at: Date.now() } satisfies Held,
   });
   browser.alarms.create(PENDING_SAVE_ALARM, { delayInMinutes: PENDING_SAVE_TTL_MS / 60_000 });
-  return { ok: true, kind: "shouldOfferToSave", offer: true, site, existingId: null, locked: true };
 }
 
 /**
