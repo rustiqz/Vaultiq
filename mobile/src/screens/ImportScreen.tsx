@@ -3,13 +3,17 @@ import { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '../icons';
-import { displayName } from '../itemContent';
+import ListEnd from '../ListEnd';
+import { displayName, type ItemContent } from '../itemContent';
 import { parseBitwardenJson } from '../lib/bitwardenImport';
 import { parseCsv, rowsToItems, type ImportResult } from '../lib/csvImport';
 import { findMatch } from '../lib/importDedupe';
 import { type ImportOutcome, type ImportProgress, type ImportRow, runImport } from '../lib/importRun';
 import { parseProtonPassJson } from '../lib/protonPassImport';
+import type { SkippedRow } from '../lib/skippedRow';
+import type { DecryptedItem } from '../vault';
 import type { SettingsStackScreenProps } from '../navigation';
+import { FixSheet, ReviewTabs, SkippedItem, SummaryCard, type ReviewTab } from '../ImportReview';
 import { PickArt, ProgressBar, ResultBadge, SpinningDial, StatTile, Steps, clampFraction, stepIndex } from '../ImportVisuals';
 import { colors, fonts, inkAlpha, radii, spacing } from '../theme';
 import { Button } from '../ui';
@@ -57,7 +61,10 @@ function detectAndParse(text: string): ImportResult {
 export default function ImportScreen({ navigation }: SettingsStackScreenProps<'Import'>) {
   const [stage, setStage] = useState<Stage>('pick');
   const [rows, setRows] = useState<Row[]>([]);
-  const [skipped, setSkipped] = useState(0);
+  const [skippedRows, setSkippedRows] = useState<SkippedRow[]>([]);
+  const [existing, setExisting] = useState<DecryptedItem[]>([]);
+  const [tab, setTab] = useState<ReviewTab>('ready');
+  const [fixing, setFixing] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<ImportOutcome | null>(null);
   const [progress, setProgress] = useState<ImportProgress>({ done: 0, total: 0, current: '' });
@@ -74,7 +81,10 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
       // uri directly -- no extra filesystem dependency needed for this.
       const text = await (await fetch(picked.uri)).text();
       const parsed = detectAndParse(text);
-      if (parsed.items.length === 0) {
+      // Rows with something readable in them can still be fixed; a file where
+      // nothing could be read at all is not an export this knows.
+      const fixable = parsed.skippedRows.some(row => Object.values(row.draft).some(value => value !== ''));
+      if (parsed.items.length === 0 && !fixable) {
         setError('Nothing recognisable in that file -- see the note above for what this can read.');
         return;
       }
@@ -85,7 +95,9 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
           return { item, match, included: !(match?.identical ?? false), replace: false };
         }),
       );
-      setSkipped(parsed.skipped);
+      setExisting(existingItems);
+      setSkippedRows(parsed.skippedRows);
+      setTab(parsed.items.length === 0 ? 'skipped' : 'ready');
       setStage('preview');
     } catch (thrown) {
       if (isErrorWithCode(thrown) && thrown.code === errorCodes.OPERATION_CANCELED) return;
@@ -111,7 +123,7 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
     );
     setOutcome(result);
     setRows([]);
-    setSkipped(0);
+    setSkippedRows([]);
     setStage('done');
   };
 
@@ -123,11 +135,24 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
     setRows(current => current.map((row, i) => (i === index ? { ...row, replace: !row.replace } : row)));
   };
 
+  // A fixed row joins the list like any parsed one, checked against the vault the same way.
+  const addFixed = (item: ItemContent) => {
+    if (fixing === null) return;
+    const match = findMatch(item, existing);
+    setRows(current => [...current, { item, match, included: !(match?.identical ?? false), replace: false }]);
+    setSkippedRows(current => {
+      const next = current.filter((_, i) => i !== fixing);
+      if (next.length === 0) setTab('ready');
+      return next;
+    });
+    setFixing(null);
+  };
+
   const includedCount = rows.filter(row => row.included).length;
   const duplicateCount = rows.filter(row => row.match?.identical ?? false).length;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appBar}>
         <Pressable style={styles.back} onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
           <Icon name="chevronLeft" size={22} color={colors.ink} />
@@ -141,21 +166,35 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
         <View style={styles.pick}>
           <PickArt />
           <Text style={styles.heading}>Bring your logins over</Text>
-          <Text style={styles.intro}>
-            Choose an export from another password manager or your browser. It is read on this device and encrypted
-            before it is saved.
-          </Text>
-          <View style={styles.formats}>
-            {['CSV', 'Bitwarden JSON', 'Proton Pass JSON'].map(format => (
-              <View key={format} style={styles.format}>
-                <Text style={styles.formatText}>{format}</Text>
-              </View>
-            ))}
+          <Text style={styles.intro}>Pick an export file from your browser or another password manager.</Text>
+          <View style={styles.infoCard}>
+            <Text style={styles.infoLabel}>Supported files</Text>
+            <View style={styles.formats}>
+              {['CSV', 'Bitwarden JSON', 'Proton Pass JSON'].map(format => (
+                <View key={format} style={styles.format}>
+                  <Text style={styles.formatText}>{format}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.infoRule} />
+            <Text style={styles.infoLabel}>What comes in</Text>
+            <View style={styles.infoRow}>
+              <Icon name="login" size={18} color={colors.ink} />
+              <Text style={styles.infoText}>Logins and secure notes</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Icon name="card" size={18} color={colors.ink} />
+              <Text style={styles.infoText}>Cards and identities, from Bitwarden only</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Icon name="info" size={18} color={colors.ink} />
+              <Text style={styles.infoText}>Anything else is skipped, and counted before you confirm</Text>
+            </View>
           </View>
-          <Text style={styles.fine}>
-            Logins and secure notes from any of them. Cards and identities too from Bitwarden. Anything else in the
-            file is skipped, and counted before you confirm.
-          </Text>
+          <View style={styles.privacyRow}>
+            <Icon name="lock" size={16} color={colors.ink} />
+            <Text style={styles.privacyText}>Read on this device and encrypted before it is saved.</Text>
+          </View>
           {error !== null && <Text style={styles.error}>{error}</Text>}
           <View style={styles.action}>
             <Button title={reading ? 'Reading file…' : 'Choose file'} disabled={reading} onPress={choose} />
@@ -165,46 +204,60 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
 
       {stage === 'preview' && (
         <>
-          <View style={styles.tiles}>
-            <StatTile value={includedCount} label="ready to import" />
-            <StatTile value={duplicateCount} label="already in your vault" />
-            <StatTile value={skipped} label="skipped" tone={skipped > 0 ? 'warn' : 'plain'} />
-          </View>
-          {skipped > 0 && <Text style={styles.fine}>Skipped rows were an unrecognised type, or empty.</Text>}
-          <FlatList
-            data={rows}
-            keyExtractor={(_, index) => String(index)}
+          <FlatList<Row | SkippedRow>
+            data={tab === 'ready' ? rows : skippedRows}
+            keyExtractor={(_, index) => `${tab}-${String(index)}`}
+            ListFooterComponent={
+              (tab === 'ready' ? rows.length : skippedRows.length) > 0 ? (
+                <ListEnd text={tab === 'ready' ? 'That is every row. Nothing hiding below.' : 'That is every skipped row. Fix them, or leave them be.'} />
+              ) : undefined
+            }
             contentContainerStyle={styles.list}
-            renderItem={({ item: row, index }) => (
-              <View>
-                <Pressable style={styles.row} onPress={() => toggleRow(index)}>
-                  <Icon name={row.item.type === 'note' ? 'note' : 'login'} size={18} color={colors.ink} />
-                  <View style={styles.rowTextGroup}>
-                    <Text style={[styles.rowLabel, !row.included && styles.rowLabelExcluded]} numberOfLines={1}>
-                      {displayName(row.item.type, row.item, String(index))}
-                    </Text>
-                    {row.match !== null && (
-                      <Text style={styles.rowCaption} numberOfLines={1}>
-                        {row.match.identical ? `Already in your vault as "${row.match.label}"` : `Differs from existing "${row.match.label}"`}
-                      </Text>
-                    )}
-                  </View>
-                  <View style={[styles.toggleOff, row.included && styles.toggleOn]}>
-                    <View style={styles.toggleThumb} />
-                  </View>
-                </Pressable>
-                {row.match !== null && !row.match.identical && row.included && (
-                  <Pressable style={styles.replaceRow} onPress={() => toggleReplace(index)} hitSlop={8}>
-                    <View style={[styles.checkboxOff, row.replace && styles.checkboxOn]} />
-                    <Text style={styles.replaceLabel}>Replace the existing entry instead of adding a new one</Text>
-                  </Pressable>
+            ListHeaderComponent={
+              <View style={styles.previewHeader}>
+                <SummaryCard ready={includedCount} held={duplicateCount} skipped={skippedRows.length} />
+                <ReviewTabs tab={tab} onChange={setTab} ready={rows.length} skipped={skippedRows.length} />
+                {tab === 'skipped' && (
+                  <Text style={styles.fine}>These could not be read as a login or note. Fix one to add it to the import.</Text>
                 )}
               </View>
-            )}
+            }
+            ListEmptyComponent={<Text style={styles.fine}>{tab === 'ready' ? 'Nothing to import yet.' : 'Nothing skipped.'}</Text>}
+            renderItem={({ item: entry, index }) => {
+              if ('reason' in entry) return <SkippedItem row={entry} onFix={() => setFixing(index)} />;
+              const row = entry;
+              return (
+                <View>
+                  <Pressable style={styles.row} onPress={() => toggleRow(index)}>
+                    <Icon name={row.item.type === 'note' ? 'note' : 'login'} size={18} color={colors.ink} />
+                    <View style={styles.rowTextGroup}>
+                      <Text style={[styles.rowLabel, !row.included && styles.rowLabelExcluded]} numberOfLines={1}>
+                        {displayName(row.item.type, row.item, String(index))}
+                      </Text>
+                      {row.match !== null && (
+                        <Text style={styles.rowCaption} numberOfLines={1}>
+                          {row.match.identical ? `Already in your vault as "${row.match.label}"` : `Differs from existing "${row.match.label}"`}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={[styles.toggleOff, row.included && styles.toggleOn]}>
+                      <View style={styles.toggleThumb} />
+                    </View>
+                  </Pressable>
+                  {row.match !== null && !row.match.identical && row.included && (
+                    <Pressable style={styles.replaceRow} onPress={() => toggleReplace(index)} hitSlop={8}>
+                      <View style={[styles.checkboxOff, row.replace && styles.checkboxOn]} />
+                      <Text style={styles.replaceLabel}>Replace the existing entry instead of adding a new one</Text>
+                    </Pressable>
+                  )}
+                </View>
+              );
+            }}
           />
           <View style={styles.footer}>
             <Button title={`Import ${String(includedCount)}`} disabled={includedCount === 0} onPress={startImport} />
           </View>
+          <FixSheet row={fixing === null ? null : (skippedRows[fixing] ?? null)} rowKey={fixing ?? 0} onClose={() => setFixing(null)} onAdd={addFixed} />
         </>
       )}
 
@@ -309,7 +362,6 @@ const styles = StyleSheet.create({
   formats: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'center',
     gap: spacing.sm,
   },
   format: {
@@ -380,8 +432,52 @@ const styles = StyleSheet.create({
   },
   intro: {
     fontFamily: fonts.body,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.ink,
+    textAlign: 'center',
+  },
+  infoCard: {
+    alignSelf: 'stretch',
+    padding: spacing.md,
+    gap: spacing.sm,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: inkAlpha(0.14),
+    backgroundColor: colors.card,
+  },
+  infoLabel: {
+    fontFamily: fonts.semiCondensedSemiBold,
+    fontSize: 12,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: colors.ink,
+  },
+  infoRule: {
+    height: 1,
+    backgroundColor: inkAlpha(0.12),
+    marginVertical: spacing.xs,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  infoText: {
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.ink,
+  },
+  privacyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  privacyText: {
+    fontFamily: fonts.body,
     fontSize: 13,
-    lineHeight: 19,
     color: colors.ink,
   },
   error: {
@@ -391,7 +487,11 @@ const styles = StyleSheet.create({
   },
   list: {
     paddingHorizontal: spacing.lg,
-    gap: 1,
+    paddingBottom: spacing.md,
+  },
+  previewHeader: {
+    gap: spacing.sm,
+    paddingBottom: spacing.sm,
   },
   row: {
     minHeight: 52,

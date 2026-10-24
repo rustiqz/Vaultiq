@@ -111,30 +111,43 @@ function cell(row: string[], index: Partial<Record<Field, number>>, field: Field
   return position === undefined ? '' : (row[position] ?? '').trim();
 }
 
+import type { SkippedRow } from './skippedRow';
+import { skippedLabel } from './skippedRow';
+
 export interface ImportResult {
   items: ItemContent[];
   /** Rows that were neither a login nor a note, or had nothing meaningful in them. */
   skipped: number;
+  /** The same rows, with why and what could be read from them. */
+  skippedRows: SkippedRow[];
 }
 
 /** Turns parsed CSV rows (header first) into `ItemContent`s ready for `vault.addItem`. */
 function rowsToItems(rows: string[][]): ImportResult {
   const header = rows[0];
-  if (header === undefined) return { items: [], skipped: 0 };
+  if (header === undefined) return { items: [], skipped: 0, skippedRows: [] };
   const dataRows = rows.slice(1);
   const index = buildColumnIndex(header);
 
   const items: ItemContent[] = [];
-  let skipped = 0;
+  const skippedRows: SkippedRow[] = [];
 
   for (const row of dataRows) {
     const kind = cell(row, index, 'type').toLowerCase();
     const notes = cell(row, index, 'notes');
     const name = cell(row, index, 'name');
+    const draft = {
+      name,
+      username: cell(row, index, 'username') || cell(row, index, 'email'),
+      password: cell(row, index, 'password'),
+      url: cell(row, index, 'url'),
+      notes,
+    };
+    const skip = (reason: string) => skippedRows.push({ label: skippedLabel(draft, skippedRows.length), reason, draft });
 
     if (kind === 'note' || kind === 'secure note') {
       if (notes === '' && name === '') {
-        skipped += 1;
+        skip('Empty note');
         continue;
       }
       const item: NoteContent = { type: 'note' };
@@ -148,14 +161,14 @@ function rowsToItems(rows: string[][]): ImportResult {
     // have no type column at all and are entirely logins. Anything else is
     // a type this version deliberately does not try to guess a mapping for.
     if (kind !== '' && kind !== 'login') {
-      skipped += 1;
+      skip(`Unsupported type "${kind}"`);
       continue;
     }
 
     const username = cell(row, index, 'username') || cell(row, index, 'email');
     const password = cell(row, index, 'password');
     if (username === '' && password === '') {
-      skipped += 1;
+      skip('No username or password');
       continue;
     }
 
@@ -169,7 +182,7 @@ function rowsToItems(rows: string[][]): ImportResult {
     items.push(item);
   }
 
-  return { items, skipped };
+  return { items, skipped: skippedRows.length, skippedRows };
 }
 
 export { parseCsv, rowsToItems };

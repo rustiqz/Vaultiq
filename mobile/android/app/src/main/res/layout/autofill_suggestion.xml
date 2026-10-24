@@ -1,29 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The one row Android shows for the whole authenticated FillResponse
+<!-- The one row Android shows for the authenticated dataset
      (VaultiqAutofillService.kt): the real suggestions only exist once
-     AutofillActivity has actually decrypted something, so this is always
-     the same generic invitation, never a preview of saved data. -->
+     AutofillActivity has actually decrypted something, so this is always the
+     same generic invitation, never a preview of saved data.
+
+     Built only from parts that do not depend on the caller's context. The
+     system inflates this in its own context, not ours, so a theme lookup or
+     an adaptive launcher icon here can fail inflation, and on some builds
+     (seen on vivo and Android 13) that leaves the autofill window null and
+     crashes system_server in FillUi. Fixed colours, a plain vector and two
+     text lines are safe. Colours match the app palette in light and dark,
+     since the dropdown behind it is the system's own. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingHorizontal="16dp"
-    android:paddingVertical="12dp"
-    android:background="?attr/selectableItemBackground">
+    android:background="#FFF8E8"
+    android:paddingLeft="16dp"
+    android:paddingRight="16dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp">
 
   <ImageView
-      android:layout_width="24dp"
-      android:layout_height="24dp"
-      android:src="@mipmap/ic_launcher"
-      android:contentDescription="@string/app_name" />
+      android:layout_width="28dp"
+      android:layout_height="28dp"
+      android:src="@drawable/ic_autofill_dial"
+      android:contentDescription="Vaultiq" />
 
-  <TextView
-      android:id="@+id/autofill_suggestion_label"
-      android:layout_width="wrap_content"
+  <LinearLayout
+      android:layout_width="0dp"
       android:layout_height="wrap_content"
-      android:layout_marginStart="12dp"
-      android:text="Fill with Vaultiq"
-      android:textSize="16sp" />
+      android:layout_weight="1"
+      android:orientation="vertical"
+      android:layout_marginLeft="14dp">
+
+    <TextView
+        android:id="@+id/autofill_suggestion_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Fill with Vaultiq"
+        android:textColor="#674636"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Unlock and choose a login"
+        android:textColor="#674636"
+        android:textSize="12sp" />
+  </LinearLayout>
 
 </LinearLayout>

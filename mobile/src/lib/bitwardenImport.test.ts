@@ -140,3 +140,24 @@ describe('parseBitwardenJson', () => {
     expect(() => parseBitwardenJson('not json')).toThrow();
   });
 });
+
+describe('parseBitwardenJson skippedRows', () => {
+  it('keeps each skipped row with its reason and what could be read', () => {
+    const { skipped, skippedRows } = parseBitwardenJson(
+      exportOf([
+        { type: 1, name: 'No credentials', notes: 'kept', login: { uris: [{ uri: 'https://one.example.test' }] } },
+        { type: 2, name: '', notes: '' },
+        { type: 5, name: 'Fixture SSH key' },
+      ]),
+    );
+    expect(skipped).toBe(3);
+    expect(skippedRows.map(row => row.reason)).toEqual([
+      'No username or password',
+      'Empty note',
+      'SSH keys are not supported',
+    ]);
+    expect(skippedRows[0]?.label).toBe('No credentials');
+    expect(skippedRows[0]?.draft).toEqual({ name: 'No credentials', username: '', password: '', url: 'https://one.example.test', notes: 'kept' });
+    expect(skippedRows[1]?.label).toBe('Row 2');
+  });
+});

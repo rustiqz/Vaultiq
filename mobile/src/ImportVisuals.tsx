@@ -65,9 +65,10 @@ export function Steps(props: { current: number }) {
         const done = index < props.current;
         const active = index === props.current;
         return (
-          <View key={label} style={styles.stepGroup}>
-            {index > 0 && <View style={[styles.stepLine, index <= props.current && styles.stepLineOn]} />}
-            <View style={styles.step}>
+          <View key={label} style={styles.step}>
+            {/* Half a connector either side of the dot, so every dot sits in the middle of an equal slot. */}
+            <View style={styles.stepTrack}>
+              <View style={[styles.stepLine, index > 0 && index <= props.current && styles.stepLineOn, index === 0 && styles.stepLineNone]} />
               <View style={[styles.stepDot, (done || active) && styles.stepDotOn]}>
                 {done ? (
                   <Icon name="check" size={13} color={colors.onInk} />
@@ -75,8 +76,15 @@ export function Steps(props: { current: number }) {
                   <Text style={[styles.stepNumber, active && styles.stepNumberOn]}>{String(index + 1)}</Text>
                 )}
               </View>
-              <Text style={[styles.stepLabel, active && styles.stepLabelOn]}>{label}</Text>
+              <View
+                style={[
+                  styles.stepLine,
+                  index < props.current && styles.stepLineOn,
+                  index === IMPORT_STEPS.length - 1 && styles.stepLineNone,
+                ]}
+              />
             </View>
+            <Text style={[styles.stepLabel, active && styles.stepLabelOn]}>{label}</Text>
           </View>
         );
       })}
@@ -197,11 +205,12 @@ export function StatTile(props: { value: number; label: string; tone?: 'plain' |
 }
 
 const styles = StyleSheet.create({
-  steps: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
-  stepGroup: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  stepLine: { flex: 1, height: 2, backgroundColor: inkAlpha(0.18), marginHorizontal: 6, borderRadius: 1 },
+  steps: { flexDirection: 'row', paddingHorizontal: spacing.md, paddingVertical: spacing.md },
+  stepTrack: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch' },
+  stepLine: { flex: 1, height: 2, backgroundColor: inkAlpha(0.18) },
+  stepLineNone: { backgroundColor: 'transparent' },
   stepLineOn: { backgroundColor: colors.ink },
-  step: { alignItems: 'center', gap: 4 },
+  step: { flex: 1, alignItems: 'center', gap: 4 },
   stepDot: {
     width: 26,
     height: 26,

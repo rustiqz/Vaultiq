@@ -98,3 +98,25 @@ describe('parseProtonPassJson', () => {
     expect(() => parseProtonPassJson('not json')).toThrow();
   });
 });
+
+describe('parseProtonPassJson skippedRows', () => {
+  it('keeps trashed, empty and unsupported rows with a reason', () => {
+    const entry = (state: number, type: string, name: string, content: object = {}) => ({
+      state,
+      data: { type, metadata: { name, note: '' }, content },
+    });
+    const { skipped, skippedRows } = parseProtonPassJson(
+      exportOf([
+        entry(2, 'login', 'Trashed', { username: 'user', password: 'fixture-pass' }),
+        entry(1, 'login', 'No credentials'),
+        entry(1, 'creditCard', 'A card'),
+      ]),
+    );
+    expect(skipped).toBe(3);
+    expect(skippedRows.map(row => row.reason)).toEqual([
+      'In the Proton Pass trash',
+      'No username or password',
+      'Unsupported item type "creditCard"',
+    ]);
+  });
+});

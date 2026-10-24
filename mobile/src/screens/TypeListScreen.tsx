@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import EmptyState from '../EmptyState';
 import Icon from '../icons';
+import ListEnd from '../ListEnd';
 import ItemAvatar from '../ItemAvatar';
 import { displayName, text } from '../itemContent';
 import type { VaultStackScreenProps } from '../navigation';
@@ -32,6 +33,12 @@ const EMPTY_COPY: Record<'card' | 'identity' | 'note', { icon: 'card' | 'identit
     hint: 'Keep recovery codes, licence keys and private notes encrypted alongside everything else.',
     action: 'Add a note',
   },
+};
+
+const END_TEXT: Record<'card' | 'identity' | 'note', string> = {
+  card: 'End of the cards. No more plastic to find.',
+  identity: 'End of the identities. Everyone is accounted for.',
+  note: 'End of the notes. Nothing left to read.',
 };
 
 const SEARCH_PLURAL: Record<'card' | 'identity' | 'note', string> = { card: 'cards', identity: 'identities', note: 'notes' };
@@ -75,6 +82,7 @@ export default function TypeListScreen({ route, navigation }: VaultStackScreenPr
       contentContainerStyle={styles.listContent}
       data={visible}
       keyExtractor={item => item.id}
+      ListFooterComponent={visible.length > 0 ? <ListEnd text={END_TEXT[itemType]} /> : undefined}
       // eslint-disable-next-line react/no-unstable-nested-components -- FlatList's own documented separator shape.
       ItemSeparatorComponent={() => <View style={styles.rowGap} />}
       ListHeaderComponent={

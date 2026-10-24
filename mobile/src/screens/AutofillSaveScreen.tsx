@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Icon from '../icons';
 import LogoMark from '../LogoMark';
+import { appUrl } from '../lib/appLink';
 import Autofill from '../nativeAutofill';
 import { colors, fonts, spacing } from '../theme';
 import { Button, DetailField, Field, SecretField } from '../ui';
@@ -16,7 +17,7 @@ import * as vault from '../vault';
  * confirms and calls the existing `vault.addItem`; nothing here is
  * autofill-specific once the values are in hand.
  */
-export default function AutofillSaveScreen(props: { domain: string; caller: string; callerVerified: boolean; username: string; password: string }) {
+export default function AutofillSaveScreen(props: { domain: string; caller: string; callerVerified: boolean; callerPackage: string; username: string; password: string }) {
   const [name, setName] = useState(props.domain || props.caller);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +26,7 @@ export default function AutofillSaveScreen(props: { domain: string; caller: stri
     setError(null);
     setBusy(true);
     try {
-      await vault.addItem({ type: 'login', name, username: props.username, password: props.password, url: props.domain });
+      await vault.addItem({ type: 'login', name, username: props.username, password: props.password, url: props.domain !== '' ? props.domain : appUrl(props.callerPackage) });
       await Autofill.completeSave();
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));

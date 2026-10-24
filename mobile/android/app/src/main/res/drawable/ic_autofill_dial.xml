@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The primary dial in ink, for the cream autofill suggestion row (the splash copy is cream on dark). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="28dp"
+    android:height="28dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+  <!-- Thin outer guide ring -->
+  <path
+      android:pathData="M3,60 a57,57 0 1,0 114,0 a57,57 0 1,0 -114,0"
+      android:strokeColor="#674636"
+      android:strokeWidth="1.5"
+      android:fillColor="#00000000" />
+
+  <!-- Outer ring -->
+  <path
+      android:pathData="M11,60 a49,49 0 1,0 98,0 a49,49 0 1,0 -98,0"
+      android:strokeColor="#674636"
+      android:strokeWidth="6"
+      android:fillColor="#00000000" />
+
+  <!-- Inner ring -->
+  <path
+      android:pathData="M27,60 a33,33 0 1,0 66,0 a33,33 0 1,0 -66,0"
+      android:strokeColor="#674636"
+      android:strokeWidth="3"
+      android:fillColor="#00000000" />
+
+  <!-- Three spokes, 120 degrees apart -->
+  <group android:pivotX="60" android:pivotY="60" android:rotation="60">
+    <path android:pathData="M56.5,18 L63.5,18 L63.5,42 L56.5,42 Z" android:fillColor="#674636" />
+  </group>
+  <group android:pivotX="60" android:pivotY="60" android:rotation="180">
+    <path android:pathData="M56.5,18 L63.5,18 L63.5,42 L56.5,42 Z" android:fillColor="#674636" />
+  </group>
+  <group android:pivotX="60" android:pivotY="60" android:rotation="300">
+    <path android:pathData="M56.5,18 L63.5,18 L63.5,42 L56.5,42 Z" android:fillColor="#674636" />
+  </group>
+
+  <!-- Center hub -->
+  <path
+      android:pathData="M47,60 a13,13 0 1,0 26,0 a13,13 0 1,0 -26,0"
+      android:fillColor="#674636" />
+
+  <!-- Tick -->
+  <path android:pathData="M57.5,10 L62.5,10 L62.5,24 L57.5,24 Z" android:fillColor="#AAB396" />
+</vector>

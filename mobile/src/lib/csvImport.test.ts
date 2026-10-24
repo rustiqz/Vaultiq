@@ -130,6 +130,18 @@ describe('rowsToItems', () => {
   });
 
   it('returns nothing for an empty file', () => {
-    expect(rowsToItems([])).toEqual({ items: [], skipped: 0 });
+    expect(rowsToItems([])).toEqual({ items: [], skipped: 0, skippedRows: [] });
+  });
+});
+
+describe('rowsToItems skippedRows', () => {
+  it('keeps skipped rows with a reason and a draft to fix', () => {
+    const { skipped, skippedRows } = rowsToItems(
+      parseCsv('name,url,username,password,type\nEmpty,https://one.example.test,,,\nCard thing,,,,card\nGood,,user,fixture-pass,'),
+    );
+    expect(skipped).toBe(2);
+    expect(skippedRows.map(row => row.reason)).toEqual(['No username or password', 'Unsupported type "card"']);
+    expect(skippedRows[0]?.draft.url).toBe('https://one.example.test');
+    expect(skippedRows[1]?.label).toBe('Card thing');
   });
 });

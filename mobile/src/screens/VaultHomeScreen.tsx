@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ItemContent } from '../itemContent';
 import EmptyState from '../EmptyState';
 import Icon from '../icons';
+import ListEnd from '../ListEnd';
 import ItemAvatar from '../ItemAvatar';
 import { copyForAWhile } from '../lib/clipboard';
 import { countLogins, countUserItems } from '../lib/itemCount';
@@ -153,6 +154,7 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
           contentContainerStyle={styles.listContent}
           data={visible}
           keyExtractor={item => item.id}
+          ListFooterComponent={visible.length > 0 ? <ListEnd text="That’s every login. The vault is not hiding any more." /> : undefined}
           // eslint-disable-next-line react/no-unstable-nested-components -- FlatList's own documented separator shape.
           ItemSeparatorComponent={() => <View style={styles.rowGap} />}
           ListHeaderComponent={
@@ -234,9 +236,8 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
       )}
       {/* Always one tap away, over the list and the empty state alike. */}
       <Pressable
-        // On the empty vault the "Add first item" button sits where this would,
-        // so it rides above it there.
-        style={[styles.fab, isEmptyVault && styles.fabAboveEmpty]}
+        // Same place on the empty vault: that layout keeps clear of it instead.
+        style={styles.fab}
         onPress={() => navigation.navigate('Generator')}
         accessibilityRole="button"
         accessibilityLabel="Password generator"
@@ -336,9 +337,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
-  },
-  fabAboveEmpty: {
-    bottom: spacing.screen + 76,
   },
   listContent: {
     paddingHorizontal: spacing.screen,
@@ -448,7 +446,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 26,
     paddingHorizontal: spacing.screen,
-    paddingBottom: 40,
+    // Clears the generator button, as the list does.
+    paddingBottom: spacing.screen + 72,
   },
   emptyIntro: {
     gap: spacing.sm + 4,

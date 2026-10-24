@@ -40,10 +40,15 @@ interface ProtonPassVault {
   items?: ProtonPassItem[];
 }
 
+import type { SkippedRow } from './skippedRow';
+import { skippedLabel } from './skippedRow';
+
 export interface ImportResult {
   items: ItemContent[];
   /** Rows this version has no mapping for, or had nothing meaningful in them. */
   skipped: number;
+  /** The same rows, with why and what could be read from them. */
+  skippedRows: SkippedRow[];
 }
 
 function text(value: string | null | undefined): string {
@@ -65,22 +70,31 @@ function parseProtonPassJson(raw: string): ImportResult {
   if (typeof data.vaults !== 'object' || data.vaults === null) throw new Error('not a Proton Pass export');
 
   const items: ItemContent[] = [];
-  let skipped = 0;
+  const skippedRows: SkippedRow[] = [];
 
   for (const vault of Object.values(data.vaults)) {
     for (const entry of vault.items ?? []) {
-      if (entry.state === TRASHED) {
-        skipped += 1;
-        continue;
-      }
-
       const metadata = entry.data?.metadata ?? {};
       const notes = text(metadata.note);
       const name = text(metadata.name);
+      const fields = entry.data?.content ?? {};
+      const draft = {
+        name,
+        username: text(fields.username),
+        password: text(fields.password),
+        url: text(fields.urls?.find(candidate => text(candidate) !== '')),
+        notes,
+      };
+      const skip = (reason: string) => skippedRows.push({ label: skippedLabel(draft, skippedRows.length), reason, draft });
+
+      if (entry.state === TRASHED) {
+        skip('In the Proton Pass trash');
+        continue;
+      }
 
       if (entry.data?.type === 'note') {
         if (notes === '' && name === '') {
-          skipped += 1;
+          skip('Empty note');
           continue;
         }
         const item: NoteContent = { type: 'note' };
@@ -95,7 +109,7 @@ function parseProtonPassJson(raw: string): ImportResult {
         const username = text(content.username);
         const password = text(content.password);
         if (username === '' && password === '') {
-          skipped += 1;
+          skip('No username or password');
           continue;
         }
         const url = text(content.urls?.find(candidate => text(candidate) !== ''));
@@ -112,11 +126,11 @@ function parseProtonPassJson(raw: string): ImportResult {
       // alias/creditCard/identity/sshKey/wifi/custom: field names not
       // confirmed against a real export for this version -- see the note
       // at the top of this file.
-      skipped += 1;
+      skip(`Unsupported item type "${entry.data?.type ?? 'unknown'}"`);
     }
   }
 
-  return { items, skipped };
+  return { items, skipped: skippedRows.length, skippedRows };
 }
 
 export { parseProtonPassJson };

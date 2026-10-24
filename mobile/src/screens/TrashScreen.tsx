@@ -4,6 +4,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import EmptyState from '../EmptyState';
 import Icon from '../icons';
+import ListEnd from '../ListEnd';
 import ItemAvatar from '../ItemAvatar';
 import { displayName, text } from '../itemContent';
 import type { SettingsStackScreenProps } from '../navigation';
@@ -81,7 +82,7 @@ export default function TrashScreen({ navigation }: SettingsStackScreenProps<'Tr
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appBar}>
         <Pressable style={styles.back} onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
           <Icon name="chevronLeft" size={22} color={colors.ink} />
@@ -94,6 +95,7 @@ export default function TrashScreen({ navigation }: SettingsStackScreenProps<'Tr
         contentContainerStyle={styles.listContent}
         data={items ?? []}
         keyExtractor={item => item.id}
+        ListFooterComponent={items !== null && items.length > 0 ? <ListEnd text="Bottom of the bin. Nothing else in here." /> : undefined}
         // eslint-disable-next-line react/no-unstable-nested-components -- FlatList's own documented separator shape.
         ItemSeparatorComponent={() => <View style={styles.rowGap} />}
         ListEmptyComponent={

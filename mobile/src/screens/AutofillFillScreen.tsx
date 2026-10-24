@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import Icon from '../icons';
 import ItemAvatar from '../ItemAvatar';
 import LogoMark from '../LogoMark';
 import { displayName, text } from '../itemContent';
+import { appUrl, matchesApp } from '../lib/appLink';
 import Autofill from '../nativeAutofill';
 import { colors, fonts, inkAlpha, radii, spacing } from '../theme';
 import { Button, Field, SearchBar, SecretField } from '../ui';
@@ -49,12 +50,22 @@ type Mode = 'matches' | 'search' | 'create';
  * autofill-specific about *finding* the login, only about where the chosen
  * one's values go afterward (`Autofill.completeFill`).
  */
-export default function AutofillFillScreen(props: { domain: string; caller: string; callerVerified: boolean }) {
+export default function AutofillFillScreen(props: { domain: string; caller: string; callerVerified: boolean; callerPackage: string }) {
+  // What a login saved from here is tied to: the verified site, else the app.
+  const targetUrl = props.domain !== '' ? props.domain : appUrl(props.callerPackage);
+  const { domain, callerPackage } = props;
+  const isMatch = useCallback(
+    (item: DecryptedItem) => {
+      const url = text(item.content, 'url');
+      return matchesDomain(url, domain) || matchesApp(url, callerPackage);
+    },
+    [domain, callerPackage],
+  );
   const [items, setItems] = useState<DecryptedItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('matches');
   const [query, setQuery] = useState('');
-  const [createName, setCreateName] = useState(props.domain);
+  const [createName, setCreateName] = useState(props.domain || props.caller);
   const [createUsername, setCreateUsername] = useState('');
   const [createPassword, setCreatePassword] = useState('');
   const [createBusy, setCreateBusy] = useState(false);
@@ -65,8 +76,8 @@ export default function AutofillFillScreen(props: { domain: string; caller: stri
       .then(pulled => {
         const logins = pulled.filter(item => !item.deleted && item.itemType === 'login');
         logins.sort((a, b) => {
-          const aMatch = matchesDomain(text(a.content, 'url'), props.domain);
-          const bMatch = matchesDomain(text(b.content, 'url'), props.domain);
+          const aMatch = isMatch(a);
+          const bMatch = isMatch(b);
           if (aMatch === bMatch) return 0;
           return aMatch ? -1 : 1;
         });
@@ -75,13 +86,15 @@ export default function AutofillFillScreen(props: { domain: string; caller: stri
       .catch(thrown => setError(thrown instanceof Error ? thrown.message : String(thrown)));
   };
 
-  useEffect(load, [props.domain]);
+  useEffect(load, [isMatch]);
 
   const choose = (item: DecryptedItem) => {
     Autofill.completeFill(text(item.content, 'username'), text(item.content, 'password'));
   };
 
-  const directMatches = (items ?? []).slice(0, MAX_DIRECT_MATCHES);
+  // Only logins that really belong to this site or app: the rest are one
+  // "Search vault" away, but are never offered as if they were suggestions.
+  const directMatches = (items ?? []).filter(isMatch).slice(0, MAX_DIRECT_MATCHES);
 
   const searchResults = (items ?? []).filter(item => {
     if (query.trim() === '') return true;
@@ -97,7 +110,7 @@ export default function AutofillFillScreen(props: { domain: string; caller: stri
     setError(null);
     setCreateBusy(true);
     try {
-      await vault.addItem({ type: 'login', name: createName.trim() || props.domain, username: createUsername, password: createPassword, url: props.domain });
+      await vault.addItem({ type: 'login', name: createName.trim() || props.domain || props.caller, username: createUsername, password: createPassword, url: targetUrl });
       // Already have the plaintext in hand -- no need to re-pull and pick it
       // back out of the vault, just complete the fill with it directly.
       Autofill.completeFill(createUsername, createPassword);
@@ -137,7 +150,9 @@ export default function AutofillFillScreen(props: { domain: string; caller: stri
 
         {mode === 'matches' && (
           <>
-            {items !== null && directMatches.length === 0 && <Text style={styles.emptyState}>No saved logins yet.</Text>}
+            {items !== null && directMatches.length === 0 && (
+              <Text style={styles.emptyState}>{items.length === 0 ? 'No saved logins yet.' : 'No saved login for this one. Search your vault, or save a new one.'}</Text>
+            )}
             {directMatches.map(item => (
               <MatchRow key={item.id} item={item} onFill={() => choose(item)} />
             ))}

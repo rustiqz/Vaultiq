@@ -31,13 +31,17 @@
 
       <!-- The picker/save-confirm screen VaultiqAutofillService opens.
            Not a launcher entry: reached only via the PendingIntent that
-           service builds. -->
+           service builds. Excluded from autofill like MainActivity (also set on
+           the window in code, which is what actually takes effect): when the
+           vault is locked this hosts the unlock screen, whose master password
+           field must never be offered to, or saved by, our own service. -->
       <activity
         android:name=".AutofillActivity"
         android:label="@string/app_name"
         android:theme="@style/AutofillSheetTheme"
         android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
         android:windowSoftInputMode="adjustResize"
+        android:importantForAutofill="noExcludeDescendants"
         android:exported="false" />
 
       <!-- Login-only autofill (fill + save), v1: docs/STATUS.md. -->

@@ -306,7 +306,7 @@ export default function ItemEditScreen({ route, navigation }: VaultStackScreenPr
       </ScrollView>
       <View style={styles.footer}>
         <Button title="Cancel" variant="outline" onPress={() => navigation.goBack()} />
-        <Button title={busy ? 'Saving…' : `Save ${TITLES[itemType].toLowerCase()}`} disabled={busy} onPress={save} flex />
+        <Button title={busy ? 'Saving…' : 'Save'} disabled={busy} onPress={save} flex />
       </View>
     </SafeAreaView>
   );
