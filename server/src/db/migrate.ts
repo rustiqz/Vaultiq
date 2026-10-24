@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { log } from "../logging/logger.js";
 import { pool } from "./pool.js";
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "../../migrations");
@@ -53,7 +54,7 @@ export async function migrate(): Promise<void> {
         checksum,
       ]);
       await client.query("commit");
-      console.log(`applied ${name}`);
+      log.info("migration_applied", { name });
     } catch (error) {
       await client.query("rollback");
       throw error;

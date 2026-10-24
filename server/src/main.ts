@@ -1,12 +1,15 @@
 import "reflect-metadata";
 
 import { ValidationPipe } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
+import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import type { Express } from "express";
 import helmet from "helmet";
 import { AppModule } from "./app.module.js";
 import { ensureBootstrapToken } from "./auth/bootstrap-token.js";
 import { migrate } from "./db/migrate.js";
+import { UnhandledErrorFilter } from "./logging/exception.filter.js";
+import { log, NestLogger } from "./logging/logger.js";
+import { requestLog } from "./logging/request-log.js";
 import { VERSION } from "./version.js";
 
 async function bootstrap(): Promise<void> {
@@ -22,9 +25,13 @@ async function bootstrap(): Promise<void> {
     // Nothing here serves a browser page, so CORS stays off. The extension
     // talks to it from a background context, which is not subject to it.
     cors: false,
+    logger: new NestLogger(),
   });
 
+  // First, so a request that a later layer refuses is still logged.
+  app.use(requestLog);
   app.use(helmet());
+  app.useGlobalFilters(new UnhandledErrorFilter(app.get(HttpAdapterHost).httpAdapter));
 
   // Caddy is the only thing this server ever hears from directly (the
   // compose network exposes nothing else) — trusting exactly one hop means
@@ -52,10 +59,15 @@ async function bootstrap(): Promise<void> {
   await app.listen(port, "0.0.0.0");
   // Logged at boot so a running container can be identified from its logs
   // alone, without a request and without shelling in.
-  console.log(`vaultiq-server ${VERSION} listening on ${String(port)}`);
+  log.info("listening", { version: VERSION, port });
 }
 
 bootstrap().catch((error: unknown) => {
-  console.error(error);
+  // Name and code only: a startup failure is usually the database, and its
+  // message can carry the connection string.
+  log.error("startup_failed", {
+    errorName: error instanceof Error ? error.name : typeof error,
+    errorCode: (error as { code?: string } | null)?.code,
+  });
   process.exit(1);
 });

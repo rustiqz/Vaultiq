@@ -3,6 +3,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    // The server logs every audit event; tests would print hundreds of lines.
+    // The logging tests set their own level.
+    env: { LOG_LEVEL: "silent" },
     include: ["src/**/*.test.ts"],
 
     // One database, so one file at a time.

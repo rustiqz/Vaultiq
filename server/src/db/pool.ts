@@ -9,6 +9,7 @@
 // query instead, wherever that turns out to be.
 
 import { Pool } from "pg";
+import { log } from "../logging/logger.js";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -45,7 +46,8 @@ function connect(): Pool {
   // next request opens a fresh one; if the database is still gone, that request
   // fails on its own terms with its own timeout.
   real.on("error", (error) => {
-    console.error("database client error:", error.message);
+    // Code only: a connection error's message can include host and user.
+    log.error("database_client_error", { errorCode: (error as { code?: string }).code });
   });
 
   return real;

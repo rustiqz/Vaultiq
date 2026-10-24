@@ -9,6 +9,7 @@
 // committed, for the same reason in reverse -- the event is real by then.
 
 import { pool } from "../db/pool.js";
+import { log } from "../logging/logger.js";
 
 export type AuditEventType =
   | "account_registered"
@@ -34,6 +35,13 @@ export interface AuditEvent {
  * choice `pool.ts`'s own error handler makes for a lost connection.
  */
 export async function recordAuditEvent(event: AuditEvent): Promise<void> {
+  // Ids and the event type only -- not `detail` or `sourceIp`, which stay in
+  // the table that is access-controlled and prunable.
+  log.info("audit", {
+    eventType: event.eventType,
+    userId: event.userId,
+    deviceId: event.deviceId,
+  });
   try {
     await pool.query(
       `insert into audit_log (event_type, user_id, device_id, source_ip, detail)

@@ -309,6 +309,19 @@ exists because the single most useful signal for telling a scattered mistake
 from a deliberate attack is whether the failures share a source. Everywhere
 else in this file, that stance still holds without exception.
 
+**The server's operational log.** `docker compose logs server` carries one JSON
+line per finished request (method, route *template*, status, duration, request
+id, and the device id when authenticated), one per audit event (event type and
+ids), a sync-push summary (item, accepted and conflict *counts*), and a scrubbed
+line for any unhandled error: its class, its database error code, and the stack
+frames, never its message, which can quote row values. It never contains a URL
+or query string, header, request body, token, key, ciphertext, error message or
+IP address. The shape of the logger enforces this (fields are named strings,
+numbers and booleans, not objects), and a test sends fake secrets in every place
+a request can carry them and asserts none appear. The reverse proxy's own
+access log is separate and does record IPs. `LOG_LEVEL` is `debug`, `info`
+(default), `warn`, `error` or `silent`.
+
 **Whoever can pass the device's biometric check.** With fingerprint unlock on,
 a coerced finger, or anything else the phone accepts as strong biometric, opens
 the vault, so it is exactly as strong as that check. Adding a fingerprint
