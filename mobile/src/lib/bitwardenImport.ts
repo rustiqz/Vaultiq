@@ -19,6 +19,8 @@
  * and attachments. Type 5 (SSH key) and anything else is skipped and
  * counted, not guessed at.
  */
+import type { SkippedRow } from './skippedRow';
+import { skippedLabel } from './skippedRow';
 import type { CardContent, IdentityContent, ItemContent, LoginContent, NoteContent } from '../itemContent';
 
 interface BitwardenItem {
@@ -56,6 +58,8 @@ export interface ImportResult {
   items: ItemContent[];
   /** Rows this version has no mapping for, or had nothing meaningful in them. */
   skipped: number;
+  /** The same rows, with why and what could be read from them. */
+  skippedRows: SkippedRow[];
 }
 
 function text(value: string | null | undefined): string {
@@ -77,18 +81,26 @@ function parseBitwardenJson(raw: string): ImportResult {
   if (!Array.isArray(data.items)) throw new Error('not a Bitwarden export');
 
   const items: ItemContent[] = [];
-  let skipped = 0;
+  const skippedRows: SkippedRow[] = [];
 
   for (const entry of data.items) {
     const notes = text(entry.notes);
     const name = text(entry.name);
+    const draft = {
+      name,
+      username: text(entry.login?.username),
+      password: text(entry.login?.password),
+      url: text(entry.login?.uris?.[0]?.uri),
+      notes,
+    };
+    const skip = (reason: string) => skippedRows.push({ label: skippedLabel(draft, skippedRows.length), reason, draft });
 
     if (entry.type === 1) {
       const login = entry.login ?? {};
       const username = text(login.username);
       const password = text(login.password);
       if (username === '' && password === '') {
-        skipped += 1;
+        skip('No username or password');
         continue;
       }
       const item: LoginContent = { type: 'login' };
@@ -103,7 +115,7 @@ function parseBitwardenJson(raw: string): ImportResult {
 
     if (entry.type === 2) {
       if (notes === '' && name === '') {
-        skipped += 1;
+        skip('Empty note');
         continue;
       }
       const item: NoteContent = { type: 'note' };
@@ -117,7 +129,7 @@ function parseBitwardenJson(raw: string): ImportResult {
       const card = entry.card ?? {};
       const number = text(card.number);
       if (number === '') {
-        skipped += 1;
+        skip('Card has no number');
         continue;
       }
       const item: CardContent = { type: 'card' };
@@ -137,7 +149,7 @@ function parseBitwardenJson(raw: string): ImportResult {
       const firstName = text(identity.firstName);
       const lastName = text(identity.lastName);
       if (firstName === '' && lastName === '') {
-        skipped += 1;
+        skip('Identity has no name');
         continue;
       }
       const street2 = [text(identity.address2), text(identity.address3)].filter(part => part !== '').join(', ');
@@ -159,10 +171,10 @@ function parseBitwardenJson(raw: string): ImportResult {
     }
 
     // type 5 (SSH key) and anything else: a shape this version does not map.
-    skipped += 1;
+    skip(entry.type === 5 ? 'SSH keys are not supported' : `Unsupported item type ${String(entry.type)}`);
   }
 
-  return { items, skipped };
+  return { items, skipped: skippedRows.length, skippedRows };
 }
 
 export { parseBitwardenJson };
