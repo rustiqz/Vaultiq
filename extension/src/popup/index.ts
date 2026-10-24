@@ -2357,7 +2357,11 @@ async function renderUnlocked(): Promise<void> {
   }
 }
 
+/** What the page is currently drawn for; `watchStatus` redraws when the vault moves on. */
+let shownStatus: VaultStatus | undefined;
+
 function render(status: VaultStatus): void {
+  shownStatus = status;
   switch (status) {
     case "empty":
       return renderEmpty();
@@ -2375,6 +2379,26 @@ function render(status: VaultStatus): void {
       return;
   }
 }
+
+/**
+ * The vault can lock while this page is open (the auto-lock timer, or Lock in
+ * another window). A page left open in a tab would otherwise keep showing a
+ * vault that no longer answers. Only a change redraws, so typing in a form is
+ * never interrupted; `status` does not count as activity, so this cannot hold
+ * the vault open.
+ */
+async function watchStatus(): Promise<void> {
+  try {
+    const response = await send({ kind: "status" });
+    if (response.ok && response.kind === "status" && shownStatus !== undefined && response.status !== shownStatus) {
+      void refresh();
+    }
+  } catch {
+    // The background restarting is not a lock; the next check will see.
+  }
+}
+setInterval(() => void watchStatus(), 3000);
+window.addEventListener("focus", () => void watchStatus());
 
 void refresh();
 
