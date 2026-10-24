@@ -53,7 +53,7 @@ function detectAndParse(text: string): ImportResult {
  * then goes through `vault.addItem` exactly as if it had been typed into
  * the "New item" form by hand -- `addItem` is already mode-aware, so this
  * screen never needs to know whether the vault is local-only or synced.
- * Rows are matched against `vault.pullItems()` first (lib/importDedupe.ts):
+ * Rows are matched against `vault.loadItems()` first (lib/importDedupe.ts):
  * a row identical to something already there starts unchecked, and a row
  * that shares the same login/card/identity/etc. but differs is flagged with
  * an option to replace the existing item instead of adding a second one.
@@ -88,7 +88,9 @@ export default function ImportScreen({ navigation }: SettingsStackScreenProps<'I
         setError('Nothing recognisable in that file -- see the note above for what this can read.');
         return;
       }
-      const existingItems = await vault.pullItems();
+      // What is on the device: the duplicate check is advisory, and the
+      // foreground sync keeps the cache current.
+      const existingItems = await vault.loadItems();
       setRows(
         parsed.items.map(item => {
           const match = findMatch(item, existingItems);

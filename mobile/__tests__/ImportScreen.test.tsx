@@ -21,7 +21,7 @@ const mockUpdate = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
 // Looked up at call time: these are not initialised yet when the factory is registered.
 jest.mock('../src/vault', () => ({
   __esModule: true,
-  pullItems: () => mockPull(),
+  loadItems: () => mockPull(),
   addItem: (...args: unknown[]) => mockAdd(...args),
   updateItem: (...args: unknown[]) => mockUpdate(...args),
 }));

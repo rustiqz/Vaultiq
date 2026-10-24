@@ -16,6 +16,7 @@ import * as storage from '../storage';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Card, SearchBar } from '../ui';
 import useRefreshOnRemoteChange from '../useRefreshOnRemoteChange';
+import { loadThenRefresh } from '../lib/syncCache';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 
@@ -76,29 +77,39 @@ export default function VaultHomeScreen({ navigation }: VaultStackScreenProps<'V
   const [sort, setSort] = useState<LoginSort>('recent');
   const [lastUsed, setLastUsed] = useState<Record<string, number>>({});
 
+  // On every focus, not just mount, so returning after a create/edit/delete
+  // shows it. Draws from what is on the device first, then syncs and redraws
+  // only if the server had news -- see vault.ts's loadItems/refreshItems.
   const sync = useCallback(async () => {
     setError(null);
     try {
-      const [pulled, usage] = await Promise.all([vault.pullItems(), storage.readLastUsed()]);
-      setItems(pulled.filter(item => !item.deleted));
-      setLastUsed(usage);
+      setLastUsed(await storage.readLastUsed());
+      await loadThenRefresh(
+        vault,
+        pulled => setItems(pulled.filter(item => !item.deleted)),
+        thrown => setError(`Couldn't refresh: ${thrown instanceof Error ? thrown.message : String(thrown)}`),
+      );
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     }
   }, []);
 
-  // Refreshes on every focus, not just mount, so returning here after a
-  // create/edit/delete on ItemEdit/ItemDetail shows the current server state
-  // rather than a stale in-memory list -- this app has no local item cache
-  // to invalidate instead (see vault.ts's pullItems).
   useFocusEffect(
     useCallback(() => {
       sync();
     }, [sync]),
   );
 
-  // Another device's changes arriving while this screen is in front.
-  useRefreshOnRemoteChange(sync);
+  // Another device's changes arriving while this screen is in front. The
+  // foreground sync has already put them in the cache, so only re-read.
+  const reload = useCallback(async () => {
+    try {
+      setItems((await vault.loadItems()).filter(item => !item.deleted));
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    }
+  }, []);
+  useRefreshOnRemoteChange(reload);
 
   useEffect(() => () => {
     if (copiedTimer.current !== null) clearTimeout(copiedTimer.current);
