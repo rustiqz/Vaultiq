@@ -24,6 +24,15 @@ function version(): string {
   return /^\d+(\.\d+){0,3}$/.test(value) ? value : "0.0.0";
 }
 
+// Firefox polls this for new versions of a self-distributed (unlisted) build.
+// It has to live in the signed manifest, so it is fixed from the first signed
+// release onward: `releases/latest/download/` always redirects to the newest
+// release's asset, so the URL never changes while its content does. The file is
+// written by the `extension-sign` job in ci.yml (scripts/update-manifest.sh)
+// once the .xpi exists, because it carries the .xpi's hash.
+const UPDATE_URL =
+  "https://github.com/rustiqz/Vaultiq/releases/latest/download/updates.json";
+
 const manifest = {
   manifest_version: 3,
   name: "Vaultiq",
@@ -103,6 +112,7 @@ const manifest = {
     gecko: {
       id: "vaultiq@rustiqz.github.io",
       strict_min_version: "115.0",
+      update_url: UPDATE_URL,
     },
   },
 } as const;
