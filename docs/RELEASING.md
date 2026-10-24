@@ -11,7 +11,7 @@
 | `ci.yml` → `extension-release`, `server-release`, `android-release` | after `release` | build the extension zip, the GHCR server image and the signed APK from the version commit |
 | `ci.yml` → `publish` | after every artifact job succeeds | writes `SHA256SUMS`, creates the tag and the GitHub release with all assets |
 | `ci.yml` → `promote-latest` | after `publish` | moves the server image's `latest` tag |
-| `ci.yml` → `extension-sign` | after `publish` | signs the shipped extension zip on AMO's unlisted channel and attaches the `.xpi` to the release; a failure leaves the release intact |
+| `ci.yml` → `extension-sign` | after `publish` | signs the shipped extension zip on AMO's unlisted channel and attaches the `.xpi` and `updates.json` to the release; a failure leaves the release intact |
 | `audit.yml` | weekly cron, manual | `cargo audit` and production pnpm audits for extension, server, and mobile |
 
 Release is a job inside `ci.yml`, not its own workflow, so `needs: gate` can
@@ -129,6 +129,16 @@ Never edit either version by hand — the next release overwrites both.
    `extension-sign` then signs the extension and attaches the `.xpi` and an
    extended `SHA256SUMS`. It runs after `publish` so an AMO outage cannot hold
    back the release; if it fails, the release stands without the `.xpi`.
+
+   **Auto-update (Firefox).** The manifest's `update_url` is
+   `https://github.com/rustiqz/Vaultiq/releases/latest/download/updates.json`.
+   It sits inside the signed manifest, so it can never change for installed
+   copies. `extension-sign` generates the file (`scripts/update-manifest.sh`,
+   version and hash taken from the signed build) and attaches it to each
+   release; GitHub redirects `latest` to the newest one. If signing fails, that
+   release has no `updates.json` and update checks 404 harmlessly until the next
+   release. A build installed before `update_url` existed has to be reinstalled
+   once by hand. Chrome has no equivalent for an off-store install.
 
 If an artifact job fails, `main` carries a `chore(release)` version commit with
 no tag and no release. Nothing is lost: git-cliff computes from the last tag,

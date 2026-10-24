@@ -991,6 +991,12 @@ jobs:
             --approval-timeout 1500000)
           xpi=$(ls signed/*.xpi)
           mv "$xpi" "signed/vaultiq-extension-${VERSION#v}.xpi"
+          # The manifest's update_url points at this file on the latest
+          # release. It is built from the signed .xpi, so the hash it
+          # advertises is the hash of what Firefox will download.
+          scripts/update-manifest.sh unpacked/manifest.json \
+            "signed/vaultiq-extension-${VERSION#v}.xpi" "$VERSION" \
+            > signed/updates.json
 
       - name: Attach to the release
         env:
@@ -1004,7 +1010,7 @@ jobs:
           # .xpi as the one asset it does not cover.
           gh release download "$VERSION" --pattern SHA256SUMS --dir signed
           (cd signed && sha256sum "vaultiq-extension-${VERSION#v}.xpi" >> SHA256SUMS && cat SHA256SUMS)
-          gh release upload "$VERSION" "$xpi" signed/SHA256SUMS --clobber
+          gh release upload "$VERSION" "$xpi" signed/updates.json signed/SHA256SUMS --clobber
 
   promote-latest:
     # Runs only once the release is public, so `latest` never gets ahead of it.
