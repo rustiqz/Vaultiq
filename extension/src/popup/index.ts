@@ -946,6 +946,58 @@ function generatorPanel(): HTMLElement {
   ]);
 }
 
+/**
+ * The one-button generator shown on the locked screens.
+ *
+ * Deliberately small: the lock screen is for entering a PIN or password, and
+ * the full generator (modes, options, saved settings) pushed those fields out
+ * of reach. The full panel lives behind the unlock.
+ */
+function quickGeneratorPanel(): HTMLElement {
+  const output = el("div", { className: "muted", textContent: "—" });
+  const make = el("button", { className: "inline", type: "button" }, [icon("regenerate", { size: 12 }), "Generate one"]);
+  const copy = el("button", { className: "inline", type: "button", textContent: "Copy" });
+  copy.hidden = true;
+  let current = "";
+  copy.addEventListener("click", () => {
+    void copyForAWhile(current)
+      .then(() => {
+        copy.textContent = "Copied";
+        setTimeout(() => (copy.textContent = "Copy"), 1200);
+      })
+      .catch(() => showError("Could not copy."));
+  });
+
+  make.addEventListener("click", () => {
+    make.disabled = true;
+    void send({ kind: "generatePassword" })
+      .then(unwrap)
+      .then((response) => {
+        if (response.kind !== "generatePassword") throw new Error("unexpected reply");
+        current = response.password;
+        output.textContent = current;
+        copy.hidden = false;
+      })
+      .catch((error: unknown) => {
+        showError(error instanceof Error ? error.message : "Failed.");
+      })
+      .finally(() => {
+        make.disabled = false;
+      });
+  });
+
+  return el("div", { className: "group" }, [el("h2", { textContent: "Password generator" }), output, make, copy]);
+}
+
+/** Just the host of an address, for places that have room for a hint, not the whole thing. */
+function hostOf(address: string): string {
+  try {
+    return new URL(address).host || address;
+  } catch {
+    return address;
+  }
+}
+
 /** Why a login typed into a page is waiting, and what to do about it. */
 function pendingSaveCopy(info: PendingSaveInfo): { title: string; detail: string } {
   return {
@@ -1061,7 +1113,7 @@ function renderQuick(pending: PendingSaveInfo | null = null): void {
       form,
       useMaster,
       el("hr"),
-      generatorPanel(),
+      quickGeneratorPanel(),
     ]),
   );
 }
@@ -1075,7 +1127,7 @@ function renderLocked(pending: PendingSaveInfo | null = null): void {
         unwrap(await send({ kind: "unlock", masterPassword: value }));
       }),
       el("hr"),
-      generatorPanel(),
+      quickGeneratorPanel(),
     ]),
   );
 }
@@ -1850,7 +1902,11 @@ function detailForItem(item: DecryptedItem, currentSite: string | null, isForSit
       itemGlyph(item),
       el("div", { className: "grow" }, [
         el("h1", { textContent: itemTitle(item) }),
-        el("p", { className: "detail-subtitle", textContent: item.type === "login" ? (currentSite ?? item.url) : TYPE_LABEL[item.type] }),
+        el("p", {
+          className: "detail-subtitle",
+          textContent: item.type === "login" ? (currentSite ?? hostOf(item.url)) : TYPE_LABEL[item.type],
+          title: item.type === "login" ? item.url : "",
+        }),
       ]),
       edit,
       del,
@@ -2314,7 +2370,11 @@ async function renderUnlocked(): Promise<void> {
   }
 }
 
+/** What the page is currently drawn for; `watchStatus` redraws when the vault moves on. */
+let shownStatus: VaultStatus | undefined;
+
 function render(status: VaultStatus): void {
+  shownStatus = status;
   switch (status) {
     case "empty":
       return renderEmpty();
@@ -2333,4 +2393,25 @@ function render(status: VaultStatus): void {
   }
 }
 
+/**
+ * The vault can lock while this page is open (the auto-lock timer, or Lock in
+ * another window). A page left open in a tab would otherwise keep showing a
+ * vault that no longer answers. Only a change redraws, so typing in a form is
+ * never interrupted; `status` does not count as activity, so this cannot hold
+ * the vault open.
+ */
+async function watchStatus(): Promise<void> {
+  try {
+    const response = await send({ kind: "status" });
+    if (response.ok && response.kind === "status" && shownStatus !== undefined && response.status !== shownStatus) {
+      void refresh();
+    }
+  } catch {
+    // The background restarting is not a lock; the next check will see.
+  }
+}
+setInterval(() => void watchStatus(), 3000);
+window.addEventListener("focus", () => void watchStatus());
+
 void refresh();
+

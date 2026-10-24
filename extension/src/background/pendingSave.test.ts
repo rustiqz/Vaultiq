@@ -62,14 +62,47 @@ describe("holding a login while locked", () => {
     expect((await held.pendingSaveInfo())?.username).toBe("grace@example.test");
   });
 
-  it("does not hold while unlocked — the ordinary prompt handles that", async () => {
+  it("holds it while unlocked too, so a redirect cannot lose the prompt", async () => {
     await vault.create(PASSWORD);
 
     const answer = await held.offerOrHoldSave(TYPED, URL, 7);
 
-    expect(answer).toMatchObject({ offer: true, existingId: null });
+    expect(answer).toMatchObject({ offer: true, existingId: null, site: "example.test" });
     expect(answer).not.toHaveProperty("locked");
+    expect(JSON.stringify(answer)).not.toContain(TYPED.password);
+    expect(await held.pendingSaveInfo(7)).toEqual({
+      site: "example.test",
+      username: TYPED.username,
+      locked: false,
+      update: false,
+    });
+  });
+
+  it("holds nothing unlocked when the vault already has this exact login", async () => {
+    await vault.create(PASSWORD);
+    await vault.addItem({
+      type: "login",
+      name: "Example",
+      username: TYPED.username,
+      password: TYPED.password,
+      url: URL,
+      notes: "",
+    });
+
+    expect(await held.offerOrHoldSave(TYPED, URL, 7)).toMatchObject({ offer: false });
     expect(await held.pendingSaveExists()).toBe(false);
+  });
+
+  it("saves from the next page after a redirect, then wipes", async () => {
+    await vault.create(PASSWORD);
+    await held.offerOrHoldSave(TYPED, URL, 7);
+
+    // The form's page is gone; the page it redirected to asks, in the same tab.
+    expect(await held.pendingSaveInfo(7)).not.toBeNull();
+    expect(await held.resolvePendingSave({ save: true })).toEqual({ saved: true });
+
+    expect(await held.pendingSaveExists()).toBe(false);
+    expect((await vault.itemsForUrl(URL)).items.map((item) => item.username)).toEqual([TYPED.username]);
   });
 });
 

@@ -1327,13 +1327,22 @@ function withoutEmpty(values: Record<string, string>): Record<string, string> {
  */
 export async function activeTabUrl(): Promise<string | undefined> {
   const [focused] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
-  if (focused?.url) return focused.url;
+  if (isWebUrl(focused?.url)) return focused?.url;
 
-  // Falls back for the case `lastFocusedWindow` cannot answer — no browser
-  // window focused, which happens when the popup itself has focus on some
-  // platforms.
   const [current] = await browser.tabs.query({ active: true, currentWindow: true });
-  return current?.url;
+  if (isWebUrl(current?.url)) return current?.url;
+
+  // The popup, the unlock window and the full-tab pages are the extension's
+  // own, so their "active tab" is never a site. Fall back to the web page the
+  // user was most recently on, in any ordinary window.
+  const visible = await browser.tabs.query({ active: true, windowType: "normal" });
+  return visible
+    .filter((tab) => isWebUrl(tab.url))
+    .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0]?.url;
+}
+
+function isWebUrl(url: string | undefined): boolean {
+  return url !== undefined && /^https?:/i.test(url);
 }
 
 /** What the list shows for an item, and therefore what it sorts on. */
