@@ -49,5 +49,5 @@ const styles = StyleSheet.create({
   },
   title: { fontFamily: fonts.condensedBold, fontSize: 22, color: colors.ink, textAlign: 'center' },
   hint: { fontFamily: fonts.body, fontSize: 14, lineHeight: 21, color: colors.ink, textAlign: 'center', maxWidth: 300 },
-  action: { marginTop: spacing.sm, alignSelf: 'stretch', maxWidth: 260, width: '100%', alignItems: 'stretch' },
+  action: { marginTop: spacing.sm, alignSelf: 'center', maxWidth: 260, width: '100%', alignItems: 'stretch' },
 });

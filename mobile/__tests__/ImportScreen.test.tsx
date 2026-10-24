@@ -87,7 +87,7 @@ describe('ImportScreen', () => {
 
     await press(tree, 'Choose file');
 
-    expect(texts(tree)).toEqual(expect.arrayContaining(['One', 'Two', 'Import 2', 'ready to import']));
+    expect(texts(tree)).toEqual(expect.arrayContaining(['One', 'Two', 'Import 2', 'Ready to import']));
   });
 
   it('imports every ticked row and ends on a clean result', async () => {
@@ -141,6 +141,29 @@ describe('ImportScreen', () => {
 
     expect(texts(tree).some(text => text.startsWith('Nothing recognisable in that file'))).toBe(true);
     expect(texts(tree)).toContain('Choose file');
+  });
+
+  it('lists skipped rows with the reason, on their own tab', async () => {
+    (global as { fetch: unknown }).fetch = jest.fn(() =>
+      Promise.resolve({
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              items: [
+                { type: 1, name: 'Fine', login: { username: 'a@one.test', password: 'fixture-pass-1' } },
+                { type: 1, name: 'Needs a fix', login: {} },
+              ],
+            }),
+          ),
+      }),
+    );
+    const tree = await render();
+
+    await press(tree, 'Choose file');
+    expect(texts(tree)).toContain('Skipped · 1');
+
+    await press(tree, 'Skipped · 1');
+    expect(texts(tree)).toEqual(expect.arrayContaining(['Needs a fix', 'No username or password', 'Fix']));
   });
 
   it('goes back when it is done', async () => {
