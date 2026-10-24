@@ -989,6 +989,15 @@ function quickGeneratorPanel(): HTMLElement {
   return el("div", { className: "group" }, [el("h2", { textContent: "Password generator" }), output, make, copy]);
 }
 
+/** Just the host of an address, for places that have room for a hint, not the whole thing. */
+function hostOf(address: string): string {
+  try {
+    return new URL(address).host || address;
+  } catch {
+    return address;
+  }
+}
+
 /** Why a login typed into a page is waiting, and what to do about it. */
 function pendingSaveCopy(info: PendingSaveInfo): { title: string; detail: string } {
   return {
@@ -1893,7 +1902,11 @@ function detailForItem(item: DecryptedItem, currentSite: string | null, isForSit
       itemGlyph(item),
       el("div", { className: "grow" }, [
         el("h1", { textContent: itemTitle(item) }),
-        el("p", { className: "detail-subtitle", textContent: item.type === "login" ? (currentSite ?? item.url) : TYPE_LABEL[item.type] }),
+        el("p", {
+          className: "detail-subtitle",
+          textContent: item.type === "login" ? (currentSite ?? hostOf(item.url)) : TYPE_LABEL[item.type],
+          title: item.type === "login" ? item.url : "",
+        }),
       ]),
       edit,
       del,

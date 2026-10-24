@@ -146,8 +146,8 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
 .vault-row.selected { background: var(--selected); border-color: color-mix(in srgb, var(--sage) 62%, transparent); }
 .vault-row > svg { margin-left: auto; color: var(--muted); flex: none; }
 .vault-row-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.vault-row-copy strong { overflow: hidden; text-overflow: ellipsis; font: 600 14px/1.2 "ArchivoSemiCondensed-SemiBold", sans-serif; }
-.vault-row-copy small { overflow: hidden; text-overflow: ellipsis; color: var(--muted); font: 11.5px/1.25 "IBMPlexMono-Regular", monospace; }
+.vault-row-copy strong { overflow-wrap: anywhere; font: 600 14px/1.2 "ArchivoSemiCondensed-SemiBold", sans-serif; }
+.vault-row-copy small { overflow-wrap: anywhere; color: var(--muted); font: 11.5px/1.25 "IBMPlexMono-Regular", monospace; }
 .item-glyph { width: 34px; height: 34px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); }
 .item-glyph-login { color: var(--danger); }
 .item-glyph-totp { color: var(--good); }
@@ -156,8 +156,13 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
 .detail-heading { display: flex; align-items: center; gap: 12px; }
 .detail-heading .item-glyph { width: 42px; height: 42px; border-radius: 11px; }
 .detail-subtitle { margin-top: 3px; color: var(--muted); }
-/* A long title must stop at the edit button, not run under it. */
-.detail-heading h1, .detail-subtitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A long title wraps rather than being cut, and still stops at the edit button. */
+.detail-heading > div { min-width: 0; flex: 1; }
+.detail-heading h1 { overflow-wrap: anywhere; }
+/* The full address is a field below; up here it is only a hint, so one line. */
+.detail-subtitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The pane scrolls; its cards must keep their height, not shrink to fit it. */
+.item-detail > * { flex-shrink: 0; }
 .detail-heading .detail-action { flex: none; }
 .quiet-button { background: transparent; }
 .fill-button { width: 100%; min-height: 40px; font-size: 14px; }
@@ -167,7 +172,7 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
 .item-detail > .detail-field { border: 1px solid var(--line); border-radius: 12px; }
 .detail-field-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .detail-label { color: var(--muted); font-size: 12px; }
-.detail-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 14px/1.35 "IBMPlexMono-Regular", monospace; }
+.detail-value { overflow-wrap: anywhere; font: 14px/1.35 "IBMPlexMono-Regular", monospace; }
 .detail-value-multiline { white-space: normal; overflow-wrap: anywhere; }
 .detail-actions { flex: none; display: flex; gap: 6px; }
 .detail-action.copied { width: auto; color: var(--good); border-color: var(--sage); }
