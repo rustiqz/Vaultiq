@@ -946,6 +946,49 @@ function generatorPanel(): HTMLElement {
   ]);
 }
 
+/**
+ * The one-button generator shown on the locked screens.
+ *
+ * Deliberately small: the lock screen is for entering a PIN or password, and
+ * the full generator (modes, options, saved settings) pushed those fields out
+ * of reach. The full panel lives behind the unlock.
+ */
+function quickGeneratorPanel(): HTMLElement {
+  const output = el("div", { className: "muted", textContent: "—" });
+  const make = el("button", { className: "inline", type: "button" }, [icon("regenerate", { size: 12 }), "Generate one"]);
+  const copy = el("button", { className: "inline", type: "button", textContent: "Copy" });
+  copy.hidden = true;
+  let current = "";
+  copy.addEventListener("click", () => {
+    void copyForAWhile(current)
+      .then(() => {
+        copy.textContent = "Copied";
+        setTimeout(() => (copy.textContent = "Copy"), 1200);
+      })
+      .catch(() => showError("Could not copy."));
+  });
+
+  make.addEventListener("click", () => {
+    make.disabled = true;
+    void send({ kind: "generatePassword" })
+      .then(unwrap)
+      .then((response) => {
+        if (response.kind !== "generatePassword") throw new Error("unexpected reply");
+        current = response.password;
+        output.textContent = current;
+        copy.hidden = false;
+      })
+      .catch((error: unknown) => {
+        showError(error instanceof Error ? error.message : "Failed.");
+      })
+      .finally(() => {
+        make.disabled = false;
+      });
+  });
+
+  return el("div", { className: "group" }, [el("h2", { textContent: "Password generator" }), output, make, copy]);
+}
+
 /** Why a login typed into a page is waiting, and what to do about it. */
 function pendingSaveCopy(info: PendingSaveInfo): { title: string; detail: string } {
   return {
@@ -1061,7 +1104,7 @@ function renderQuick(pending: PendingSaveInfo | null = null): void {
       form,
       useMaster,
       el("hr"),
-      generatorPanel(),
+      quickGeneratorPanel(),
     ]),
   );
 }
@@ -1075,7 +1118,7 @@ function renderLocked(pending: PendingSaveInfo | null = null): void {
         unwrap(await send({ kind: "unlock", masterPassword: value }));
       }),
       el("hr"),
-      generatorPanel(),
+      quickGeneratorPanel(),
     ]),
   );
 }
@@ -2334,3 +2377,4 @@ function render(status: VaultStatus): void {
 }
 
 void refresh();
+
