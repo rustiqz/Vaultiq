@@ -117,7 +117,14 @@ function Button(props: { title: string; onPress: () => void; disabled?: boolean;
       disabled={props.disabled}
       onPress={props.onPress}
     >
-      <Text style={[styles.buttonText, outline ? styles.buttonTextOutline : styles.buttonTextSolid]}>{props.title}</Text>
+      <Text
+        style={[styles.buttonText, outline ? styles.buttonTextOutline : styles.buttonTextSolid]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+      >
+        {props.title}
+      </Text>
     </Pressable>
   );
 }
@@ -427,6 +434,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiCondensedBold,
     fontSize: 15,
     letterSpacing: 1.2,
+    textAlign: 'center',
     textTransform: 'uppercase',
   },
   buttonTextSolid: {

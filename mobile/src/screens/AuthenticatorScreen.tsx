@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 import EmptyState from '../EmptyState';
 import Icon from '../icons';
+import ListEnd from '../ListEnd';
 import { copyForAWhile } from '../lib/clipboard';
 import { text } from '../itemContent';
 import type { RootTabParamList } from '../navigation';
@@ -135,6 +136,7 @@ export default function AuthenticatorScreen() {
         contentContainerStyle={styles.listContent}
         data={[...groups.entries()]}
         keyExtractor={([account]) => account}
+        ListFooterComponent={groups.size > 0 ? <ListEnd text="No more codes. The clock keeps ticking, though." /> : undefined}
         // eslint-disable-next-line react/no-unstable-nested-components -- FlatList's own documented separator shape.
         ItemSeparatorComponent={() => <View style={styles.groupGap} />}
         ListHeaderComponent={

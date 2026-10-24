@@ -222,6 +222,8 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   headerText: {
+    // Fills the rest of the row, so a long name wraps instead of running off the screen.
+    flex: 1,
     gap: 3,
   },
   headerTitle: {
