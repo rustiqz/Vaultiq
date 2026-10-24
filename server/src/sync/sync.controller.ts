@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { DeviceGuard, type AuthedRequest } from "../auth/device.guard.js";
+import { log } from "../logging/logger.js";
 import { PushDto } from "./dto.js";
 import { SyncService, type PullResult, type PushResult } from "./sync.service.js";
 
@@ -22,6 +23,14 @@ export class SyncController {
 
   @Post()
   async push(@Req() request: AuthedRequest, @Body() body: PushDto): Promise<PushResult> {
-    return await this.sync.push(request.caller, body.items);
+    const result = await this.sync.push(request.caller, body.items);
+    // Counts only. Conflicts are the line to look for when two devices disagree.
+    log.info("sync_push", {
+      deviceId: request.caller.deviceId,
+      items: body.items.length,
+      accepted: result.accepted.length,
+      conflicts: result.conflicts.length,
+    });
+    return result;
   }
 }
