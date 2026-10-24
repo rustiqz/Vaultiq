@@ -60,6 +60,8 @@ type AutofillRequest = {
   /** Browser-verified webDomain when there is one, otherwise the requesting app's label -- see VaultiqAutofillService.kt's callerFor. */
   caller: string;
   callerVerified: boolean;
+  /** The requesting app's package name; empty when unknown. Matches logins saved as `androidapp://<package>`. */
+  callerPackage?: string;
   username?: string;
   password?: string;
 };
@@ -452,6 +454,7 @@ function App(props: { autofillRequest?: AutofillRequest }) {
             domain={props.autofillRequest.domain}
             caller={props.autofillRequest.caller}
             callerVerified={props.autofillRequest.callerVerified}
+            callerPackage={props.autofillRequest.callerPackage ?? ''}
           />
         )}
         {status === 'unlocked' && props.autofillRequest?.mode === 'save' && (
@@ -459,6 +462,7 @@ function App(props: { autofillRequest?: AutofillRequest }) {
             domain={props.autofillRequest.domain}
             caller={props.autofillRequest.caller}
             callerVerified={props.autofillRequest.callerVerified}
+            callerPackage={props.autofillRequest.callerPackage ?? ''}
             username={props.autofillRequest.username ?? ''}
             password={props.autofillRequest.password ?? ''}
           />
