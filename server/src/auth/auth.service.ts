@@ -21,6 +21,8 @@ export interface DeviceCredential {
   credential: string;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface Caller {
   userId: string;
   vaultId: string;
@@ -341,6 +343,13 @@ export class AuthService {
 
   /** Who a bearer credential belongs to, or nothing. */
   async identify(deviceId: string, credential: string): Promise<Caller | undefined> {
+    // The id comes straight from an unauthenticated header. Postgres rejects a
+    // non-UUID with an error (22P02) that would surface as a 500 -- and, since
+    // both guards call this, a caller could provoke it at will. An id that is
+    // not a UUID cannot belong to a device, so it is simply unknown: same
+    // answer, same 401, as any other wrong credential.
+    if (!UUID.test(deviceId)) return undefined;
+
     const { rows } = await pool.query<{
       credential_hash: string;
       user_id: string;

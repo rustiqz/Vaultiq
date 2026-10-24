@@ -532,3 +532,15 @@ describeDb("auth", () => {
     });
   });
 });
+
+// No database: a malformed id must be refused before any query is made. The
+// pool connects lazily, so reaching it here would throw instead of returning.
+describe("identify with a malformed device id", () => {
+  it.each(["abc", "", "00000000-0000-4000-8000-00000000000g", "' or 1=1 --"])(
+    "refuses %j as unknown, not as a server error",
+    async (deviceId) => {
+      const { AuthService } = await import("./auth.service.js");
+      await expect(new AuthService().identify(deviceId, "fake-credential")).resolves.toBeUndefined();
+    },
+  );
+});
