@@ -82,8 +82,8 @@ android {
         applicationId "com.vaultiq.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 51000
-        versionName "0.51.0"
+        versionCode 52000
+        versionName "0.52.0"
     }
     def keystorePropertiesFile = rootProject.file("keystore.properties")
     def keystoreProperties = new Properties()
