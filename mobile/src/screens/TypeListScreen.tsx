@@ -11,6 +11,7 @@ import * as storage from '../storage';
 import { colors, fonts, spacing } from '../theme';
 import { Card, SearchBar } from '../ui';
 import useRefreshOnRemoteChange from '../useRefreshOnRemoteChange';
+import { loadThenRefresh } from '../lib/syncCache';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 
@@ -49,12 +50,24 @@ export default function TypeListScreen({ route, navigation }: VaultStackScreenPr
   const [items, setItems] = useState<DecryptedItem[] | null>(null);
   const [query, setQuery] = useState('');
 
+  const show = useCallback(
+    (pulled: DecryptedItem[], lastUsed: Record<string, number>) => {
+      const filtered = pulled.filter(item => !item.deleted && item.itemType === itemType);
+      filtered.sort((a, b) => (lastUsed[b.id] ?? 0) - (lastUsed[a.id] ?? 0));
+      setItems(filtered);
+    },
+    [itemType],
+  );
+
+  // What is on the device first, then a sync that redraws only if it found news.
   const sync = useCallback(async () => {
-    const [pulled, lastUsed] = await Promise.all([vault.pullItems(), storage.readLastUsed()]);
-    const filtered = pulled.filter(item => !item.deleted && item.itemType === itemType);
-    filtered.sort((a, b) => (lastUsed[b.id] ?? 0) - (lastUsed[a.id] ?? 0));
-    setItems(filtered);
-  }, [itemType]);
+    const lastUsed = await storage.readLastUsed();
+    await loadThenRefresh(vault, pulled => show(pulled, lastUsed));
+  }, [show]);
+
+  const reload = useCallback(async () => {
+    show(await vault.loadItems(), await storage.readLastUsed());
+  }, [show]);
 
   useFocusEffect(
     useCallback(() => {
@@ -63,7 +76,7 @@ export default function TypeListScreen({ route, navigation }: VaultStackScreenPr
   );
 
   // Another device's changes arriving while this screen is in front.
-  useRefreshOnRemoteChange(sync);
+  useRefreshOnRemoteChange(reload);
 
   const openItem = async (item: DecryptedItem) => {
     await storage.recordItemUsed(item.id);

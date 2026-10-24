@@ -11,6 +11,7 @@ import type { SettingsStackScreenProps } from '../navigation';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Card, useConfirmDialog } from '../ui';
 import useRefreshOnRemoteChange from '../useRefreshOnRemoteChange';
+import { loadThenRefresh } from '../lib/syncCache';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 
@@ -18,7 +19,7 @@ import type { DecryptedItem } from '../vault';
  * Trashed items -- recoverable via `restoreItem`, or permanently erased via
  * `purgeItem` -- the mobile analogue of the extension's Trash screen
  * (`unlockedScreen === "trash"` in extension/src/popup/index.ts). Works for
- * both vault modes: `vault.pullItems()`/`trashItem`/`restoreItem`/
+ * both vault modes: `vault.loadItems()`/`trashItem`/`restoreItem`/
  * `purgeItem` already route through the local-item-store-or-server split
  * internally (see vault.ts's `persist`), so this screen never needs to know
  * which kind of vault it's showing.
@@ -32,8 +33,19 @@ export default function TrashScreen({ navigation }: SettingsStackScreenProps<'Tr
   const sync = useCallback(async () => {
     setError(null);
     try {
-      const pulled = await vault.pullItems();
-      setItems(pulled.filter(item => item.deleted));
+      await loadThenRefresh(
+        vault,
+        pulled => setItems(pulled.filter(item => item.deleted)),
+        thrown => setError(`Couldn't refresh: ${thrown instanceof Error ? thrown.message : String(thrown)}`),
+      );
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    }
+  }, []);
+
+  const reload = useCallback(async () => {
+    try {
+      setItems((await vault.loadItems()).filter(item => item.deleted));
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     }
@@ -46,7 +58,7 @@ export default function TrashScreen({ navigation }: SettingsStackScreenProps<'Tr
   );
 
   // Another device's changes arriving while this screen is in front.
-  useRefreshOnRemoteChange(sync);
+  useRefreshOnRemoteChange(reload);
 
   const restore = async (item: DecryptedItem) => {
     setBusyId(item.id);

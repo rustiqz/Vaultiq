@@ -40,6 +40,23 @@ type DeviceSummary = {
 
 class SyncServerError extends Error {}
 
+/** Long enough for a slow mobile link, short enough that a dead server is not a frozen screen. */
+const REQUEST_TIMEOUT_MS = 15_000;
+
+async function request(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    // The cast: RN's RequestInit and the DOM's AbortSignal disagree on type, not behaviour.
+    return await fetch(url, { ...init, signal: controller.signal as RequestInit['signal'] });
+  } catch (error) {
+    if (controller.signal.aborted) throw new SyncServerError("Couldn't reach the server (timed out).");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function readErrorMessage(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { message?: string | string[] };
@@ -52,7 +69,7 @@ async function readErrorMessage(response: Response): Promise<string> {
 }
 
 async function postJson<T>(serverUrl: string, path: string, body: unknown, authHeader?: string): Promise<T> {
-  const response = await fetch(`${serverUrl}/${path}`, {
+  const response = await request(`${serverUrl}/${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -65,7 +82,7 @@ async function postJson<T>(serverUrl: string, path: string, body: unknown, authH
 }
 
 async function getJson<T>(serverUrl: string, path: string, authHeader: string): Promise<T> {
-  const response = await fetch(`${serverUrl}/${path}`, {
+  const response = await request(`${serverUrl}/${path}`, {
     headers: { Authorization: authHeader },
   });
   if (!response.ok) throw new SyncServerError(await readErrorMessage(response));
@@ -73,7 +90,7 @@ async function getJson<T>(serverUrl: string, path: string, authHeader: string): 
 }
 
 async function deleteJson<T>(serverUrl: string, path: string, authHeader: string): Promise<T> {
-  const response = await fetch(`${serverUrl}/${path}`, {
+  const response = await request(`${serverUrl}/${path}`, {
     method: 'DELETE',
     headers: { Authorization: authHeader },
   });

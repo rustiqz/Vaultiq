@@ -5,6 +5,7 @@ import * as storage from './storage';
 import type { EnrollmentState } from './storage';
 import * as syncClient from './syncClient';
 import { randomItemId } from './lib/id';
+import { createLock, mergeEncrypted } from './lib/syncCache';
 import { contentWithType } from './lib/itemType';
 import { fromAnyBackup, toCanonicalBackup } from './lib/backupFormat';
 import type { CanonicalBackup, InternalBackup } from './lib/backupFormat';
@@ -53,8 +54,11 @@ const CREDENTIAL_HEADER = {
 // The unsealed device credential, held only in JS memory for this session --
 // not persisted (the sealed form in storage.ts is), same lifetime as the
 // native module's held vault key. Needed for any authenticated server call
-// after unlock (pullItems below); cleared on lock.
+// after unlock (refreshItems below); cleared on lock.
 let credential: { deviceId: string; credential: string } | null = null;
+
+// Serialises read-modify-write of the sync cache (see syncCiphertext, pushOne).
+const withCacheLock = createLock();
 
 async function status(): Promise<Status> {
   const enrollment = await storage.readEnrollment();
@@ -238,7 +242,7 @@ async function exportBackup(masterPassword: string): Promise<CanonicalBackup> {
   const items =
     enrollment.mode === 'local'
       ? await storage.readLocalItems()
-      : await authenticated((url, deviceId, cred) => syncCiphertext(url, deviceId, cred));
+      : (await authenticated((url, deviceId, cred) => syncCiphertext(url, deviceId, cred))).items;
 
   const internal: InternalBackup = {
     kind: 'vaultiq-backup',
@@ -538,15 +542,18 @@ function newEnrollmentToken(): Promise<{ token: string; expiresAt: string }> {
  * the live vault filter `!item.deleted` themselves.
  */
 async function decryptAll(items: EncryptedItem[]): Promise<DecryptedItem[]> {
-  const decrypted: DecryptedItem[] = [];
-  for (const item of items) {
-    const content = JSON.parse(await CryptoCore.decryptItem(item)) as Record<string, unknown> & {
-      purged?: boolean;
-    };
-    if (content.purged === true) continue;
-    decrypted.push({ id: item.id, itemType: item.itemType, version: item.version, deleted: item.deleted, content: contentWithType(item.itemType, content) });
-  }
-  return decrypted;
+  // Together rather than one await at a time: each is a native bridge call, and
+  // the round trips, not the decryption, are what a long vault spends time on.
+  const results = await Promise.all(
+    items.map(async (item): Promise<DecryptedItem | null> => {
+      const content = JSON.parse(await CryptoCore.decryptItem(item)) as Record<string, unknown> & {
+        purged?: boolean;
+      };
+      if (content.purged === true) return null;
+      return { id: item.id, itemType: item.itemType, version: item.version, deleted: item.deleted, content: contentWithType(item.itemType, content) };
+    }),
+  );
+  return results.filter((item): item is DecryptedItem => item !== null);
 }
 
 /**
@@ -566,40 +573,59 @@ async function withLoginFacts(items: DecryptedItem[]): Promise<DecryptedItem[]> 
     const password = typeof item.content.password === 'string' ? item.content.password : '';
     if (password) shared.set(password, (shared.get(password) ?? 0) + 1);
   }
-  for (const item of items) {
-    if (item.itemType !== 'login') continue;
-    const password = typeof item.content.password === 'string' ? item.content.password : '';
-    item.login = {
-      strength: await CryptoCore.estimateStrength(password),
-      reusedBy: item.deleted ? 0 : Math.max((shared.get(password) ?? 1) - 1, 0),
-    };
-  }
+  await Promise.all(
+    items.map(async item => {
+      if (item.itemType !== 'login') return;
+      const password = typeof item.content.password === 'string' ? item.content.password : '';
+      item.login = {
+        strength: await CryptoCore.estimateStrength(password),
+        reusedBy: item.deleted ? 0 : Math.max((shared.get(password) ?? 1) - 1, 0),
+      };
+    }),
+  );
   return items;
 }
 
 /**
- * Pulls everything new since the cache's cursor and merges it into the
- * cached ciphertext (storage.ts's readSyncCache/writeSyncCache) by id --
- * upsert, since versions only move forward, so a re-seen id always replaces
- * the old entry with the newer one. Returns the full merged set, already
- * persisted. Follows the server's `more` flag until caught up, the same
- * loop extension/src/sync/engine.ts's pull side runs. Server-backed vaults
- * only -- a local-only vault's `storage.readLocalItems()` already is the
- * one full copy, nothing to cache incrementally.
+ * Pulls everything new since the cache's cursor and folds it into the cached
+ * ciphertext (storage.ts's readSyncCache/writeSyncCache) by id. Follows the
+ * server's `more` flag until caught up, the same loop
+ * extension/src/sync/engine.ts's pull side runs. Server-backed vaults only --
+ * a local-only vault's `storage.readLocalItems()` already is the one full
+ * copy, nothing to cache incrementally.
+ *
+ * `changed` is whether the caller has anything new to show: the cursor moved,
+ * or this is the first sync that ever completed. When nothing arrived the
+ * cache is not rewritten, so a quiet refresh costs one request and no storage
+ * write.
+ *
+ * The network pull happens outside the cache lock and the merge inside it, on
+ * a fresh read: a push that finished while the pull was in flight has already
+ * put its item in the cache, and merging into a stale copy would drop it.
  */
-async function syncCiphertext(url: string, deviceId: string, cred: string): Promise<EncryptedItem[]> {
-  const cache = await storage.readSyncCache();
-  const byId = new Map(cache.items.map(item => [item.id, item]));
-  let cursor = cache.cursor;
+async function syncCiphertext(
+  url: string,
+  deviceId: string,
+  cred: string,
+): Promise<{ items: EncryptedItem[]; changed: boolean }> {
+  const start = await storage.readSyncCache();
+  let cursor = start.cursor;
+  const arrived: EncryptedItem[] = [];
   for (;;) {
     const page = await syncClient.pull(url, deviceId, cred, cursor);
-    for (const item of page.items) byId.set(item.id, item);
+    arrived.push(...page.items);
     cursor = page.cursor;
     if (!page.more) break;
   }
-  const merged = [...byId.values()];
-  await storage.writeSyncCache({ cursor, items: merged });
-  return merged;
+
+  return withCacheLock(async () => {
+    const cache = await storage.readSyncCache();
+    const changed = cursor !== start.cursor || start.synced !== true;
+    if (!changed && arrived.length === 0) return { items: cache.items, changed: false };
+    const merged = mergeEncrypted(cache.items, arrived);
+    await storage.writeSyncCache({ cursor, items: merged, synced: true });
+    return { items: merged, changed };
+  });
 }
 
 /**
@@ -614,40 +640,69 @@ async function catchUp(): Promise<boolean> {
   const enrollment = await storage.readEnrollment();
   if (enrollment === null || enrollment.mode === 'local') return false;
 
-  const before = (await storage.readSyncCache()).cursor;
-  await authenticated((url, deviceId, cred) => syncCiphertext(url, deviceId, cred));
-  return (await storage.readSyncCache()).cursor !== before;
+  const { changed } = await authenticated((url, deviceId, cred) => syncCiphertext(url, deviceId, cred));
+  return changed;
 }
 
 /**
- * Pulls and decrypts the vault's current items.
- *
- * A local-only vault reads and decrypts straight from `storage.ts`'s local
- * item store -- there is no server to pull from, and that store is the only
- * copy that exists. A server-backed vault uses the read-through ciphertext
- * cache above (`syncCiphertext`): only what's new since the last call is
- * actually pulled and decrypted, not the whole vault from scratch every
- * time. If a cached item fails to decrypt (e.g. the vault key rotated via
- * changeMasterPassword since the cache was written), the cache is dropped
- * and rebuilt from a full pull, once -- no special error is surfaced for
- * this, same DecryptionFailed-for-everything rule as any other tampered or
- * mismatched ciphertext.
+ * Decrypts a server vault's cached ciphertext, rebuilding the cache from a
+ * full pull once if something in it will not decrypt (e.g. the vault key
+ * rotated via changeMasterPassword since it was written). No special error is
+ * surfaced for that, same DecryptionFailed-for-everything rule as any other
+ * tampered or mismatched ciphertext.
  */
-async function pullItems(): Promise<DecryptedItem[]> {
+async function decryptCached(items: EncryptedItem[]): Promise<DecryptedItem[]> {
+  try {
+    return await withLoginFacts(await decryptAll(items));
+  } catch {
+    await storage.clearSyncCache();
+    return authenticated(async (url, deviceId, cred) => {
+      const fresh = await syncCiphertext(url, deviceId, cred);
+      return withLoginFacts(await decryptAll(fresh.items));
+    });
+  }
+}
+
+/**
+ * The vault's current items from what is already on this device -- no
+ * network. A screen can draw immediately, including the empty one, instead of
+ * waiting on a round trip to learn that nothing changed; `refreshItems`
+ * follows up for anything newer.
+ *
+ * A local-only vault reads its one item store. A server-backed vault reads
+ * the ciphertext cache, except before its first sync has ever completed: an
+ * empty cache then is not an answer yet, so that one call syncs first.
+ *
+ * Nothing decrypted is kept here between calls: the plaintext lives in the
+ * calling screen's state and goes when the screen does. Holding the whole
+ * vault in a module-level variable would keep every password in JS memory
+ * for the session, with no way to scrub it (strings are immutable and the GC
+ * decides when they go).
+ */
+async function loadItems(): Promise<DecryptedItem[]> {
   const enrollment = await storage.readEnrollment();
   if (enrollment === null) throw new Error('not enrolled on this device yet');
 
   if (enrollment.mode === 'local') return withLoginFacts(await decryptAll(await storage.readLocalItems()));
 
+  const cache = await storage.readSyncCache();
+  if (cache.synced !== true) return (await refreshItems()) ?? [];
+  return decryptCached(cache.items);
+}
+
+/**
+ * Syncs with the server and returns the decrypted items only if something new
+ * arrived; null means what `loadItems` already returned is still current (and
+ * always for a local-only vault, which has no server).
+ */
+async function refreshItems(): Promise<DecryptedItem[] | null> {
+  const enrollment = await storage.readEnrollment();
+  if (enrollment === null) throw new Error('not enrolled on this device yet');
+  if (enrollment.mode === 'local') return null;
+
   return authenticated(async (url, deviceId, cred) => {
-    const merged = await syncCiphertext(url, deviceId, cred);
-    try {
-      return await withLoginFacts(await decryptAll(merged));
-    } catch {
-      await storage.clearSyncCache();
-      const fresh = await syncCiphertext(url, deviceId, cred);
-      return withLoginFacts(await decryptAll(fresh));
-    }
+    const { items, changed } = await syncCiphertext(url, deviceId, cred);
+    return changed ? decryptCached(items) : null;
   });
 }
 
@@ -665,6 +720,14 @@ async function pushOne(item: EncryptedItem): Promise<void> {
   if (!result.accepted.includes(item.id)) {
     throw new Error('This item changed on another device. Pull the latest and try again.');
   }
+  // Into the cache now, not at the next pull: a screen that draws from the
+  // cache first would otherwise show the old version of what was just saved.
+  // The cursor stays put, so the next pull returns this item again and
+  // overwrites it with the same bytes.
+  await withCacheLock(async () => {
+    const cache = await storage.readSyncCache();
+    await storage.writeSyncCache({ ...cache, items: mergeEncrypted(cache.items, [item]) });
+  });
 }
 
 /** Writes one item into the local item store, replacing any existing record for its id. */
@@ -768,7 +831,8 @@ export {
   listDevices,
   lock,
   newEnrollmentToken,
-  pullItems,
+  loadItems,
+  refreshItems,
   restoreBackup,
   restoreItem,
   revokeDevice,

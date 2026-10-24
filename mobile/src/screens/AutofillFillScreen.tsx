@@ -10,6 +10,7 @@ import { colors, fonts, inkAlpha, radii, spacing } from '../theme';
 import { Button, Field, SearchBar, SecretField } from '../ui';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
+import { loadThenRefresh } from '../lib/syncCache';
 
 /**
  * A loose, convenience-only match -- not a security boundary (the user can
@@ -46,7 +47,7 @@ type Mode = 'matches' | 'search' | 'create';
  * sheet over the dimmed third-party form (the scrim/translucency comes from
  * AutofillActivity's own window theme; this screen only ever renders its own
  * transparent root + the sheet), not a full-screen picker. Reuses the exact
- * same `vault.pullItems()` every other list screen uses -- there's nothing
+ * same `vault.loadItems()` every other list screen uses -- there's nothing
  * autofill-specific about *finding* the login, only about where the chosen
  * one's values go afterward (`Autofill.completeFill`).
  */
@@ -71,18 +72,18 @@ export default function AutofillFillScreen(props: { domain: string; caller: stri
   const [createBusy, setCreateBusy] = useState(false);
 
   const load = () => {
-    vault
-      .pullItems()
-      .then(pulled => {
-        const logins = pulled.filter(item => !item.deleted && item.itemType === 'login');
-        logins.sort((a, b) => {
-          const aMatch = isMatch(a);
-          const bMatch = isMatch(b);
-          if (aMatch === bMatch) return 0;
-          return aMatch ? -1 : 1;
-        });
-        setItems(logins);
-      })
+    // The sheet opens over another app, so it draws from the device first and
+    // only swaps in a synced list if the server had news.
+    loadThenRefresh(vault, pulled => {
+      const logins = pulled.filter(item => !item.deleted && item.itemType === 'login');
+      logins.sort((a, b) => {
+        const aMatch = isMatch(a);
+        const bMatch = isMatch(b);
+        if (aMatch === bMatch) return 0;
+        return aMatch ? -1 : 1;
+      });
+      setItems(logins);
+    })
       .catch(thrown => setError(thrown instanceof Error ? thrown.message : String(thrown)));
   };
 

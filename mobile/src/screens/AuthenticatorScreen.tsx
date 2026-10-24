@@ -13,6 +13,7 @@ import type { RootTabParamList } from '../navigation';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { SearchBar, useConfirmDialog } from '../ui';
 import useRefreshOnRemoteChange from '../useRefreshOnRemoteChange';
+import { loadThenRefresh } from '../lib/syncCache';
 import * as vault from '../vault';
 import type { DecryptedItem } from '../vault';
 import { useTotpCode } from '../useTotpCode';
@@ -91,7 +92,19 @@ export default function AuthenticatorScreen() {
   const sync = useCallback(async () => {
     setError(null);
     try {
-      setItems((await vault.pullItems()).filter(item => !item.deleted && item.itemType === 'totp'));
+      await loadThenRefresh(
+        vault,
+        pulled => setItems(pulled.filter(item => !item.deleted && item.itemType === 'totp')),
+        thrown => setError(`Couldn't refresh: ${thrown instanceof Error ? thrown.message : String(thrown)}`),
+      );
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    }
+  }, []);
+
+  const reload = useCallback(async () => {
+    try {
+      setItems((await vault.loadItems()).filter(item => !item.deleted && item.itemType === 'totp'));
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     }
@@ -104,7 +117,7 @@ export default function AuthenticatorScreen() {
   );
 
   // Another device's changes arriving while this screen is in front.
-  useRefreshOnRemoteChange(sync);
+  useRefreshOnRemoteChange(reload);
 
   const visible = (items ?? []).filter(item => {
     if (query.trim() === '') return true;

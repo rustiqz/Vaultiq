@@ -176,7 +176,7 @@ async function clearLocalItems(): Promise<void> {
 
 /**
  * A read-through cache of a server-backed vault's ciphertext, so
- * `vault.ts`'s `pullItems()` doesn't have to re-pull and re-decrypt the
+ * `vault.ts`'s `loadItems()` can draw without a network call and doesn't have to re-pull and re-decrypt the
  * whole vault on every call -- only what's new since `cursor` (the
  * server's `since` cursor, see `syncClient.ts`'s `pull`). Distinct from
  * `LOCAL_ITEMS_KEY` above: that store is a mode: 'local' vault's *only*
@@ -184,7 +184,18 @@ async function clearLocalItems(): Promise<void> {
  * exists purely as a performance cache, even though the `EncryptedItem[]`
  * wire format is the same for both.
  */
-type SyncCache = { cursor: string; items: EncryptedItem[] };
+type SyncCache = {
+  cursor: string;
+  items: EncryptedItem[];
+  /**
+   * Set once a pull has completed against the server. Absent on a cache that
+   * has never synced (and on any written before this field existed), which
+   * is what tells `loadItems()` the empty list it holds is not yet an
+   * answer: an empty cursor alone cannot distinguish "never asked" from "the
+   * server has nothing".
+   */
+  synced?: boolean;
+};
 const SYNC_CACHE_KEY = 'vaultiq:syncCache';
 const EMPTY_SYNC_CACHE: SyncCache = { cursor: '0', items: [] };
 
