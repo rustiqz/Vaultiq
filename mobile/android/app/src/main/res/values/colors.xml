@@ -19,6 +19,9 @@
     <color name="vaultiq_ink_alpha_18">#2E674636</color>
     <color name="vaultiq_ink_alpha_20">#33674636</color>
     <color name="vaultiq_ink_alpha_30">#4D674636</color>
+    <color name="vaultiq_ink_alpha_35">#59674636</color>
+    <color name="vaultiq_ink_alpha_40">#66674636</color>
     <color name="vaultiq_ink_alpha_45">#73674636</color>
     <color name="vaultiq_ink_alpha_55">#8C674636</color>
+    <color name="vaultiq_ink_alpha_60">#99674636</color>
 </resources>
