@@ -54,7 +54,9 @@ commit_parsers = [
   { message = "^build",        group = "<!-- 6 -->Build" },
   { message = "^ci",           group = "<!-- 7 -->CI" },
   { message = "^test",         group = "<!-- 8 -->Testing" },
-  { message = "^docs",         group = "<!-- 9 -->Documentation" },
+  # Docs ship through Pages, not through a release: nothing in a release
+  # artifact changes, so a docs-only commit must not cut one.
+  { message = "^docs",         skip = true },
   { message = "^chore",        skip = true },
   { message = "^style",        skip = true },
 ]
