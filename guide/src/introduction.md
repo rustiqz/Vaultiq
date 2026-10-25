@@ -40,7 +40,8 @@ the small sync server yourself.
 | Android | Supported, arm64 |
 | iOS | Not available |
 
-There are no store listings yet. Both apps are built from source; see the
+There are no store listings yet. Both apps are downloaded from the
+[latest release](https://github.com/rustiqz/Vaultiq/releases/latest); see the
 install pages.
 
 ## Where to go next

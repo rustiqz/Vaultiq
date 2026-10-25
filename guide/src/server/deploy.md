@@ -13,26 +13,36 @@ only on the internal network.
 
 ## Start it
 
+No source checkout is needed. The published image is
+`ghcr.io/rustiqz/vaultiq-server` for `linux/amd64` and `linux/arm64`, and one
+compose file runs it with Postgres and Caddy:
+
+```bash
+mkdir vaultiq && cd vaultiq
+curl -fsSLO https://raw.githubusercontent.com/rustiqz/Vaultiq/main/deploy/docker-compose.yml
+cat > .env <<EOF
+POSTGRES_PASSWORD=$(openssl rand -base64 32)
+VAULTIQ_DOMAIN=vault.example.com
+VAULTIQ_VERSION=latest
+EOF
+docker compose up -d
+```
+
+Set `VAULTIQ_DOMAIN` to your domain. Keep `.env` private. `latest` follows the
+newest release; for anything you depend on, pin a number instead (the
+[releases page](https://github.com/rustiqz/Vaultiq/releases) lists them, for
+example `0.53.0`).
+
+### Build from source instead
+
+To build the image yourself:
+
 ```bash
 git clone https://github.com/rustiqz/Vaultiq.git
 cd Vaultiq
 cp .env.example .env     # set POSTGRES_PASSWORD and VAULTIQ_DOMAIN
 docker compose up -d
 ```
-
-Set `POSTGRES_PASSWORD` to something long and random, and `VAULTIQ_DOMAIN` to
-your domain. Keep `.env` private and out of version control.
-
-To run a published image instead of building from source, add the release
-override and, ideally, pin a version in `.env` with `VAULTIQ_VERSION`:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.release.yml up -d
-```
-
-Images are `linux/amd64` and `linux/arm64`, at
-`ghcr.io/rustiqz/vaultiq-server`. Without `VAULTIQ_VERSION` the `latest` tag is
-used, which follows the newest release.
 
 ## Get the first invitation
 
@@ -65,8 +75,8 @@ The first line of the log names the running version.
 - Back up the Postgres volume if you want the server's copy preserved. The
   contents are ciphertext, so a backup of it does not expose your passwords,
   but it is useless without the master password.
-- Updating: from source, pull the new version, then
-  `docker compose up -d --build`. With the release image, change
-  `VAULTIQ_VERSION`, then `docker compose -f docker-compose.yml -f
-  docker-compose.release.yml pull` and `up -d`. Migrations run at boot and are
-  safe to repeat.
+- Updating: change `VAULTIQ_VERSION` in `.env`, then
+  `docker compose pull && docker compose down && docker compose up -d`.
+  `down` keeps the database and certificate volumes; never add `-v`.
+  Migrations run at boot and are safe to repeat. If you built from source,
+  pull the new version and run `docker compose up -d --build`.

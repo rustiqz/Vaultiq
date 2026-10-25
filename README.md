@@ -105,14 +105,56 @@ The full key hierarchy, and what an attacker gets in each scenario, is in
 [SECURITY.md](SECURITY.md). The design rationale is in
 [PROJECT.md](PROJECT.md).
 
-## Getting started
+## Install
+
+Every release ships ready-to-install builds. Nothing here needs a toolchain.
+
+| Piece | Get it | Notes |
+|---|---|---|
+| Firefox | `vaultiq-extension-X.Y.Z.xpi` from the [latest release](https://github.com/rustiqz/Vaultiq/releases/latest) | Signed by Mozilla. Open the file in Firefox and accept the prompt. Updates itself. |
+| Chrome | `vaultiq-extension-X.Y.Z.zip` from the [latest release](https://github.com/rustiqz/Vaultiq/releases/latest) | Unzip, then **Load unpacked** at `chrome://extensions`. Updates are manual. |
+| Android | `vaultiq-X.Y.Z.apk` from the [latest release](https://github.com/rustiqz/Vaultiq/releases/latest) | Signed release build for arm64. Allow installing from your browser or file manager. |
+| Server | `ghcr.io/rustiqz/vaultiq-server` (amd64, arm64) | One compose file, below. Optional: a vault can also run with no server. |
+
+Check a download against `SHA256SUMS` from the same release:
+
+```bash
+sha256sum --ignore-missing -c SHA256SUMS
+```
 
 The user guide is at [vaultiq.rustiq.in/docs](https://vaultiq.rustiq.in/docs/)
-(source in [`guide/`](guide/)).
+(source in [`guide/`](guide/)). On first run choose **Create your vault**, and
+pick whether to use it without a server.
 
-Short versions below. The full build, test and deployment guide, including the
-manual autofill test page and server test setup, is in
-[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+### Sync server
+
+Requires Docker and a domain pointing at the machine (ports 80 and 443). No
+source checkout is needed:
+
+```bash
+mkdir vaultiq && cd vaultiq
+curl -fsSLO https://raw.githubusercontent.com/rustiqz/Vaultiq/main/deploy/docker-compose.yml
+cat > .env <<EOF
+POSTGRES_PASSWORD=$(openssl rand -base64 32)
+VAULTIQ_DOMAIN=vault.example.com
+VAULTIQ_VERSION=latest
+EOF
+docker compose up -d
+docker compose logs server    # the first-run registration token is logged here
+```
+
+Pin `VAULTIQ_VERSION` to a release number (for example `0.53.0`) for anything
+you depend on, and change it to upgrade. Registration is invite-only. Manage
+invitations, users, devices and the audit log with the admin CLI:
+
+```bash
+docker compose exec server node dist/admin/cli.js
+```
+
+## Build from source
+
+The full build, test and deployment guide, including the manual autofill test
+page and server test setup, is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ### Browser extension
 
@@ -127,25 +169,13 @@ pnpm run dev          # Firefox, with live reload
 pnpm run dev:chrome   # Chrome, with live reload
 ```
 
-On first run, choose **Create your vault** and pick whether to use it without
-a server.
-
 ### Sync server
 
-Requires Docker. The compose file runs Postgres, the server and Caddy, which
-obtains its own certificate. Only Caddy is published.
+To build the image yourself instead of pulling it:
 
 ```bash
 cp .env.example .env          # set POSTGRES_PASSWORD and VAULTIQ_DOMAIN
 docker compose up -d
-docker compose logs server    # the first-run registration token is logged here
-```
-
-Registration is invite-only. Manage invitations, users, devices and the audit
-log with the admin CLI:
-
-```bash
-docker compose exec server node dist/admin/cli.js
 ```
 
 ### Android
@@ -182,10 +212,6 @@ cargo build --features wasm
 
 - No sharing, passkeys, breach checking or account recovery. These are
   deliberately out of scope, not forgotten.
-- The Android app has been built and tested on a physical device, but several
-  newer features (autofill service, biometric unlock, QR scanning, backup
-  restore) are compile-verified only. See [docs/STATUS.md](docs/STATUS.md) for the
-  per-feature record.
 - A local-only vault has no offsite copy. Export a backup, or losing the
   device loses the vault.
 - iOS is not available.

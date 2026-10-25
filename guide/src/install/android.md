@@ -1,9 +1,18 @@
 # Install the Android app
 
-The Android app is built from source and installed as a debug APK. It targets
-arm64 devices. There is no store listing yet.
+Download `vaultiq-X.Y.Z.apk` from the
+[latest release](https://github.com/rustiqz/Vaultiq/releases/latest). It is a
+signed release build for arm64 devices. There is no store listing yet.
 
-## Build it
+1. On your computer, check the file against `SHA256SUMS` from the same release:
+   `sha256sum --ignore-missing -c SHA256SUMS`.
+2. Copy it to the phone, or download it there directly.
+3. Open it. Android asks to allow installs from that app (your browser or file
+   manager); allow it for this install.
+4. To upgrade, install the newer APK over the old one. Your vault and settings
+   are kept. The app does not update itself.
+
+## Build it from source
 
 You need Rust with the `aarch64-linux-android` target, the Android SDK and NDK,
 Node 24 and pnpm.
@@ -16,8 +25,9 @@ pnpm run crypto                 # cross-compile the core, generate Kotlin bindin
 cd android && ./gradlew assembleDebug
 ```
 
-The APK is in `app/build/outputs/apk/debug/`. Install it with `adb install` or
-copy it to the phone.
+This produces a debug APK in `app/build/outputs/apk/debug/`, signed with a
+debug key. It cannot be installed over a release APK, or the reverse; uninstall
+one before the other.
 
 ## First run
 
