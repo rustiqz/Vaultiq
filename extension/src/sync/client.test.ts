@@ -59,6 +59,16 @@ describe("talking to the server", () => {
     expect(fetched[0]?.url).toBe("https://host.test/vaultiq/sync?since=0");
   });
 
+  it("reads the server's version with the device credential", async () => {
+    vi.stubGlobal("fetch", answer({ version: "0.52.0" }));
+    const client = new SyncClient("https://vault.example/", { deviceId: "dev-1", credential: "secret-value" });
+
+    await expect(client.serverVersion()).resolves.toBe("0.52.0");
+
+    expect(fetched[0]?.url).toBe("https://vault.example/version");
+    expect(new Headers(fetched[0]?.init.headers).get("authorization")).toBe("Bearer dev-1.secret-value");
+  });
+
   it("presents the device credential as a bearer token", async () => {
     vi.stubGlobal("fetch", answer({ items: [], cursor: "0", more: false }));
     const client = new SyncClient("https://vault.example/", {

@@ -18,6 +18,7 @@ import { listAuditLog, pruneAuditLog } from "../audit/audit-log.js";
 import { AuthService, type Capability } from "../auth/auth.service.js";
 import { pool } from "../db/pool.js";
 import { inviteUri } from "./invite-uri.js";
+import { VERSION } from "../version.js";
 
 const EXPIRIES = [
   { label: "1 hour", minutes: 60 },
@@ -206,7 +207,7 @@ async function pruneAudit(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  p.intro("Vaultiq admin");
+  p.intro(`Vaultiq admin · server ${VERSION}`);
   const auth = new AuthService();
 
   for (;;) {

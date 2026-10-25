@@ -148,6 +148,15 @@ function push(serverUrl: string, deviceId: string, credential: string, items: En
   return postJson(serverUrl, 'sync', { items }, `Bearer ${deviceId}.${credential}`);
 }
 
+/**
+ * Which build the server is running. Behind the device guard, like every
+ * route that is not bootstrap: an older server without this route answers
+ * 404, which callers treat as "unknown", not as a failure.
+ */
+function serverVersion(serverUrl: string, deviceId: string, credential: string): Promise<{ version: string }> {
+  return getJson(serverUrl, 'version', `Bearer ${deviceId}.${credential}`);
+}
+
 /** Every device enrolled on this vault, this one flagged as `current`. */
 function listDevices(serverUrl: string, deviceId: string, credential: string): Promise<DeviceSummary[]> {
   return getJson(serverUrl, 'devices', `Bearer ${deviceId}.${credential}`);
@@ -184,6 +193,7 @@ export {
   push,
   register,
   revokeDevice,
+  serverVersion,
   SyncServerError,
   vaultBootstrap,
 };

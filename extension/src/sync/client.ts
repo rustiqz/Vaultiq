@@ -160,6 +160,12 @@ export class SyncClient {
     return await this.request("sync", { method: "POST", body: JSON.stringify({ items }) });
   }
 
+  /** Which build the server is running. Behind the device guard, like everything but bootstrap. */
+  async serverVersion(): Promise<string> {
+    const { version } = await this.request<{ version: string }>("version");
+    return version;
+  }
+
   async devices(): Promise<RemoteDevice[]> {
     return await this.request("devices");
   }

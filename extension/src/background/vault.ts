@@ -1704,6 +1704,20 @@ export async function disconnectServer(): Promise<void> {
   await clearState();
 }
 
+/**
+ * The connected server's version, or null when it cannot be read: not
+ * connected, offline, or an older server without the route. A version line is
+ * never worth an error screen.
+ */
+export async function serverVersion(): Promise<string | null> {
+  try {
+    const { client } = await connectedClient();
+    return await client.serverVersion();
+  } catch {
+    return null;
+  }
+}
+
 export async function remoteDevices(): Promise<RemoteDevice[]> {
   const { client } = await connectedClient();
   return await client.devices();
