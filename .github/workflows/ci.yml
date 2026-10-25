@@ -939,7 +939,9 @@ jobs:
     # and attaches the signed .xpi to the release. It runs after `publish`, not
     # before: an AMO outage or rejection must not hold back the server image
     # and the APK, and a failure here leaves a complete release without the
-    # .xpi. The zip that shipped is what gets signed, not a rebuild.
+    # .xpi. The zip that shipped is what gets signed, not a rebuild. When the
+    # extension version is unchanged since an earlier release, that release's
+    # signed .xpi is attached again instead of asking AMO to sign it twice.
     name: Sign extension
     needs: [release, extension-release, publish]
     if: needs.release.outputs.released == 'true'
@@ -978,24 +980,52 @@ jobs:
           VERSION: ${{ needs.release.outputs.version }}
           WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           mkdir -p unpacked signed
           unzip -q "shipped/vaultiq-extension-${VERSION#v}.zip" -d unpacked
-          # `--approval-timeout` is how long to wait for AMO's automated
-          # review before giving up; the default is 15 minutes.
-          (cd extension && pnpm exec web-ext sign \
-            --source-dir ../unpacked \
-            --artifacts-dir ../signed \
-            --channel unlisted \
-            --approval-timeout 1500000)
-          xpi=$(ls signed/*.xpi)
-          mv "$xpi" "signed/vaultiq-extension-${VERSION#v}.xpi"
+          out="signed/vaultiq-extension-${VERSION#v}.xpi"
+          extver=$(jq -er .version unpacked/manifest.json)
+
+          # The extension's own version only moves when the extension changes
+          # (see CLAUDE.md 8.3), so a server-only or core-unrelated release
+          # ships an extension identical to the last one. AMO refuses to sign
+          # a version it already has ("Version X already exists"), and that
+          # release would be left without an .xpi and without updates.json.
+          # So first look for an earlier release that carries this extension
+          # version, and reuse its signed .xpi byte for byte.
+          reused=""
+          for tag in $(gh release list --limit 30 --json tagName --jq '.[].tagName'); do
+            [ "$tag" = "$VERSION" ] && continue
+            rm -rf prev && mkdir prev
+            gh release download "$tag" --pattern 'vaultiq-extension-*.xpi' --dir prev 2>/dev/null || continue
+            prev=$(ls prev/*.xpi)
+            if [ "$(unzip -p "$prev" manifest.json | jq -r .version)" = "$extver" ]; then
+              cp "$prev" "$out"
+              reused="$tag"
+              break
+            fi
+          done
+
+          if [ -n "$reused" ]; then
+            echo "extension $extver is unchanged; reusing the signed .xpi from $reused"
+          else
+            # `--approval-timeout` is how long to wait for AMO's automated
+            # review before giving up; the default is 15 minutes.
+            (cd extension && pnpm exec web-ext sign \
+              --source-dir ../unpacked \
+              --artifacts-dir ../signed \
+              --channel unlisted \
+              --approval-timeout 1500000)
+            mv "$(ls signed/*.xpi)" "$out"
+          fi
+
           # The manifest's update_url points at this file on the latest
           # release. It is built from the signed .xpi, so the hash it
           # advertises is the hash of what Firefox will download.
-          scripts/update-manifest.sh unpacked/manifest.json \
-            "signed/vaultiq-extension-${VERSION#v}.xpi" "$VERSION" \
+          scripts/update-manifest.sh unpacked/manifest.json "$out" "$VERSION" \
             > signed/updates.json
 
       - name: Attach to the release

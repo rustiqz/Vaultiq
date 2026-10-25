@@ -41,10 +41,10 @@ PR title the conventional-commit type and scope that should drive the release.
 | `perf:` | Performance | patch | patch |
 | `refactor:` | Changed | patch | patch |
 | `revert:` | Reverted | patch | patch |
-| `docs:` `test:` `build:` `ci:` | own sections | patch | patch |
+| `test:` `build:` `ci:` | own sections | patch | patch |
 | `chore(deps):` | Dependencies | patch | patch |
 | `feat!:` or `BREAKING CHANGE:` footer | Breaking | **minor** | **major** |
-| `chore:` `style:` | hidden | none | none |
+| `chore:` `style:` `docs:` | hidden | none | none |
 
 Note the `0.x` column: while the version is below `1.0`, a breaking change
 bumps the *minor*, per SemVer. That changes the day `1.0.0` ships.
