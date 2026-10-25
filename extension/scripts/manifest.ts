@@ -113,6 +113,11 @@ const manifest = {
       id: "vaultiq@rustiqz.github.io",
       strict_min_version: "115.0",
       update_url: UPDATE_URL,
+      // What Firefox shows at install about data leaving the browser. "none":
+      // nothing is sent to the developer or any third party. The optional
+      // sync talks only to a server the user configures, and carries nothing
+      // but ciphertext (see SECURITY.md). Required for new add-ons on AMO.
+      data_collection_permissions: { required: ["none"] },
     },
   },
 } as const;
