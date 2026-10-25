@@ -7,6 +7,7 @@ import { buildEnrollmentQr } from '../lib/enrollmentQr';
 import LogoMark from '../LogoMark';
 import type { SettingsStackScreenProps } from '../navigation';
 import Autofill from '../nativeAutofill';
+import AppInfo from '../nativeAppInfo';
 import * as storage from '../storage';
 import { colors, fonts, inkAlpha, spacing } from '../theme';
 import { Button, Card, SectionLabel, useConfirmDialog } from '../ui';
@@ -37,6 +38,8 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
   const [autofillEnabled, setAutofillEnabled] = useState(false);
   const [invite, setInvite] = useState<{ token: string; expiresAt: string } | null>(null);
   const [invitingBusy, setInvitingBusy] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [serverVersion, setServerVersion] = useState<string | null>(null);
   const { show, dialog } = useConfirmDialog();
 
   const loadDevices = useCallback(() => {
@@ -53,6 +56,12 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
   useFocusEffect(
     useCallback(() => {
       vault.serverUrl().then(setServerUrl);
+      AppInfo.version().then(info => setAppVersion(info.versionName), () => setAppVersion(null));
+      // After the screen is up, and only for a server-backed vault: a slow or
+      // older server leaves the row at "Unknown" instead of holding Settings.
+      vault.isLocalOnly().then(isLocal => {
+        if (!isLocal) vault.serverVersion().then(setServerVersion);
+      });
       vault.isLocalOnly().then(setLocalOnly);
       storage.readAutoLockMinutes().then(setAutoLockMinutes);
       vault.biometricAvailable().then(setBiometricAvailable);
@@ -260,6 +269,22 @@ export default function SettingsScreen({ navigation, onLock, themeMode, onThemeC
           )}
         </View>
       )}
+
+      <View style={styles.section}>
+        <SectionLabel>About</SectionLabel>
+        <Card style={styles.group}>
+          <View style={styles.groupRow}>
+            <Text style={[styles.rowLabel, styles.groupRowFlex]}>Vaultiq app</Text>
+            <Text style={styles.mono}>{appVersion ?? 'Unknown'}</Text>
+          </View>
+          {!localOnly && (
+            <View style={[styles.groupRow, styles.groupRowDivider]}>
+              <Text style={[styles.rowLabel, styles.groupRowFlex]}>Server</Text>
+              <Text style={styles.mono}>{serverVersion ?? 'Unknown'}</Text>
+            </View>
+          )}
+        </Card>
+      </View>
 
       <Button title="Lock vault now" variant="outline" onPress={onLock} />
     </ScrollView>

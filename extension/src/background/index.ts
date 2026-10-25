@@ -51,6 +51,7 @@ import {
   exportBackup,
   newEnrollmentToken,
   remoteDevices,
+  serverVersion,
   restoreBackup,
   revokeRemoteDevice,
   syncNow,
@@ -364,6 +365,9 @@ async function handle(
       await extendAutoLock();
       return { ok: true, kind: "remoteDevices", devices };
     }
+    case "serverVersion":
+      // Not a reason to extend auto-lock: it is a label, not use of the vault.
+      return { ok: true, kind: "serverVersion", version: await serverVersion() };
     case "newEnrollmentToken": {
       const minted = await newEnrollmentToken();
       await extendAutoLock();

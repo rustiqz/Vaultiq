@@ -462,6 +462,7 @@ export type Request =
   | { kind: "syncNow" }
   | { kind: "disconnectServer" }
   | { kind: "remoteDevices" }
+  | { kind: "serverVersion" }
   | { kind: "newEnrollmentToken" }
   | { kind: "revokeRemoteDevice"; deviceId: string }
   | { kind: "exportBackup"; masterPassword: string }
@@ -514,6 +515,7 @@ export type Response =
   | { ok: true; kind: "syncNow"; outcome: SyncOutcome }
   | { ok: true; kind: "disconnectServer" }
   | { ok: true; kind: "remoteDevices"; devices: RemoteDevice[] }
+  | { ok: true; kind: "serverVersion"; version: string | null }
   | { ok: true; kind: "newEnrollmentToken"; token: string; expiresAt: string }
   | { ok: true; kind: "revokeRemoteDevice" }
   | { ok: true; kind: "exportBackup"; backup: VaultBackup }

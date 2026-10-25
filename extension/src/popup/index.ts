@@ -332,6 +332,18 @@ function card(title: string | undefined, children: HTMLElement[]): HTMLElement {
   return el("section", { className: "card" }, [...(title ? [el("h2", { textContent: title })] : []), ...children]);
 }
 
+/** Which build this is, for a bug report. The manifest's version is the one the release job wrote. */
+function aboutCard(): HTMLElement {
+  return card("About", [
+    el("div", { className: "card-body" }, [
+      el("p", { className: "muted" }, [
+        "Vaultiq extension ",
+        el("span", { className: "mono", textContent: browser.runtime.getManifest().version }),
+      ]),
+    ]),
+  ]);
+}
+
 /** Auto-lock. */
 function unlockingCard(): HTMLElement {
   const LOCK_CHOICES: [number, string][] = [
@@ -625,7 +637,7 @@ const OPTIONS_SECTIONS: { id: OptionsSection; label: string; blurb: string }[] =
 function optionsCards(section: OptionsSection): HTMLElement[] {
   switch (section) {
     case "security":
-      return [unlockingCard(), quickUnlockCard(), masterPasswordCard()];
+      return [unlockingCard(), quickUnlockCard(), masterPasswordCard(), aboutCard()];
     case "devices":
       return [deviceCard(), card(undefined, [el("div", { className: "card-body" }, [syncPanel(showError)])])];
     case "data":

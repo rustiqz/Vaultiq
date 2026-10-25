@@ -212,6 +212,7 @@ li .row { margin-top: 8px; flex-wrap: wrap; }
 .reuse-note { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .devices li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .devices li > span:first-child { flex: 1; min-width: 0; }
+.mono { font-family: "IBMPlexMono-Regular", monospace; }
 .token { user-select: all; font: 12px/1.4 "IBMPlexMono-Regular", monospace; overflow-wrap: anywhere; }
 .enrollment-invite { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); text-align: center; }
 .enrollment-invite[hidden] { display: none; }

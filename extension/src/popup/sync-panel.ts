@@ -122,6 +122,20 @@ function connectForm(panel: HTMLElement, fail: Fail): HTMLElement {
   ]);
 }
 
+/** The server's build, filled in once it answers; "unknown" if it cannot be read. */
+function serverVersionLine(): HTMLElement {
+  const value = el("span", { className: "mono", textContent: "…" });
+  void send({ kind: "serverVersion" })
+    .then(unwrap)
+    .then((response) => {
+      value.textContent = response.kind === "serverVersion" && response.version ? response.version : "unknown";
+    })
+    .catch(() => {
+      value.textContent = "unknown";
+    });
+  return el("p", { className: "muted" }, ["Server version ", value]);
+}
+
 /** The device list, once connected. */
 function devices(fail: Fail): HTMLElement {
   const list = el("ul", { className: "devices" }, [
@@ -251,6 +265,7 @@ function connected(panel: HTMLElement, sync: SyncSummary, fail: Fail): HTMLEleme
       ),
     ]),
     invite,
+    serverVersionLine(),
     el("h3", { textContent: "Devices" }),
     devices(fail),
   );

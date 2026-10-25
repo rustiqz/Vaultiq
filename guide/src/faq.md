@@ -11,8 +11,10 @@ No. The server holds sealed items and a wrapped key, never the keys to open
 them. It can see how many items you have, their sizes and when you sync.
 
 **Does it phone home?**
-No telemetry, analytics or update checks. The crypto core makes no network calls
-at all, and the apps talk only to the server you point them at, if any.
+No telemetry or analytics. The crypto core makes no network calls at all, and the
+apps talk only to the server you point them at, if any. One exception is outside
+the apps' own code: Firefox checks GitHub for new versions of the signed
+extension, as it does for any extension installed outside the Firefox store.
 
 **Can several people share one server?**
 Yes, by invitation. Each person has a separate vault the others cannot read.
@@ -21,6 +23,12 @@ Sharing items between people is not built.
 **Can I move from local-only to a server later?**
 In the extension, yes, unless **Never sync this vault** is on. On Android there
 is no conversion.
+
+**Which version am I running?**
+In the extension: Settings, then About. In the Android app: Settings, then About,
+which also shows the server's version for a server-backed vault. A server
+operator sees it in the admin tool's header and in the server's startup log.
+Please include these when reporting a problem.
 
 **Is there an iOS app?**
 No. Today it is Firefox, Chrome and Android.

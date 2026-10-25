@@ -513,6 +513,15 @@ async function authenticated<T>(call: (url: string, deviceId: string, credential
   return call(enrollment.serverUrl, credential.deviceId, credential.credential);
 }
 
+/** The connected server's version, or null if it cannot be read (offline, or an older server without the route). */
+async function serverVersion(): Promise<string | null> {
+  try {
+    return await authenticated(async (url, deviceId, cred) => (await syncClient.serverVersion(url, deviceId, cred)).version);
+  } catch {
+    return null;
+  }
+}
+
 function listDevices(): Promise<syncClient.DeviceSummary[]> {
   return authenticated((url, deviceId, cred) => syncClient.listDevices(url, deviceId, cred));
 }
@@ -837,6 +846,7 @@ export {
   restoreItem,
   revokeDevice,
   serverUrl,
+  serverVersion,
   status,
   trashItem,
   unlock,
