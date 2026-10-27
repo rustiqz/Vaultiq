@@ -15,5 +15,4 @@ overrides:
   "body-parser@2": 2.4.0
   "shell-quote@1": 1.12.0
   "compression@1": 1.8.2
-  "image-size@1": 2.0.3
   "zod@4": 4.6.7
