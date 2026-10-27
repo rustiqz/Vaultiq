@@ -743,6 +743,9 @@ function savedGenerator(): GeneratorState {
 }
 
 function saveGenerator(state: GeneratorState): void {
+  // Only the generator's options (length, character classes, word count) are
+  // stored, never a generated password. `state.password` is the name of the
+  // options group, which is why CodeQL's clear-text-storage rule matches it.
   try {
     localStorage.setItem(GENERATOR_KEY, JSON.stringify(state));
   } catch {
