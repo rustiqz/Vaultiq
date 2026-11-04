@@ -29,9 +29,18 @@ import {
 import {
   belongsToDropdown,
   closeDropdown,
+  dropdownAnchor,
   showDropdown,
   type DropdownEntry,
 } from "./dropdown.js";
+import {
+  hideLauncher,
+  isDismissed,
+  isInsideLauncher,
+  launcherAnchor,
+  markDismissed,
+  showLauncher,
+} from "./launcher.js";
 import { showPrompt } from "./prompt.js";
 import type { ItemType, Request, Response } from "../lib/messages.js";
 
@@ -117,9 +126,14 @@ async function fillFrom(id: string, target: HTMLInputElement): Promise<void> {
     const value = response.values[token];
     if (value === undefined) continue;
     for (const input of inputs) {
-      if (sectionOf(input) === section) fillField(input, value);
+      if (sectionOf(input) === section) {
+        fillField(input, value);
+        // Filled fields are done with the picker; see `fill`.
+        markDismissed(input);
+      }
     }
   }
+  markDismissed(target);
   target.focus();
 }
 
@@ -134,6 +148,10 @@ async function fill(id: string, fields: LoginFields): Promise<boolean> {
 
   if (fields.username && response.username) fillField(fields.username, response.username);
   fillField(fields.password, response.password);
+  // Both fields are marked before the refocus below: focusing the password
+  // field is a focus like any other and would otherwise open the picker on it.
+  if (fields.username) markDismissed(fields.username);
+  markDismissed(fields.password);
   fields.password.focus();
   return true;
 }
@@ -173,14 +191,34 @@ browser.runtime.onMessage.addListener((message: unknown) => {
 /** Writes a suggested password into every field meant to receive it. */
 function useSuggestion(target: HTMLInputElement, password: string): void {
   const scope = target.closest("form") ?? target.ownerDocument;
-  for (const field of newPasswordFields(scope)) fillField(field, password);
+  for (const field of newPasswordFields(scope)) {
+    fillField(field, password);
+    markDismissed(field);
+  }
+  markDismissed(target);
   target.focus();
 }
 
-async function offer(target: HTMLInputElement): Promise<void> {
+/** Bumped on every offer, so a slow answer for a field the user left is dropped. */
+let latestOffer = 0;
+
+/**
+ * Looks up what could fill `target`, marks the field with the launcher, and
+ * opens the picker.
+ *
+ * `how` is "asked" when the user pressed the launcher, "focus" when the field
+ * was focused and "hover" when only the pointer is over it. The picker opens
+ * on its own only for a focus, and only on a field it has not been closed on
+ * yet; every other case gets the launcher alone.
+ */
+async function offer(
+  target: HTMLInputElement,
+  how: "asked" | "focus" | "hover" = "focus",
+): Promise<void> {
   const fields = fieldsFor(target);
   const wants = wantsFor(target, fields);
   if (wants.length === 0) return;
+  const mine = ++latestOffer;
 
   const scope = target.closest("form") ?? document;
   const choosing = Boolean(fields) && isNewPasswordForm(fields!.password, scope);
@@ -189,6 +227,7 @@ async function offer(target: HTMLInputElement): Promise<void> {
   // with names only — no password, no card number, nothing worth stealing
   // from a page that has not been clicked in.
   const response = await ask({ kind: "fillSuggestions", wants });
+  if (mine !== latestOffer) return;
   const stored =
     response.ok && response.kind === "fillSuggestions" ? response.suggestions : [];
 
@@ -204,6 +243,7 @@ async function offer(target: HTMLInputElement): Promise<void> {
     // Only offered where the user is being asked to choose a password. On a
     // sign-in form it would be noise at best and a mis-fill at worst.
     const generated = await ask({ kind: "generatePassword" });
+    if (mine !== latestOffer) return;
     if (generated.ok && generated.kind === "generatePassword") {
       suggested = generated.password;
       entries.unshift({
@@ -215,10 +255,19 @@ async function offer(target: HTMLInputElement): Promise<void> {
     }
   }
 
-  if (entries.length === 0) return;
+  if (entries.length === 0) {
+    hideLauncher();
+    return;
+  }
 
   active = fields;
+  showLauncher(target, () => void offer(target, "asked"));
+  if (how === "hover" || (how === "focus" && isDismissed(target))) return;
+
   showDropdown(target, entries, (id) => {
+    // Picked: this field is done with the picker until the launcher is
+    // pressed. Marked before the fill, whose `focus()` would otherwise reopen it.
+    markDismissed(target);
     if (id === SUGGESTION_ID) {
       if (suggested) useSuggestion(target, suggested);
       return;
@@ -335,24 +384,75 @@ document.addEventListener(
   true,
 );
 
+/** Field types that can hold something worth offering. */
+function isFillable(target: EventTarget | null): target is HTMLInputElement {
+  if (!(target instanceof HTMLInputElement)) return false;
+  // `tel`, `number` and `date` are here for cards and addresses; a checkout
+  // form's expiry and postcode boxes are routinely one of those.
+  return ["password", "text", "email", "tel", "number", "date", "search", ""].includes(
+    target.type.toLowerCase(),
+  );
+}
+
+/** The picker is closed by the user: this field is left alone until the launcher is pressed. */
+function dismissPicker(): void {
+  const field = dropdownAnchor();
+  if (field) markDismissed(field);
+  closeDropdown();
+}
+
 // Opening the picker is a user gesture, always. There is no path here that
 // runs on load.
 document.addEventListener(
   "focusin",
   (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) return;
-    // `tel`, `number` and `date` are here for cards and addresses; a checkout
-    // form's expiry and postcode boxes are routinely one of those.
-    if (
-      !["password", "text", "email", "tel", "number", "date", "search", ""].includes(
-        target.type.toLowerCase(),
-      )
-    ) {
+    if (!event.isTrusted) return;
+    if (!isFillable(event.target)) {
+      hideLauncher();
       return;
     }
-    if (!event.isTrusted) return;
-    void offer(target);
+    void offer(event.target, "focus");
+  },
+  true,
+);
+
+// Moving off a field takes its launcher with it, unless the move is onto the
+// launcher itself (which does not take focus, but is checked anyway).
+document.addEventListener(
+  "focusout",
+  (event) => {
+    if (event.target !== launcherAnchor()) return;
+    if (isInsideLauncher(event.relatedTarget)) return;
+    hideLauncher();
+  },
+  true,
+);
+
+// The launcher also follows the pointer, so it can be found again on a field
+// the picker was closed on without having to focus it first. Hover only ever
+// draws the mark; it never opens the picker.
+document.addEventListener(
+  "mouseover",
+  (event) => {
+    if (!event.isTrusted || !isFillable(event.target)) return;
+    if (event.target === launcherAnchor()) return;
+    // A focused field keeps its own launcher.
+    const focused = launcherAnchor() === document.activeElement;
+    if (focused) return;
+    void offer(event.target, "hover");
+  },
+  true,
+);
+
+document.addEventListener(
+  "mouseout",
+  (event) => {
+    const anchor = launcherAnchor();
+    if (!anchor || anchor === document.activeElement) return;
+    // Leaving the field or the mark, for anywhere but the other of the two.
+    if (event.target !== anchor && !isInsideLauncher(event.target)) return;
+    if (event.relatedTarget === anchor || isInsideLauncher(event.relatedTarget)) return;
+    hideLauncher();
   },
   true,
 );
@@ -360,7 +460,8 @@ document.addEventListener(
 document.addEventListener(
   "click",
   (event) => {
-    if (!belongsToDropdown(event.target)) closeDropdown();
+    if (isInsideLauncher(event.target)) return;
+    if (!belongsToDropdown(event.target)) dismissPicker();
   },
   true,
 );
@@ -368,7 +469,7 @@ document.addEventListener(
 document.addEventListener(
   "keydown",
   (event) => {
-    if (event.key === "Escape") closeDropdown();
+    if (event.key === "Escape") dismissPicker();
   },
   true,
 );
