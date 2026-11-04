@@ -218,6 +218,11 @@ export function showDropdown(
   doc.defaultView?.addEventListener("resize", onResize);
 }
 
+/** The field the open picker belongs to, if one is open. */
+export function dropdownAnchor(): HTMLElement | undefined {
+  return anchored;
+}
+
 /** Whether a click landed inside the picker. */
 export function isInsideDropdown(target: EventTarget | null): boolean {
   return host !== undefined && target instanceof Node && host.contains(target);
