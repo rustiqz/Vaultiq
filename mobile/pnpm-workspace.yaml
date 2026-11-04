@@ -16,3 +16,4 @@ overrides:
   "shell-quote@1": 1.12.0
   "compression@1": 1.8.2
   "zod@4": 4.6.7
+  "joi@17": 17.13.9
