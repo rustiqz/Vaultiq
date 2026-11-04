@@ -22,7 +22,7 @@ argon2 = "=0.5.3"
 chacha20poly1305 = { version = "=0.11.0", features = ["zeroize"] }
 # HKDF + SHA-256: domain-separated derivation of auth / stretched keys.
 hkdf = "=0.13.0"
-sha2 = "=0.11.0"
+sha2 = "=0.11.1"
 # HMAC for RFC 6238 one-time passwords. Already in the tree as hkdf's own
 # dependency; named here because this crate now calls it directly.
 hmac = "=0.13.0"
@@ -38,7 +38,7 @@ data-encoding = { version = "=2.11.1", default-features = false, features = ["al
 # CSPRNG: OsRng only, for salts, nonces and the vault key.
 rand = "=0.10.3"
 # Scrubs key material from memory on drop.
-zeroize = { version = "=1.9.0", features = ["derive"] }
+zeroize = { version = "=1.9.1", features = ["derive"] }
 # Constant-time comparison of secret-derived values.
 subtle = "=2.6.1"
 # Serialization of encrypted records (never of secret key types).
@@ -68,8 +68,8 @@ uniffi = { version = "=0.32.2", optional = true }
 # browser anyway: the known-answer vectors are target-independent. Only the
 # JS-boundary test in tests/wasm.rs runs in a browser.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-proptest = "=1.11.0"
-serde_json = "=1.0.151"
+proptest = "=1.12.0"
+serde_json = "=1.0.154"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "=0.3.77"
